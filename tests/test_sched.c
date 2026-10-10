@@ -15,7 +15,9 @@ static u32 ticks;
 u32 pit_ticks(void) { return ticks; }
 u32 pit_hz(void) { return 100; }
 static u32 idle_calls;
-static void idle(void) { idle_calls++; ticks++; }                      /* "le temps passe" quand tout dort */
+int key_wake_after;
+static int flag;
+static void idle(void) { idle_calls++; ticks++; if (key_wake_after && idle_calls % key_wake_after == 0) flag = 1; }                      /* "le temps passe" quand tout dort */
 
 static char logb[512];
 static int logn;
@@ -30,7 +32,6 @@ static void yielder(void *arg)
     for (int i = 0; i < 3; i++) { lg(c); sched_yield(); }
 }
 
-static int flag;
 static int flag_set(void *p) { (void)p; return flag; }
 static void blocker(void *arg)
 {
@@ -151,6 +152,24 @@ int test_main(void)
         sched_sleep_ms(50);                                             /* la tache 0 aussi peut dormir */
         CHECK(ticks - t0 >= 5);
         sched_sleep_ms(0);
+    }
+
+    /* ---- la tache 0 attend une "touche" pendant qu'une autre dort : le reveil doit venir du ralenti ---- */
+    {
+        u32 d = 500, t0 = ticks;
+        struct task *s;
+        extern int key_wake_after;
+
+        flag = 0;
+        key_wake_after = 4;                                             /* le 4e passage au ralenti = "touche tapee" */
+        CHECK(sched_create("S", sleeper, &d, NULL, NULL, &s) == E_OK);
+        log_reset();
+        sched_block(flag_set, NULL);
+        CHECK(flag == 1 && ticks - t0 < 10 && s->state != T_ZOMBIE);   /* reveillee bien avant la fin du sommeil (50 ticks) */
+        key_wake_after = 0;
+        sched_wait(s);
+        CHECK(log_is("z") && ticks - t0 >= 50);
+        sched_reap(s);
     }
 
     /* ---- codes de sortie, liberation, reutilisation de la place ---- */

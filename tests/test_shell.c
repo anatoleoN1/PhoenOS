@@ -81,6 +81,8 @@ void pit_sleep_ms(u32 ms)  { last_sleep = ms; }
 int  sched_ready(void)            { return 0; }
 void sched_sleep_ms(u32 ms)       { last_sleep = ms; }
 u32  sched_switches(void)         { return 42; }
+u32  sched_idle_count(void)       { return 7; }
+int  sched_trace_get(int i, u32 *t, char *k, u32 *a, u32 *b) { if (i) return 0; *t = 9; *k = 'S'; *a = 0; *b = 1; return 1; }
 int  sched_info(int i, struct task_info *o)
 {
     if (i == 0) { o->id = 0; strcpy(o->name, "shell"); o->state = T_RUNNING; o->ticks = 5; o->detached = 0; return 1; }
@@ -198,7 +200,7 @@ static void verify(void)
     CHECK(count("  1  sleep 250") == 0 || count("  1  ") >= 1); /* history : numerotation */
     CHECK(count("gris clair") == 1 && count("blanc") == 1);     /* colors */
     CHECK(count(" 10   vert clair") == 1);                      /* %2d correct dans colors */
-    CHECK(count("PhoenOS 0.6.0") == 1);                         /* version */
+    CHECK(count("PhoenOS 0.6.1") == 1);                         /* version */
     CHECK(count("<bg hello argc=3 hello a b>") == 1 && count("<bg hello argc=1 hello>") == 1);
     CHECK(count("[7] hello en arriere-plan (ps pour la liste, kill 7 pour l'arreter)") == 2);
     CHECK(count("& : seulement pour les programmes") == 1);
@@ -207,6 +209,7 @@ static void verify(void)
     CHECK(count("NUM  ETAT     TOURS  NOM") == 1 && count("    0  actif        5  shell (le shell)") == 1);
     CHECK(count("    7  attend     123  ticker (arriere-plan)") == 1 && count("42 changement(s) de tache") == 1);
     CHECK(count("Aucun programme avec ce numero") == 1 && count("Ce numero n'est pas un programme") == 1);
+    CHECK(count("veille (hlt) : 7 tours") == 1 && count("     9 S 0->1") == 1);
     CHECK(count("usage : kill <numero>") == 1 && count("kill : echec") == 0);
     CHECK(count("Sujets du manuel") == 1 && count(" ls  - liste\n cat  - affiche\n") == 1);   /* man seul */
     CHECK(count("ls  - liste\n  Syntaxe : ls [-l]\n  Option -l\n") == 1 && count("Syntaxe : cat [-n]") == 0);   /* man ls : uniquement sa section */
@@ -253,7 +256,7 @@ static void verify(void)
     CHECK(count("PANIQUE") == 0);
 
     /* après `dmesg` : tout le journal rejoué une seconde fois */
-    CHECK(count_end("Commandes (Tab complete") == 6);
+    CHECK(count_end("Commandes (Tab complete") == 5);          /* le journal (8 Kio) a perdu le plus ancien help */
     CHECK(count_end("\ndeux\n") == 9);
     /* ---- 0.0.9 ---- */
     CHECK(count_end("lundi 5 octobre 2026, 07:31:12") == 1);
@@ -416,6 +419,7 @@ int test_main(void)
     type("kill 99\n");
     type("kill 0\n");
     type("kill\n");
+    type("schedlog\n");
     type("mkdir -p /a/b\n");
     type("cd /a\n");
     type("pwd\n");

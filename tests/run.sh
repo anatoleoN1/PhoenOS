@@ -156,6 +156,7 @@ if [ $UFAIL -eq 0 ]; then echo "  9 programmes compiles et executes (arguments, 
 run elf 0 test_elf.c elf.c string.c
 run poe 0 test_poe.c poe.c elf.c crc32.c string.c
 run pagination 0 test_paging.c paging.c pmm.c string.c
+run ordonnanceur-clavier 0 test_sched_kbd.c sched.c switch.S keyboard.c kheap.c pmm.c string.c
 run ordonnanceur 0 test_sched.c sched.c switch.S kheap.c pmm.c string.c
 run espaces-adressage 0 test_aspace.c aspace.c paging.c pmm.c string.c
 run appels-systeme 0 test_syscall.c syscall.c aspace.c fs.c kprintf.c pmm.c kheap.c string.c rtc.c

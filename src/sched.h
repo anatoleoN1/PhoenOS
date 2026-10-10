@@ -74,7 +74,11 @@ void sched_detach(struct task *t);                          /* personne n'attend
 int  sched_kill(struct task *t);                            /* demande l'arret ; E_INVAL pour la tache 0 / terminee */
 void sched_preempt(void);                                   /* appele par la minuterie quand un programme tourne en ring 3 */
 int  sched_info(int index, struct task_info *out);          /* index 0.. : toutes les taches non libres ; 0 = fin */
-u32  sched_switches(void);                                  /* nombre de commutations (statistiques / tests) */
+u32  sched_switches(void);
+
+/* Journal : evenement numero `index` (le plus ancien d'abord). kind : S commutation a->b, B bloque, W reveille, X fin (b = code). */
+int  sched_trace_get(int index, u32 *tick, char *kind, u32 *a, u32 *b);
+u32  sched_idle_count(void);       /* tours de veille (hlt) depuis le demarrage */                                  /* nombre de commutations (statistiques / tests) */
 
 /* Reglages (materiel) */
 extern void (*sched_switch_hook)(struct task *next);        /* avant chaque commutation : tss.esp0, CR3 */

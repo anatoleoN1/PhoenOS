@@ -68,6 +68,7 @@ static err_t cmd_echo(int argc, char **argv);
 static err_t cmd_sleep(int argc, char **argv);
 static err_t cmd_ps(int argc, char **argv);
 static err_t cmd_kill(int argc, char **argv);
+static err_t cmd_schedlog(int argc, char **argv);
 static err_t cmd_colors(int argc, char **argv);
 static err_t cmd_dmesg(int argc, char **argv);
 static err_t cmd_history(int argc, char **argv);
@@ -127,6 +128,7 @@ static const struct command commands[] = {
     { G_SYS, "poeinfo",  "<application>",     "Montre l'en-tete d'une application .poe", cmd_poeinfo },
     { G_SYS, "run",      "<programme> [args]", "Lance un programme (ex. run /bin/hello ; /bin/ implicite)", cmd_run },
     { G_SYS, "ps",       "",             "Liste les programmes en cours (taches)",         cmd_ps       },
+    { G_SYS, "schedlog", "",             "Journal de l'ordonnanceur (diagnostic)",        cmd_schedlog },
     { G_SYS, "kill",     "<numero>",     "Arrete un programme (voir ps)",                  cmd_kill     },
     { G_SYS, "sleep",    "<ms>",         "Attend un nombre de millisecondes",              cmd_sleep    },
     { G_SYS, "colors",   "",             "Affiche les 16 couleurs du mode texte",          cmd_colors   },
@@ -357,6 +359,26 @@ static err_t cmd_ps(int argc, char **argv)
         kprintf("%5u  %-7s %6u  %s%s\n", ti.id, state[ti.state], ti.ticks, ti.name,
                 ti.id == 0 ? " (le shell)" : (ti.detached ? " (arriere-plan)" : ""));
     kprintf("%u changement(s) de tache depuis le demarrage\n", sched_switches());
+    return E_OK;
+}
+
+static err_t cmd_schedlog(int argc, char **argv)
+{
+    u32 t, a, b;
+    char k;
+
+    (void)argv;
+    if (argc != 1)
+        return usage("schedlog");
+    kprintf("veille (hlt) : %u tours ; evenements (tick, S a->b = commutation, B/W = bloque/reveille, X = fin) :\n", sched_idle_count());
+    for (int i = 0; sched_trace_get(i, &t, &k, &a, &b); i++) {
+        if (k == 'S')
+            kprintf("%6u S %u->%u\n", t, a, b);
+        else if (k == 'X')
+            kprintf("%6u X %u code %d\n", t, a, (int)b);
+        else
+            kprintf("%6u %c %u\n", t, k, a);
+    }
     return E_OK;
 }
 

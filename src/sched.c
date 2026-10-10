@@ -10,6 +10,41 @@ static u32 next_id = 1;
 static u32 switches;
 static int ready_flag;
 
+/* Journal des derniers evenements (commande schedlog) : pour comprendre ce qui se passe sur une vraie machine. */
+#define TRACE_N 128
+static struct { u32 t; char k; u8 a, b; } trace_buf[TRACE_N];
+static u32 trace_n;
+static u32 idle_loops;
+
+static void trace(char k, u32 a, u32 b)
+{
+    u32 i = trace_n++ % TRACE_N;
+
+    trace_buf[i].t = pit_ticks();
+    trace_buf[i].k = k;
+    trace_buf[i].a = (u8)a;
+    trace_buf[i].b = (u8)b;
+}
+
+int sched_trace_get(int index, u32 *tick, char *kind, u32 *a, u32 *b)
+{
+    u32 total = trace_n < TRACE_N ? trace_n : TRACE_N;
+    u32 first = trace_n - total;
+
+    if (index < 0 || (u32)index >= total)
+        return 0;
+    *tick = trace_buf[(first + (u32)index) % TRACE_N].t;
+    *kind = trace_buf[(first + (u32)index) % TRACE_N].k;
+    *a = trace_buf[(first + (u32)index) % TRACE_N].a;
+    *b = trace_buf[(first + (u32)index) % TRACE_N].b;
+    return 1;
+}
+
+u32 sched_idle_count(void)
+{
+    return idle_loops;
+}
+
 void (*sched_switch_hook)(struct task *next);
 void (*sched_idle_hook)(void);
 
@@ -94,6 +129,7 @@ static void switch_to(struct task *next)
     next->state = T_RUNNING;
     cur = next;
     switches++;
+    trace('S', (u32)index_of(prev), (u32)index_of(next));
     if (sched_switch_hook)
         sched_switch_hook(next);
     switch_context(&prev->kesp, next->kesp);
@@ -125,6 +161,7 @@ void sched_preempt(void)
 void sched_block(int (*pred)(void *), void *arg)
 {
     u32 f = cpu_irq_save();
+    int traced = 0;
 
     for (;;) {
         struct task *n;
@@ -133,18 +170,25 @@ void sched_block(int (*pred)(void *), void *arg)
             break;
         cur->pred = pred;
         cur->pred_arg = arg;
+        if (!traced) {
+            trace('B', (u32)index_of(cur), 0);
+            traced = 1;
+        }
         cur->state = T_BLOCKED;
         n = pick_next();
         if (n) {
             switch_to(n);                       /* on revient ici quand quelqu'un nous a choisis */
             continue;
         }
+        idle_loops++;
         if (sched_idle_hook)
             sched_idle_hook();
         else
             cpu_sti_hlt();                      /* rien a faire : le processeur dort jusqu'a la prochaine interruption */
         cpu_cli();
     }
+    if (traced)
+        trace('W', (u32)index_of(cur), 0);
     cur->state = T_RUNNING;
     cur->pred = NULL;
     cpu_irq_restore(f);
@@ -170,6 +214,7 @@ void sched_exit(int code)
     cpu_cli();
     cur->exit_code = code;
     cur->state = T_ZOMBIE;
+    trace('X', (u32)index_of(cur), (u32)code);
     for (;;) {
         struct task *n = pick_next();
 

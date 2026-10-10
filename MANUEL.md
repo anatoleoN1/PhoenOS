@@ -1,4 +1,4 @@
-# Manuel de PhoenOS 0.6.0
+# Manuel de PhoenOS 0.6.1
 
 > Généré à partir de `initrd/docs/manuel.txt` (lisible dans PhoenOS avec `man`).
 
@@ -175,6 +175,12 @@ Differences avec Unix : pas de droits ni de proprietaires (les dates existent, v
   Etats : pret (attend son tour), actif (sur le processeur), attend (dort, ou attend le clavier),
   fini (termine, pas encore ramasse). TOURS = nombre de fois que la minuterie l'a interrompu
   pendant qu'il calculait. "(arriere-plan)" : lance avec &. Voir "man multitache".
+
+== schedlog  - journal de l'ordonnanceur
+  Syntaxe : schedlog
+  Diagnostic : liste les 128 derniers evenements du multitache avec l'heure (en ticks de 10 ms) :
+  S a->b commutation de la tache a vers la tache b, B une tache se bloque, W elle repart, X elle se
+  termine. Sert a comprendre un comportement inattendu (voir "man multitache").
 
 == kill  - arrete un programme
   Syntaxe : kill <numero>
