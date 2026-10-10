@@ -27,7 +27,7 @@ static inline int  write(int fd, const void *b, uint n) { return syscall3(SYS_WR
 static inline int  read(int fd, void *b, uint n)        { return syscall3(SYS_READ, fd, (int)b, (int)n); }
 /* Options d'open (comme Linux) : ecrire = O_WRONLY ou O_RDWR ; les ecritures vont toujours en fin de fichier. */
 enum { O_RDONLY = 0, O_WRONLY = 1, O_RDWR = 2, O_CREAT = 0x40, O_TRUNC = 0x200, O_APPEND = 0x400 };
-static inline int  open_flags(const char *path, int flags) { return syscall3(SYS_OPEN, (int)path, flags, 0); }
+static inline int  open_flags(const char *path, int flags) { return syscall3(SYS_OPEN, (int)path, flags, 0644); }   /* 0644 : droits si Linux cree le fichier (ignore par PhoenOS) */
 static inline int  open(const char *path)               { return syscall3(SYS_OPEN, (int)path, 0, 0); }
 static inline int  unlink(const char *path)             { return syscall3(SYS_UNLINK, (int)path, 0, 0); }
 static inline int  close(int fd)                        { return syscall3(SYS_CLOSE, fd, 0, 0); }

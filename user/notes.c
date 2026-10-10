@@ -6,7 +6,9 @@
  */
 #include "phoenos.h"
 
-#define FILE_PATH "/notes.txt"
+#ifndef FILE_PATH
+#define FILE_PATH "/notes.txt"           /* les tests de la machine de developpement le remplacent (-DFILE_PATH=...) */
+#endif
 
 static int show(void)
 {

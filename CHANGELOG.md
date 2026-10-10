@@ -5,6 +5,12 @@ z = correctif ou petite amélioration. Chaque version est livrée testée automa
 les chemins de démarrage réels (GRUB, ISO, anneau 3, activation de la pagination) ne sont
 vérifiables que sur une vraie machine ou sous QEMU : ils sont validés par vos essais.
 
+## 0.5.1 — Correctif des tests
+- `make test` echouait pour un utilisateur ordinaire (pas root) : les tests de `copie` et `notes`
+  ecrivaient a la racine du disque et Linux creait les fichiers sans droits. Les programmes
+  passent maintenant des droits 0644 a `open`, et le test de `notes` utilise un fichier de test.
+  Verifie en lancant toute la suite sous un compte non privilegie.
+
 ## 0.5.0 — Un espace d'adressage par programme
 - Chaque programme a son propre repertoire de pages (`src/aspace.c`) : il ne voit que les pages
   que le noyau lui a donnees (code, donnees, 64 Kio de pile), mappees a partir de 4 Mio ; tout le
