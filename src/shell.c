@@ -395,7 +395,7 @@ static err_t cmd_kill(int argc, char **argv)
 
     if (argc != 2 || cmdline_parse_u32(argv[1], &pid) != E_OK)
         return usage("kill <numero>   (numeros : commande ps)");
-    e = user_kill(pid);
+    e = user_kill_tree(pid);                   /* le programme et ceux qu'il a lances */
     if (e == E_NOENT)
         return fail_msg("Aucun programme avec ce numero (voir ps).");
     if (e == E_INVAL)

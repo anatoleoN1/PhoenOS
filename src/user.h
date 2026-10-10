@@ -103,6 +103,9 @@ i32   user_waitpid(struct uproc *parent, i32 pid, u32 options, int *code);
  */
 err_t user_wait_pid(u32 pid, int *code, int *known);
 
+/* Comme user_kill, mais arrete aussi tous les programmes lances par `pid` (Ctrl+C et la commande kill font ca). */
+err_t user_kill_tree(u32 pid);
+
 /* Demande l'arret du programme `pid` (E_NOENT : inconnu ; E_INVAL : pas un programme). Il s'arrete des qu'il reprend la main. */
 err_t user_kill(u32 pid);
 

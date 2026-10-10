@@ -276,6 +276,18 @@ int sched_children(u32 parent, u32 *zombie)
     return n;
 }
 
+int sched_kill_tree(struct task *t)
+{
+    int n = sched_kill(t) == E_OK;
+
+    if (!t || t->id == 0)
+        return 0;
+    for (int i = 1; i < SCHED_MAX_TASKS; i++)
+        if (&tasks[i] != t && tasks[i].state != T_FREE && tasks[i].parent == t->id)
+            n += sched_kill_tree(&tasks[i]);
+    return n;
+}
+
 void sched_orphan(u32 parent)
 {
     if (parent == 0)

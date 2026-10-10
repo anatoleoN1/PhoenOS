@@ -89,7 +89,7 @@ int  sched_info(int i, struct task_info *o)
     if (i == 1) { o->id = 7; strcpy(o->name, "ticker"); o->state = T_BLOCKED; o->ticks = 123; o->detached = 1; o->parent = 0; return 1; }
     return 0;
 }
-err_t user_kill(u32 pid)          { return pid == 7 ? E_OK : (pid == 0 ? E_INVAL : E_NOENT); }
+err_t user_kill_tree(u32 pid)     { return pid == 7 ? E_OK : (pid == 0 ? E_INVAL : E_NOENT); }
 /* faux « wait » : 7 -> code 0, 8 -> code 3, 9 -> arrete (130), 10 -> Ctrl+C, 11 -> fini mais code oublie */
 err_t user_wait_pid(u32 pid, int *code, int *known)
 {
@@ -219,7 +219,7 @@ static void verify(void)
     CHECK(count("  1  sleep 250") == 0 || count("  1  ") >= 1); /* history : numerotation */
     CHECK(count("gris clair") == 1 && count("blanc") == 1);     /* colors */
     CHECK(count(" 10   vert clair") == 1);                      /* %2d correct dans colors */
-    CHECK(count("PhoenOS 0.7.0") == 1);                         /* version */
+    CHECK(count("PhoenOS 0.7.1") == 1);                         /* version */
     CHECK(count("<bg hello argc=3 hello a b>") == 1 && count("<bg hello argc=1 hello>") == 1);
     CHECK(count("[7] hello en arriere-plan (ps pour la liste, kill 7 pour l'arreter)") == 2);
     CHECK(count("& : seulement pour les programmes") == 1);

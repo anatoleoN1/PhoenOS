@@ -75,6 +75,7 @@ void sched_reap(struct task *t);                            /* libere une tache 
 void sched_detach(struct task *t);                          /* personne n'attendra t : liberation automatique */
 int  sched_children(u32 parent, u32 *zombie);               /* nombre d'enfants de `parent` non liberes ; *zombie = le premier termine (ou 0) */
 void sched_orphan(u32 parent);                              /* `parent` s'en va : ses enfants sont detaches (liberes seuls a leur fin) */
+int  sched_kill_tree(struct task *t);                       /* t et tous ses descendants (enfants, petits-enfants...) ; renvoie le nombre arretes */
 int  sched_kill(struct task *t);                            /* demande l'arret ; E_INVAL pour la tache 0 / terminee */
 void sched_preempt(void);                                   /* appele par la minuterie quand un programme tourne en ring 3 */
 int  sched_info(int index, struct task_info *out);          /* index 0.. : toutes les taches non libres ; 0 = fin */

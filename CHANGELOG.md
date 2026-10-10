@@ -5,6 +5,12 @@ z = correctif ou petite amélioration. Chaque version est livrée testée automa
 les chemins de démarrage réels (GRUB, ISO, anneau 3, activation de la pagination) ne sont
 vérifiables que sur une vraie machine ou sous QEMU : ils sont validés par vos essais.
 
+## 0.7.1 — Ctrl+C arrête aussi les enfants
+- Corrigé (constaté sur `lance boucle 10`) : Ctrl+C arrêtait `lance` mais son enfant `boucle` continuait seul jusqu'au bout.
+  Ctrl+C au premier plan et la commande `kill` arrêtent maintenant le programme **et tous ses descendants**
+  (`sched_kill_tree`, `user_kill_tree`) ; l'appel système `kill(pid)` reste limité à `pid`.
+- Test : arbre parent → enfant sans fin + enfant qui a lui-même trois enfants, tout s'arrête, aucune page ne fuit.
+
 ## 0.7.0 — Programmes complets
 - Appels système `spawn` (202), `waitpid` (7 ; pid, -1, `WNOHANG`), `kill` (37), `brk` (45), `getppid` (64),
   `yield` (158). Lien parent/enfant dans l'ordonnanceur (`parent`, `sched_children`, `sched_orphan`) : un enfant

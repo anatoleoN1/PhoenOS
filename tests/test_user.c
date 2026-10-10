@@ -75,7 +75,7 @@ static i32 sc(u32 nr, u32 a, u32 b, u32 c)
 
 /* ---- les programmes simules ---- */
 enum { K_EXIT7, K_YIELD3, K_SLEEP100, K_SPAWNWAIT, K_ORPHAN, K_FOREVER, K_SLEEP30, K_SLEEP60, K_WAITANY, K_NOHANG,
-       K_ERRORS, K_BRK, K_MANY, K_SELFKILL, K_BRKFULL, K_COUNT };
+       K_ERRORS, K_BRK, K_MANY, K_SELFKILL, K_BRKFULL, K_TREE, K_COUNT };
 
 static struct {
     i32 kid, w, code, again;                            /* spawnwait */
@@ -87,6 +87,7 @@ static struct {
     i32 brk[12]; u32 pages[6]; int checks[8];
     i32 many_spawned, many_err, many_reaped;
     i32 yields;
+    i32 tree_kid, tree_kid2, tree_w;
 } R;
 
 static void prog(int k)
@@ -222,6 +223,13 @@ static void prog(int k)
         sc(SYS_EXIT, 0, 0, 0);
         break;
     }
+    case K_TREE:
+        strcpy(UM(0x100), "/bin/k5");                            /* petit-enfant : ne s'arrete jamais */
+        R.tree_kid = sc(SYS_SPAWN, UA(0x100), 0, 0);
+        strcpy(UM(0x110), "/bin/k8");                            /* enfant qui lui-meme lance trois enfants */
+        R.tree_kid2 = sc(SYS_SPAWN, UA(0x110), 0, 0);
+        R.w = sc(SYS_WAITPID, (u32)R.tree_kid, 0, 0);           /* attend pour toujours : seul kill peut l'arreter */
+        break;
     case K_SELFKILL:
         sc(SYS_KILL, (u32)sc(SYS_GETPID, 0, 0, 0), 9, 0);
         R.yields = 99;                                           /* ne doit jamais s'executer */
@@ -403,6 +411,25 @@ int test_main(void)
     }
     code = -1;
     CHECK(run_k(K_SELFKILL, &code) && code == 130 && R.yields != 99);
+    settle();
+    CHECK(pmm_free_frames() == base_frames);
+
+    /* ---- arret d'un arbre : le parent, son enfant sans fin et son enfant qui a lui-meme des enfants ---- */
+    {
+        u32 tp = 0;
+        char *av[1] = { "k15" };
+        struct fs_node *n;
+        int known = 0;
+
+        CHECK(fs_lookup("/bin/k15", &n) == E_OK && user_spawn_bg(n->data, n->size, "k15", 1, av, &tp) == E_OK);
+        for (int i = 0; i < 6; i++) sched_yield();
+        CHECK(sched_find((u32)R.tree_kid) && sched_find((u32)R.tree_kid2));
+        CHECK(user_kill_tree(tp) == E_OK);
+        CHECK(user_wait_pid(tp, &code, &known) == E_OK && known && code == 130);
+        settle();
+        CHECK(sched_find((u32)R.tree_kid) == NULL && sched_find((u32)R.tree_kid2) == NULL);   /* personne ne reste en route */
+        CHECK(user_kill_tree(tp) == E_NOENT && user_kill_tree(0) == E_INVAL);
+    }
     settle();
     CHECK(pmm_free_frames() == base_frames);
 

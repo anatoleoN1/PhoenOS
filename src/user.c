@@ -358,6 +358,18 @@ err_t user_spawn_bg(const u8 *image, u32 size, const char *name, int argc, char 
 
 /* ---- programmes qui en lancent d'autres (0.7.0) ---- */
 
+err_t user_kill_tree(u32 pid)
+{
+    struct task *t = sched_find(pid);
+
+    if (!t)
+        return E_NOENT;
+    if (!t->owner || t->entry != user_task_main)
+        return E_INVAL;
+    DINFO("prog", "kill (avec les enfants) demande pour pid %u (%s)", pid, t->name);
+    return sched_kill_tree(t) > 0 ? E_OK : E_INVAL;
+}
+
 err_t user_spawn_child(struct uproc *parent, const char *path, int argc, char **argv, u32 *pid)
 {
     char full[40];
@@ -501,7 +513,7 @@ err_t user_exec(const u8 *image, u32 size, const char *name, int argc, char **ar
         keyboard_try_getc();                    /* Ctrl+C en attente : on le consomme et on arrete le programme */
         DINFO("prog", "Ctrl+C : arret du programme pid %u", t->id);
         kprintf("^C\n");
-        sched_kill(t);
+        sched_kill_tree(t);                     /* le programme ET ses enfants (comme le groupe au premier plan d'Unix) */
     }
     res->exit_code = t->exit_code;
     res->killed = u->faulted || t->exit_code == 130;

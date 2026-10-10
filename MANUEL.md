@@ -1,4 +1,4 @@
-# Manuel de PhoenOS 0.7.0
+# Manuel de PhoenOS 0.7.1
 
 > Généré à partir de `initrd/docs/manuel.txt` (lisible dans PhoenOS avec `man`).
 
@@ -198,7 +198,8 @@ Differences avec Unix : pas de droits ni de proprietaires (les dates existent, v
 
 == kill  - arrete un programme
   Syntaxe : kill <numero>
-  Arrete le programme dont ps donne le numero. Il s'arrete des qu'il reprend la main (tout de suite
+  Arrete le programme dont ps donne le numero ET tous ceux qu'il a lances (ses enfants, petits-enfants...).
+  Ctrl+C au premier plan fait de meme. Il s'arrete des qu'il reprend la main (tout de suite
   s'il dort ou attend, au prochain tick de 10 ms s'il calcule). Le shell (numero 0) ne s'arrete pas.
   Exemple : boucle 60 &   puis   kill 1
 
@@ -228,6 +229,8 @@ Differences avec Unix : pas de droits ni de proprietaires (les dates existent, v
     waitpid(-1, &code, 0);              attend le PREMIER enfant qui finit (renvoie son numero)
     waitpid(pid, &code, WNOHANG);       ne bloque pas : 0 s'il tourne encore
     kill(pid, 15);  yield();  getppid();
+  Arret : Ctrl+C et la commande kill arretent le programme et tous ses descendants ; l'appel systeme kill(pid)
+  n'arrete que `pid` (ses enfants deviennent alors orphelins).
   Regles : un enfant n'a pas de clavier (lire l'entree donne la fin de fichier), s'affiche sur le meme
   ecran, et ne s'attend qu'une fois (ensuite waitpid renvoie -18 : pas un de vos enfants). Si le parent
   s'arrete avant ses enfants, ceux-ci continuent seuls (PERE 0 dans ps) et sont liberes a leur fin.
