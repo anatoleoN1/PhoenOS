@@ -915,9 +915,16 @@ static err_t cmd_save(int argc, char **argv)
     (void)argv;
     if (argc != 1)
         return usage("save");
+    if (persist_state() == PERSIST_UNFORMATTED) {                /* disque neuf : on le prepare tout seul */
+        e = persist_format(0);
+        if (e == E_BUSY)
+            return fail_msg("Ce disque contient deja d'autres donnees : PhoenOS n'y touche pas. Pour l'effacer et l'utiliser : format oui oui");
+        if (e != E_OK)
+            return e;
+        kprintf("Disque neuf : prepare automatiquement pour PhoenOS.\n");
+    }
     if (persist_state() != PERSIST_READY)
-        return fail_msg(persist_state() == PERSIST_NO_DISK ? "Aucun disque utilisable (voir disks)."
-                                                           : "Disque non formate : tapez  format oui");
+        return fail_msg("Aucun disque utilisable (voir disks).");
     e = persist_save();
     if (e == E_FBIG)
         return fail_msg("Les fichiers sont trop volumineux pour l'emplacement de sauvegarde du disque (8 Mio maximum).");

@@ -174,7 +174,7 @@ static void verify(void)
     CHECK(count("  1  sleep 250") == 0 || count("  1  ") >= 1); /* history : numerotation */
     CHECK(count("gris clair") == 1 && count("blanc") == 1);     /* colors */
     CHECK(count(" 10   vert clair") == 1);                      /* %2d correct dans colors */
-    CHECK(count("PhoenOS 0.5.1") == 1);                         /* version */
+    CHECK(count("PhoenOS 0.5.3") == 1);                         /* version */
     CHECK(count("Sujets du manuel") == 1 && count(" ls  - liste\n cat  - affiche\n") == 1);   /* man seul */
     CHECK(count("ls  - liste\n  Syntaxe : ls [-l]\n  Option -l\n") == 1 && count("Syntaxe : cat [-n]") == 0);   /* man ls : uniquement sa section */
     CHECK(count("man: pas de manuel pour 'nope'") == 1);
@@ -187,11 +187,12 @@ static void verify(void)
     CHECK(count("FAKE DISK 9000  16 Mio") == 2);
     CHECK(count("Lecteur ATAPI (CD/DVD) (non utilisable)") == 2);
     CHECK(count("non formate. Tapez  format oui") == 1);
-    CHECK(count("Disque non formate : tapez  format oui") == 1);   /* save avant format */
+    CHECK(count("Disque non formate : tapez  format oui") == 0);   /* plus de message : save prepare le disque neuf tout seul */
+    CHECK(count("Disque neuf : prepare automatiquement pour PhoenOS.") == 1);
     CHECK(count("usage : format oui") == 2);                    /* sans argument, puis "non" */
     CHECK(count("Disque formate.") == 1);
     CHECK(count("disque   : pret, generation 1 (a jour)") == 1);
-    CHECK(count("Sauvegarde 2 enregistree (") == 1);
+    CHECK(count("Sauvegarde 2 enregistree (") == 2);          /* apres la preparation auto, puis apres format oui */
     CHECK(count("pret sur FAKE DISK 9000 (generation 2") == 1);
     CHECK(count("modifications non enregistrees : save)") == 1);
     CHECK(count("Sauvegarde 2 relue : ") == 1);

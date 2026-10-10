@@ -1,4 +1,4 @@
-MANUEL DE PHOENOS 0.5.1
+MANUEL DE PHOENOS 0.5.3
 =======================
 Tapez  man            pour la liste des sujets,
        man <sujet>    pour lire un sujet (exemple : man ls).
@@ -60,7 +60,9 @@ Differences avec Unix : pas de droits ni de proprietaires (les dates existent, v
 == stockage  - disque et sauvegarde
   PhoenOS peut garder vos fichiers sur un disque ATA/IDE (QEMU : disk.img, cree par
   "make run" ; VirtualBox : ajouter un disque IDE).
-  Mise en route, une seule fois : tapez  disks  puis  format oui.
+  Mise en route : rien a faire. Un disque VIERGE est prepare automatiquement (au demarrage,
+  ou au premier save). Un disque qui contient deja autre chose n'est jamais touche : il faut
+  alors taper  format oui oui  pour l'effacer et l'utiliser (voir man format).
   Ensuite : save enregistre, load relit ; shutdown, reboot et halt enregistrent tout seuls
   les modifications. Au demarrage, la derniere sauvegarde est relue AUTOMATIQUEMENT
   par-dessus les fichiers de l'initrd (vos fichiers gagnent sur ceux de l'initrd).
@@ -293,8 +295,9 @@ Differences avec Unix : pas de droits ni de proprietaires (les dates existent, v
 
 == format  - prepare le disque pour PhoenOS
   Syntaxe : format oui
-  Ecrit une sauvegarde vide dans les deux emplacements du disque. A faire une fois par
-  disque neuf. Le mot "oui" est obligatoire (protection contre une faute de frappe).
+  Ecrit une sauvegarde vide dans les deux emplacements du disque. Inutile sur un disque
+  vierge (prepare tout seul depuis la 0.5.3) ; sert a EFFACER une sauvegarde ou a reprendre
+  un disque deja utilise. Le mot "oui" est obligatoire (protection contre une faute de frappe).
   ATTENTION : sur un disque deja formate, EFFACE la sauvegarde existante.
   Si le premier secteur du disque contient deja autre chose que du PhoenFS, la commande
   refuse : "format oui oui" force l'effacement. Difference avec Unix : pas de choix de
@@ -303,7 +306,8 @@ Differences avec Unix : pas de droits ni de proprietaires (les dates existent, v
 == save  - enregistre les fichiers sur le disque
   Syntaxe : save
   Ecrit tout le systeme de fichiers dans l'emplacement le plus ancien du disque, puis le
-  valide. Erreur si le disque n'est pas pret, ou si les fichiers depassent 8 Mio.
+  valide. Sur un disque vierge, le prepare d'abord automatiquement. Erreur si les fichiers
+  depassent 8 Mio, ou si le disque contient d'autres donnees (voir format).
   Pas d'equivalent direct sous Unix (sync ecrit des caches, pas une sauvegarde complete).
 
 == load  - relit la sauvegarde du disque

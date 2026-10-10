@@ -187,9 +187,19 @@ static void init_storage(void)
     case PERSIST_NO_DISK:
         kprintf("       Stockage : aucun disque (les fichiers seront perdus a l'extinction)\n");
         break;
-    case PERSIST_UNFORMATTED:
-        kprintf("       Disque : %s, %u Mio, non formate (tapez  format oui)\n", pi->model, pi->sectors / 2048);
+    case PERSIST_UNFORMATTED: {
+        err_t fe = persist_format(0);           /* disque vierge : prepare tout seul ; disque deja utilise : on n'y touche pas */
+
+        if (fe == E_OK)
+            kprintf("       Disque : %s, %u Mio, neuf : prepare automatiquement (save pour enregistrer)\n", pi->model, pi->sectors / 2048);
+        else if (fe == E_BUSY)
+            kprintf("       Disque : %s, %u Mio, contient deja d'autres donnees : non touche (format oui oui pour l'effacer)\n",
+                    pi->model, pi->sectors / 2048);
+        else
+            kprintf("       Disque : %s, %u Mio, preparation impossible (%s)\n", pi->model, pi->sectors / 2048, err_str(fe));
+        status(fe == E_OK || fe == E_BUSY, "Disque examine (preparation automatique si vierge)");
         break;
+    }
     default: {
         struct initrd_stats st;
         err_t e = persist_load(&st);

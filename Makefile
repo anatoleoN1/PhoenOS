@@ -59,7 +59,7 @@ USER_PROGS  := $(patsubst user/%.c,%,$(filter-out user/crt0.c,$(wildcard user/*.
 USER_ELFS   := $(addprefix build/user/,$(addsuffix .elf,$(USER_PROGS)))
 TESTS   := test-div0 test-gp test-panic test-assert test-doublefree test-heapcorrupt
 
-.PHONY: all iso run serial debug check symbol test clean newdisk $(TESTS)
+.PHONY: all iso run run-sdl run-gtk serial debug debug-window check symbol test clean newdisk $(TESTS)
 
 all: $(KERNEL)
 
@@ -96,16 +96,37 @@ iso: $(KERNEL) $(USER_ELFS)
 	@echo ">> $(ISO) pret"
 
 # -no-reboot : en cas de triple faute, QEMU s'arrête au lieu de redémarrer en boucle.
+# Fenêtre graphique. Sur un système sans écran (SSH, certains Chromebook / WSL) la fenêtre ne peut pas
+# s'ouvrir : on le détecte et on passe automatiquement en mode « serial » (tout dans le terminal).
+QEMU_SERIAL := -display none -no-reboot -rtc base=localtime \
+               -chardev stdio,id=con,mux=on,signal=off -serial chardev:con -mon chardev=con
+
 run: iso $(DISK)
-	$(QEMU) $(QEMU_DISK) $(QEMU_DISPLAY) -cdrom $(ISO) -serial stdio -no-reboot -rtc base=localtime
+	@if [ -z "$$DISPLAY$$WAYLAND_DISPLAY" ]; then \
+	    echo ">> Pas d'ecran graphique detecte : mode terminal (comme make serial). Ctrl+A puis X pour quitter."; \
+	    $(QEMU) $(QEMU_DISK) -cdrom $(ISO) $(QEMU_SERIAL); \
+	else \
+	    $(QEMU) $(QEMU_DISK) $(QEMU_DISPLAY) -cdrom $(ISO) -serial stdio -no-reboot -rtc base=localtime; \
+	fi
+
+# Variantes de fenêtre si « make run » n'ouvre rien : essayez l'une puis l'autre.
+run-sdl: iso $(DISK)
+	$(QEMU) $(QEMU_DISK) -display sdl -cdrom $(ISO) -serial stdio -no-reboot -rtc base=localtime
+
+run-gtk: iso $(DISK)
+	$(QEMU) $(QEMU_DISK) -display gtk -cdrom $(ISO) -serial stdio -no-reboot -rtc base=localtime
 
 serial: iso $(DISK)
-	$(QEMU) $(QEMU_DISK) -display none -cdrom $(ISO) -no-reboot -rtc base=localtime \
-	    -chardev stdio,id=con,mux=on,signal=off -serial chardev:con -mon chardev=con
+	$(QEMU) $(QEMU_DISK) -cdrom $(ISO) $(QEMU_SERIAL)
 
+# Diagnostic : comme « serial » (sans fenêtre) + journal de QEMU (qemu.log : exceptions et redémarrages du processeur).
 debug: iso $(DISK)
-	$(QEMU) $(QEMU_DISK) -cdrom $(ISO) -serial stdio -no-reboot -d int,cpu_reset -D qemu.log
+	$(QEMU) $(QEMU_DISK) -cdrom $(ISO) $(QEMU_SERIAL) -d int,cpu_reset -D qemu.log
 	@echo ">> Journal QEMU : qemu.log (chercher : grep -n 'v=0\|Triple' qemu.log)"
+
+# Même diagnostic mais avec une fenêtre.
+debug-window: iso $(DISK)
+	$(QEMU) $(QEMU_DISK) -cdrom $(ISO) -serial stdio -no-reboot -d int,cpu_reset -D qemu.log
 
 test:
 	sh tests/run.sh
@@ -126,7 +147,7 @@ $(TESTS): test-%:
 # Disque virtuel de PhoenOS (vide au départ) : conservé par `make clean` pour ne pas perdre vos fichiers.
 $(DISK):
 	truncate -s $(DISKMB)M $(DISK)
-	@echo ">> $(DISK) cree ($(DISKMB) Mio) : dans PhoenOS, tapez  format oui  une fois"
+	@echo ">> $(DISK) cree ($(DISKMB) Mio) : PhoenOS le prepare tout seul (save)"
 
 # Repart d'un disque vide (ATTENTION : efface tout ce que PhoenOS y avait enregistre).
 newdisk:

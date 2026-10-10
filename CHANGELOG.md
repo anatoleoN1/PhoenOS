@@ -5,6 +5,18 @@ z = correctif ou petite amélioration. Chaque version est livrée testée automa
 les chemins de démarrage réels (GRUB, ISO, anneau 3, activation de la pagination) ne sont
 vérifiables que sur une vraie machine ou sous QEMU : ils sont validés par vos essais.
 
+## 0.5.3 — Disque automatique, lancement de QEMU
+(La 0.5.2 n'a pas ete publiee : on est passe directement a la 0.5.3.)
+- Disque vierge : PhoenOS le prepare tout seul, au demarrage ou au premier `save` — plus de
+  `format oui` a penser. Un disque qui contient deja autre chose n'est JAMAIS touche
+  (message explicite ; `format oui oui` pour l'effacer volontairement).
+- `make run` detecte l'absence d'ecran graphique et passe en mode terminal ; nouveaux
+  `make run-sdl` / `make run-gtk` ; `make debug` fonctionne sans fenetre (journal `qemu.log`),
+  `make debug-window` garde la fenetre.
+- Test de bout en bout sur Chromebook de la 0.5.x : demarrage, isolation des programmes,
+  fautes `vide` / `code` / `nul` / `kern`, `calc`, `notes`, `copie`, pas de fuite de memoire
+  physique (la memoire libre est identique avant et apres les programmes).
+
 ## 0.5.1 — Correctif des tests
 - `make test` echouait pour un utilisateur ordinaire (pas root) : les tests de `copie` et `notes`
   ecrivaient a la racine du disque et Linux creait les fichiers sans droits. Les programmes
