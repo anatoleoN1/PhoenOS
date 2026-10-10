@@ -257,6 +257,36 @@ void sched_detach(struct task *t)
     t->detached = 1;
 }
 
+/* Enfants d'un programme : les taches non detachees dont il est le parent. */
+int sched_children(u32 parent, u32 *zombie)
+{
+    int n = 0;
+
+    if (zombie)
+        *zombie = 0;
+    for (int i = 1; i < SCHED_MAX_TASKS; i++) {
+        struct task *t = &tasks[i];
+
+        if (t->state == T_FREE || t->detached || t->parent != parent || parent == 0)
+            continue;
+        n++;
+        if (t->state == T_ZOMBIE && zombie && !*zombie)
+            *zombie = t->id;
+    }
+    return n;
+}
+
+void sched_orphan(u32 parent)
+{
+    if (parent == 0)
+        return;
+    for (int i = 1; i < SCHED_MAX_TASKS; i++)
+        if (tasks[i].state != T_FREE && tasks[i].parent == parent) {
+            tasks[i].parent = 0;
+            tasks[i].detached = 1;              /* un zombie sera libere au prochain changement de tache */
+        }
+}
+
 int sched_kill(struct task *t)
 {
     if (!t || index_of(t) == 0 || t->state == T_ZOMBIE || t->state == T_FREE)
@@ -335,6 +365,7 @@ int sched_info(int index, struct task_info *out)
             out->state = tasks[i].state;
             out->ticks = tasks[i].ticks;
             out->detached = tasks[i].detached;
+            out->parent = tasks[i].parent;
             return 1;
         }
     }

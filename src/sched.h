@@ -17,7 +17,7 @@
  *  - une tache qui attend (touche, delai, fin d'un programme...) est BLOQUEE par un predicat : le
  *    planificateur ne la reveille que lorsque le predicat est vrai. Rien d'actif a attendre = le processeur dort (hlt).
  */
-#define SCHED_MAX_TASKS   8             /* shell compris */
+#define SCHED_MAX_TASKS   16            /* shell compris */
 #define SCHED_KSTACK_SIZE 16384
 #define SCHED_NAME_MAX    32
 
@@ -40,6 +40,7 @@ struct task {
     int  detached;                      /* personne n'attend sa fin : liberee automatiquement */
     int  killed;                        /* arret demande (kill) : prise en compte au prochain point sur */
     u32  ticks;                         /* tours de minuterie recus en tournant */
+    u32  parent;                        /* numero du programme qui l'a lance et attend sa fin (0 : le shell ou personne) */
 };
 
 struct task_info {
@@ -48,6 +49,7 @@ struct task_info {
     int  state;
     u32  ticks;
     int  detached;
+    u32  parent;
 };
 
 /* Fait du contexte actuel la tache 0 ("shell"). A appeler une fois. */
@@ -71,6 +73,8 @@ void sched_exit(int code) __attribute__((noreturn));        /* termine la tache 
 int  sched_wait(struct task *t);                            /* attend la fin de t ; renvoie son code de sortie */
 void sched_reap(struct task *t);                            /* libere une tache terminee (apres sched_wait) */
 void sched_detach(struct task *t);                          /* personne n'attendra t : liberation automatique */
+int  sched_children(u32 parent, u32 *zombie);               /* nombre d'enfants de `parent` non liberes ; *zombie = le premier termine (ou 0) */
+void sched_orphan(u32 parent);                              /* `parent` s'en va : ses enfants sont detaches (liberes seuls a leur fin) */
 int  sched_kill(struct task *t);                            /* demande l'arret ; E_INVAL pour la tache 0 / terminee */
 void sched_preempt(void);                                   /* appele par la minuterie quand un programme tourne en ring 3 */
 int  sched_info(int index, struct task_info *out);          /* index 0.. : toutes les taches non libres ; 0 = fin */

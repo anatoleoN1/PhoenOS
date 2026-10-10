@@ -70,6 +70,7 @@ static err_t cmd_echo(int argc, char **argv);
 static err_t cmd_sleep(int argc, char **argv);
 static err_t cmd_ps(int argc, char **argv);
 static err_t cmd_kill(int argc, char **argv);
+static err_t cmd_wait(int argc, char **argv);
 static err_t cmd_schedlog(int argc, char **argv);
 static err_t cmd_colors(int argc, char **argv);
 static err_t cmd_dmesg(int argc, char **argv);
@@ -133,6 +134,7 @@ static const struct command commands[] = {
     { G_SYS, "ps",       "",             "Liste les programmes en cours (taches)",         cmd_ps       },
     { G_SYS, "schedlog", "",             "Journal de l'ordonnanceur (diagnostic)",        cmd_schedlog },
     { G_SYS, "kill",     "<numero>",     "Arrete un programme (voir ps)",                  cmd_kill     },
+    { G_SYS, "wait",     "<numero>",     "Attend la fin d'un programme en arriere-plan",   cmd_wait     },
     { G_SYS, "sleep",    "<ms>",         "Attend un nombre de millisecondes",              cmd_sleep    },
     { G_SYS, "colors",   "",             "Affiche les 16 couleurs du mode texte",          cmd_colors   },
     { G_SYS, "dmesg",    "",             "Rejoue tout le journal du noyau",                cmd_dmesg    },
@@ -358,9 +360,9 @@ static err_t cmd_ps(int argc, char **argv)
     (void)argv;
     if (argc != 1)
         return usage("ps");
-    kprintf("  NUM  ETAT     TOURS  NOM\n");
+    kprintf("  NUM  PERE  ETAT     TOURS  NOM\n");
     for (int i = 0; sched_info(i, &ti); i++)
-        kprintf("%5u  %-7s %6u  %s%s\n", ti.id, state[ti.state], ti.ticks, ti.name,
+        kprintf("%5u  %4u  %-7s %6u  %s%s\n", ti.id, ti.parent, state[ti.state], ti.ticks, ti.name,
                 ti.id == 0 ? " (le shell)" : (ti.detached ? " (arriere-plan)" : ""));
     kprintf("%u changement(s) de tache depuis le demarrage\n", sched_switches());
     return E_OK;
@@ -399,6 +401,37 @@ static err_t cmd_kill(int argc, char **argv)
     if (e == E_INVAL)
         return fail_msg("Ce numero n'est pas un programme (le shell ne s'arrete pas).");
     return e;
+}
+
+/* wait <numero> : attend la fin d'un programme lance avec & et dit comment il s'est termine. */
+static err_t cmd_wait(int argc, char **argv)
+{
+    u32 pid;
+    int code = 0, known = 0;
+    err_t e;
+
+    if (argc != 2 || cmdline_parse_u32(argv[1], &pid) != E_OK)
+        return usage("wait <numero>   (numeros : commande ps)");
+    e = user_wait_pid(pid, &code, &known);
+    if (e == E_NOENT)
+        return fail_msg("Aucun programme avec ce numero (voir ps).");
+    if (e == E_INVAL)
+        return fail_msg("Ce numero n'est pas un programme (le shell ne s'arrete pas).");
+    if (e == E_INTR) {
+        kprintf("^C\n");
+        return E_OK;
+    }
+    if (e != E_OK)
+        return e;
+    color(VGA_YELLOW);
+    if (!known)
+        kprintf("[%u] termine\n", pid);
+    else if (code == 0)
+        kprintf("[%u] termine, code 0\n", pid);
+    else
+        kprintf("[%u] termine, code %d%s\n", pid, code, code == 130 ? " (arrete)" : "");
+    color(VGA_LIGHT_GREY);
+    return E_OK;
 }
 
 static err_t cmd_colors(int argc, char **argv)

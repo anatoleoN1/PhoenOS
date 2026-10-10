@@ -30,7 +30,7 @@ make clean
 Pour tester sur une vraie machine : écrire `phoenos-0.1.0.iso` sur une clé USB
 (`sudo dd if=phoenos-0.1.0.iso of=/dev/sdX bs=4M status=progress`, en vérifiant bien `sdX`).
 
-## Ce qu'on doit voir au démarrage (v0.6.3)
+## Ce qu'on doit voir au démarrage (v0.7.0)
 
 Des lignes `[ OK ]` pour : VGA + port série, Multiboot, GDT, IDT/PIC/timer/clavier,
 exceptions (point d'arrêt traité), **mémoire physique, tas du noyau et leurs auto-tests**,
@@ -73,6 +73,24 @@ QEMU s'arrête au lieu de redémarrer, et `qemu.log` contient la dernière excep
 Limites connues : un débordement de pile est détecté après coup (canari testé à chaque tick du
 timer) mais peut provoquer une triple faute avant ; la protection complète demande un TSS dédié
 pour la double faute (prévu plus tard).
+
+## Nouveautés de la 0.7.0 — Programmes complets
+
+Un programme peut maintenant en lancer d'autres et attendre leur résultat, et il a un **tas** (mémoire dynamique) :
+
+```
+lance primes 50            # spawn + waitpid : lance l'enfant, l'attend, affiche son code de sortie
+essaim 4 3 100             # 4 enfants en même temps, annoncés dans l'ordre de leur FIN (waitpid(-1))
+tas 1000                   # malloc / free / realloc : le tas grandit, se fragmente, est rendu au noyau
+ticker A 3 300 &   puis    wait 1      # le shell attend aussi (code de sortie rappelé)
+ps                         # nouvelle colonne PERE
+```
+
+- Appels système : `spawn` 202 (propre à PhoenOS), `waitpid` 7 (pid, -1 ou `WNOHANG`), `kill` 37, `brk` 45,
+  `getppid` 64, `yield` 158 (numéros Linux i386 quand ils existent).
+- Un enfant n'a pas de clavier ; si son parent part avant lui il devient orphelin et se libère seul.
+- Jusqu'à 15 programmes en même temps ; tas de ≈ 4 Mio par programme, avec page de garde avant la pile.
+- `user/libc.h` : `malloc`, `free`, `calloc`, `realloc`, `printf`, `snprintf`, `qsort`, textes (opt-in, tout `static`).
 
 ## Nouveautés de la 0.6.3 — Lancer plusieurs choses d'un coup
 

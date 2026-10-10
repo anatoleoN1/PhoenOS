@@ -8,7 +8,10 @@
  * regle la pile du noyau du CPU (tss.esp0) et le repertoire de pages (CR3) de la tache choisie.
  */
 #include "user.h"
+#include "io.h"
 #include "elf.h"
+#include "fs.h"
+#include "poe.h"
 #include "aspace.h"
 #include "paging.h"
 #include "pmm.h"
@@ -30,9 +33,37 @@ struct utask {
     struct aspace space;
     struct task  *task;
     u32 entry, esp;
-    int bg;
+    int bg;                                     /* pas de clavier : sa lecture donne la fin de fichier */
+    int notify;                                 /* affiche "[pid] ... termine" a sa fin (lance par le shell avec &) */
     int faulted;                                /* arrete par une faute du processeur */
 };
+
+/* Codes de sortie des derniers programmes (commande wait : un programme detache est libere des qu'il finit). */
+#define STATUS_N 32
+static struct { u32 pid; int code; } status_tab[STATUS_N];
+static u32 status_count;
+
+static void status_record(u32 pid, int code)
+{
+    status_tab[status_count % STATUS_N].pid = pid;
+    status_tab[status_count % STATUS_N].code = code;
+    status_count++;
+}
+
+static int status_find(u32 pid, int *code)
+{
+    u32 n = status_count < STATUS_N ? status_count : STATUS_N;
+
+    for (u32 i = 0; i < n; i++) {
+        u32 k = (status_count - 1 - i) % STATUS_N;
+
+        if (status_tab[k].pid == pid) {
+            *code = status_tab[k].code;
+            return 1;
+        }
+    }
+    return 0;
+}
 
 static int user_ok;
 static const u8 *pending_in;
@@ -184,7 +215,11 @@ static void user_exit(int code)
     if (u)
         DINFO("prog", "pid %u : %s termine, code %d%s", u->proc.pid, u->proc.name, code,
               u->faulted ? " (faute)" : (code == 130 ? " (arrete)" : ""));
-    if (u && u->bg) {
+    if (u) {
+        status_record(u->proc.pid, code);
+        sched_orphan(u->proc.pid);              /* ses enfants continuent seuls (liberes a leur fin) */
+    }
+    if (u && u->notify) {
         vga_set_color(VGA_YELLOW, VGA_BLACK);
         if (code == 0)
             kprintf("\n[%u] %s termine\n", u->proc.pid, u->proc.name);
@@ -225,14 +260,14 @@ err_t user_kill(u32 pid)
     return sched_kill(t);
 }
 
-static err_t user_spawn(const u8 *image, u32 size, const char *name, int argc, char **argv, int bg,
+static err_t user_spawn(const u8 *image, u32 size, const char *name, int argc, char **argv, int bg, int notify,
                         struct utask **out)
 {
     static u8 stack_tmp[STACK_TMP];
     struct elf_seg segs[ELF_MAX_SEGS];
     struct utask *u;
     int nseg = 0;
-    u32 entry, esp;
+    u32 entry, esp, image_end = USER_BASE;
     u32 stack_lo = USER_END - USER_STACK_SIZE;
     err_t e;
 
@@ -269,8 +304,15 @@ static err_t user_spawn(const u8 *image, u32 size, const char *name, int argc, c
         if (!segs[i].writable)
             aspace_protect(&u->space, segs[i].lo, segs[i].hi, 0);
 
+    for (int i = 0; i < nseg; i++)
+        if (segs[i].hi > image_end)
+            image_end = segs[i].hi;
     user_proc_reset(&u->proc, name);
     u->proc.as = &u->space;
+    u->proc.heap_lo = u->proc.heap_cur = (image_end + 0xFFFu) & ~0xFFFu;     /* le tas commence apres le programme (code, donnees, bss) */
+    u->proc.heap_hi = stack_lo - USER_HEAP_GUARD;
+    if (u->proc.heap_hi < u->proc.heap_lo)
+        u->proc.heap_hi = u->proc.heap_lo;
     if (bg) {
         u->proc.in = NULL;                      /* pas de clavier en arriere-plan : fin de fichier */
         u->proc.in_len = 0;
@@ -285,6 +327,7 @@ static err_t user_spawn(const u8 *image, u32 size, const char *name, int argc, c
     u->entry = entry;
     u->esp = esp;
     u->bg = bg;
+    u->notify = notify;
 
     e = sched_create(name, user_task_main, u, user_cleanup, u, &u->task);
     if (e != E_OK) {
@@ -304,13 +347,136 @@ static err_t user_spawn(const u8 *image, u32 size, const char *name, int argc, c
 err_t user_spawn_bg(const u8 *image, u32 size, const char *name, int argc, char **argv, u32 *pid)
 {
     struct utask *u;
-    err_t e = user_spawn(image, size, name, argc, argv, 1, &u);
+    err_t e = user_spawn(image, size, name, argc, argv, 1, 1, &u);
 
     if (e != E_OK)
         return e;
     *pid = u->task->id;
     sched_detach(u->task);                      /* liberee toute seule a sa fin */
     return E_OK;
+}
+
+/* ---- programmes qui en lancent d'autres (0.7.0) ---- */
+
+err_t user_spawn_child(struct uproc *parent, const char *path, int argc, char **argv, u32 *pid)
+{
+    char full[40];
+    struct fs_node *n;
+    struct utask *u;
+    const u8 *image;
+    u32 size;
+    err_t e = fs_lookup(path, &n);
+    int has_slash = 0;
+
+    for (const char *c = path; *c; c++)
+        if (*c == '/')
+            has_slash = 1;
+    if (e == E_NOENT && !has_slash && strlen(path) < sizeof full - 6) {      /* "ticker" : on cherche dans /bin */
+        strcpy(full, "/bin/");
+        strcpy(full + 5, path);
+        e = fs_lookup(full, &n);
+    }
+    if (e != E_OK)
+        return e;
+    if (n->type != FS_FILE)
+        return E_ISDIR;
+    image = n->data;
+    size = n->size;
+    if (poe_is(image, size)) {
+        struct poe_info info;
+
+        if (poe_parse(image, size, &info) != POE_OK)
+            return E_NOEXEC;
+        image = info.payload;
+        size = info.payload_len;
+    }
+    e = user_spawn(image, size, argc > 0 ? argv[0] : path, argc, argv, 1, 0, &u);
+    if (e != E_OK)
+        return e;
+    u->proc.ppid = parent->pid;
+    u->task->parent = parent->pid;              /* pas detache : le parent doit l'attendre */
+    *pid = u->task->id;
+    DINFO("prog", "pid %u : %s lance par le programme %u", u->task->id, u->proc.name, parent->pid);
+    return E_OK;
+}
+
+struct wait_arg { u32 parent; i32 pid; };
+
+static int child_done(void *p)
+{
+    const struct wait_arg *w = p;
+    u32 z;
+
+    if (w->pid > 0) {
+        struct task *t = sched_find((u32)w->pid);
+
+        return !t || t->state == T_ZOMBIE;
+    }
+    return sched_children(w->parent, &z) == 0 || z != 0;
+}
+
+i32 user_waitpid(struct uproc *parent, i32 pid, u32 options, int *code)
+{
+    struct wait_arg w;
+    struct task *t;
+    u32 z = 0;
+
+    if (pid == 0 || pid < -1 || (options & ~(u32)WNOHANG))
+        return E_INVAL;
+    if (pid > 0) {
+        t = sched_find((u32)pid);
+        if (!t || t->parent != parent->pid || t->detached)
+            return E_CHILD;
+    } else if (sched_children(parent->pid, &z) == 0) {
+        return E_CHILD;
+    }
+    w.parent = parent->pid;
+    w.pid = pid;
+    if (!child_done(&w)) {
+        if (options & WNOHANG)
+            return 0;
+        sched_block(child_done, &w);
+        if (sched_current()->killed)
+            return E_INTR;                      /* le programme est arrete : syscall_entry s'en charge */
+    }
+    if (pid > 0)
+        t = sched_find((u32)pid);
+    else {
+        sched_children(parent->pid, &z);
+        t = z ? sched_find(z) : NULL;
+    }
+    if (!t || t->state != T_ZOMBIE)
+        return E_CHILD;
+    *code = t->exit_code;
+    pid = (i32)t->id;
+    sched_reap(t);                              /* libere ses pages et sa structure */
+    return pid;
+}
+
+static int wait_gone(void *p)
+{
+    struct task *t = sched_find(*(u32 *)p);
+
+    return !t || t->state == T_ZOMBIE || keyboard_peek() == CTRL_C;
+}
+
+err_t user_wait_pid(u32 pid, int *code, int *known)
+{
+    int exists;
+
+    *known = 0;
+    if (pid == 0)
+        return E_INVAL;
+    exists = sched_find(pid) != NULL;
+    if (exists) {
+        sched_block(wait_gone, &pid);
+        if (keyboard_peek() == CTRL_C) {
+            keyboard_try_getc();
+            return E_INTR;
+        }
+    }
+    *known = status_find(pid, code);
+    return (exists || *known) ? E_OK : E_NOENT;
 }
 
 static int fg_done(void *p)
@@ -323,7 +489,7 @@ err_t user_exec(const u8 *image, u32 size, const char *name, int argc, char **ar
 {
     struct utask *u;
     struct task *t;
-    err_t e = user_spawn(image, size, name, argc, argv, 0, &u);
+    err_t e = user_spawn(image, size, name, argc, argv, 0, 0, &u);
 
     if (e != E_OK)
         return e;
@@ -351,7 +517,7 @@ void syscall_entry(struct regs *r)
         r->eax = (u32)E_NOSYS;
         return;
     }
-    __asm__ volatile ("sti");                   /* le clavier et le timer doivent continuer */
+    cpu_sti();                                  /* le clavier et le timer doivent continuer */
     r->eax = (u32)syscall_dispatch(p, r->eax, r->ebx, r->ecx, r->edx);
     if (p->exit_requested)
         user_exit(p->exit_code);

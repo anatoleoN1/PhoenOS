@@ -20,6 +20,7 @@
 #define PATH_MAX_LEN 256
 #define CTRL_C       3
 #define CTRL_D       4
+#define PAGE_ROUND   0xFFFu
 
 /* Options d'open (memes valeurs que Linux i386) */
 #define O_ACCMODE 3
@@ -296,6 +297,108 @@ static i32 sys_log(struct uproc *p, u32 level, u32 text)
     return 0;
 }
 
+/* ---- programmes complets (0.7.0) : tas, enfants, arret ---- */
+
+/* brk(fin) : deplace la fin du tas. Comme Linux, renvoie toujours la fin du tas apres l'appel (inchangee si refuse). */
+static i32 sys_brk(struct uproc *p, u32 want)
+{
+    u32 old_end, new_end;
+
+    if (!p->as || p->heap_hi == 0)
+        return (i32)p->heap_cur;                                /* pas de tas (tests) */
+    if (want < p->heap_lo || want > p->heap_hi)
+        return (i32)p->heap_cur;                                /* 0 : simple lecture ; hors limites : refuse */
+    old_end = (p->heap_cur + PAGE_ROUND) & ~PAGE_ROUND;
+    new_end = (want + PAGE_ROUND) & ~PAGE_ROUND;
+    if (new_end > old_end) {
+        if (aspace_map(p->as, old_end, new_end, 1) != E_OK)
+            return (i32)p->heap_cur;                            /* plus de memoire : refuse, rien n'a change */
+    } else if (new_end < old_end) {
+        aspace_unmap(p->as, new_end, old_end);
+        aspace_activate(p->as);                                 /* recharge CR3 : le cache d'adresses oublie ces pages */
+    }
+    p->heap_cur = want;
+    return (i32)want;
+}
+
+/* Copie un texte du programme (fin = 0) : longueur, ou E_FAULT / E_2BIG si plus de `cap` octets. */
+static i32 copy_arg(const struct uproc *p, u32 addr, char *dst, u32 cap)
+{
+    for (u32 i = 0; i < cap; i++) {
+        if (!user_range(p, addr + i, 1, 0))
+            return E_FAULT;
+        dst[i] = *(const char *)(addr + i);
+        if (!dst[i])
+            return (i32)i;
+    }
+    return E_2BIG;
+}
+
+/* spawn(chemin, argv) : argv = tableau de pointeurs termine par 0 (ou 0 : seulement le nom). */
+static i32 sys_spawn(struct uproc *p, u32 path_addr, u32 argv_addr)
+{
+    static char argbuf[USER_ARGS_BYTES];                        /* pas de commutation avant la fin de l'appel : un seul tampon suffit */
+    char path[PATH_MAX_LEN];
+    char *av[USER_ARGS_MAX + 1];
+    u32 off = 0, pid = 0;
+    int argc = 0;
+    err_t e;
+
+    if (user_string(p, path_addr, path, sizeof path) != 0)
+        return E_FAULT;
+    if (argv_addr == 0) {
+        av[argc++] = path;
+    } else {
+        for (;; argc++) {
+            u32 ptr;
+            i32 n;
+
+            if (!user_range(p, argv_addr + 4u * (u32)argc, 4, 0))
+                return E_FAULT;
+            memcpy(&ptr, (const void *)(argv_addr + 4u * (u32)argc), 4);
+            if (ptr == 0)
+                break;
+            if (argc >= USER_ARGS_MAX)
+                return E_2BIG;
+            n = copy_arg(p, ptr, argbuf + off, USER_ARGS_BYTES - off);
+            if (n < 0)
+                return n;
+            av[argc] = argbuf + off;
+            off += (u32)n + 1;
+        }
+        if (argc == 0)
+            av[argc++] = path;
+    }
+    av[argc] = NULL;
+    e = user_spawn_child(p, path, argc, av, &pid);
+    return e == E_OK ? (i32)pid : e;
+}
+
+static i32 sys_waitpid(struct uproc *p, u32 pid, u32 status_addr, u32 options)
+{
+    int code = 0;
+    i32 r;
+
+    if (status_addr && !user_range(p, status_addr, 4, 1))
+        return E_FAULT;                                         /* verifie AVANT : l'enfant n'est libere qu'une fois */
+    r = user_waitpid(p, (i32)pid, options, &code);
+    if (r > 0 && status_addr)
+        memcpy((void *)status_addr, &code, 4);
+    return r;
+}
+
+static i32 sys_kill(struct uproc *p, u32 pid, u32 sig)
+{
+    if (sig > 31)
+        return E_INVAL;
+    if (pid == p->pid) {                                        /* se tuer soi-meme = s'arreter */
+        p->exit_code = 130;
+        p->exit_requested = 1;
+        return 0;
+    }
+    return user_kill(pid);
+}
+
 static i32 dispatch(struct uproc *p, u32 nr, u32 a, u32 b, u32 c);
 
 static const char *sys_name(u32 nr)
@@ -312,6 +415,12 @@ static const char *sys_name(u32 nr)
     case SYS_LOG:      return "log";
     case SYS_SLEEP_MS: return "sleep_ms";
     case SYS_UPTIME:   return "uptime";
+    case SYS_WAITPID:  return "waitpid";
+    case SYS_KILL:     return "kill";
+    case SYS_BRK:      return "brk";
+    case SYS_GETPPID:  return "getppid";
+    case SYS_SCHED_YIELD: return "yield";
+    case SYS_SPAWN:    return "spawn";
     default:           return "?";
     }
 }
@@ -344,7 +453,7 @@ i32 syscall_dispatch(struct uproc *p, u32 nr, u32 a, u32 b, u32 c)
 
     if (nr == SYS_LOG)                              /* le journal ne se journalise pas lui-meme */
         return dispatch(p, nr, a, b, c);
-    if (nr == SYS_READ || nr == SYS_SLEEP_MS)       /* appels qui peuvent durer : on note aussi l'entree */
+    if (nr == SYS_READ || nr == SYS_SLEEP_MS || nr == SYS_WAITPID)       /* appels qui peuvent durer : on note aussi l'entree */
         DTRACE("sys", "[%u %s] %s(%u, %#x, %u) ...", p->pid, p->name, sys_name(nr), a, b, c);
     r = dispatch(p, nr, a, b, c);
     switch (nr) {
@@ -354,6 +463,7 @@ i32 syscall_dispatch(struct uproc *p, u32 nr, u32 a, u32 b, u32 c)
         break;
     case SYS_OPEN:
     case SYS_UNLINK:
+    case SYS_SPAWN:
         if (user_string(p, a, txt, sizeof txt) != 0)
             strcpy(txt, "?");
         DTRACE("sys", "[%u %s] %s(\"%s\", %#x) = %d%s%s", p->pid, p->name, sys_name(nr), txt, b, r,
@@ -406,6 +516,20 @@ static i32 dispatch(struct uproc *p, u32 nr, u32 a, u32 b, u32 c)
         return 0;
     case SYS_UPTIME:
         return (i32)pit_uptime_ms();
+    case SYS_BRK:
+        return sys_brk(p, a);
+    case SYS_SPAWN:
+        return sys_spawn(p, a, b);
+    case SYS_WAITPID:
+        return sys_waitpid(p, a, b, c);
+    case SYS_KILL:
+        return sys_kill(p, a, b);
+    case SYS_GETPPID:
+        return (i32)p->ppid;
+    case SYS_SCHED_YIELD:
+        if (sched_ready())
+            sched_yield();
+        return 0;
     default:
         return E_NOSYS;
     }

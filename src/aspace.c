@@ -76,6 +76,20 @@ err_t aspace_map(struct aspace *a, u32 lo, u32 hi, int writable)
     return E_OK;
 }
 
+err_t aspace_unmap(struct aspace *a, u32 lo, u32 hi)
+{
+    if (!a->pt || !zone_ok(lo, hi))
+        return E_INVAL;
+    for (u32 i = (lo - ASPACE_BASE) >> 12; i < (hi - ASPACE_BASE + PAGE_SIZE - 1) >> 12; i++) {
+        if (!(a->pt[i] & PAGE_P))
+            continue;
+        pmm_free_frame(a->pt[i] & ~(PAGE_SIZE - 1));
+        a->pt[i] = 0;
+        a->pages--;
+    }
+    return E_OK;
+}
+
 err_t aspace_protect(struct aspace *a, u32 lo, u32 hi, int writable)
 {
     if (!a->pt || !zone_ok(lo, hi))

@@ -37,6 +37,12 @@ err_t aspace_create(struct aspace *a);
  */
 err_t aspace_map(struct aspace *a, u32 lo, u32 hi, int writable);
 
+/*
+ * Rend les cadres des pages mappees de [lo, hi) (arrondi aux pages) et les demappe. Les pages absentes sont
+ * ignorees. Le caller recharge CR3 (aspace_activate) si l'espace est actif, pour vider le cache d'adresses.
+ */
+err_t aspace_unmap(struct aspace *a, u32 lo, u32 hi);
+
 /* Change le droit d'ecriture des pages deja mappees de [lo, hi). Le caller recharge CR3. */
 err_t aspace_protect(struct aspace *a, u32 lo, u32 hi, int writable);
 

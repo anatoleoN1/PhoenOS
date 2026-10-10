@@ -1,4 +1,4 @@
-MANUEL DE PHOENOS 0.6.3
+MANUEL DE PHOENOS 0.7.0
 =======================
 Tapez  man            pour la liste des sujets,
        man <sujet>    pour lire un sujet (exemple : man ls).
@@ -109,14 +109,15 @@ Differences avec Unix : pas de droits ni de proprietaires (les dates existent, v
   est en lecture seule. Toute autre adresse l'arrete aussitot : le noyau (faute kern), l'adresse 0
   (faute nul), une page non attribuee (faute vide), son propre code (faute code). Le noyau et le
   shell restent intacts.
-  Limites actuelles : un seul programme a la fois (les espaces separes preparent le multitache,
-  pas encore le partage du processeur) ; 4 Mio d'adresses par programme.
+  Limite : 4 Mio d'adresses par programme (code, donnees, tas, pile). Plusieurs programmes tournent
+  ensemble (man multitache) et peuvent en lancer d'autres (man processus).
   Depuis la 0.4.0 un programme peut aussi CREER, ECRIRE et SUPPRIMER des fichiers (open avec
   options, write, unlink). Les ecritures vont toujours en fin de fichier. Pour garder ces
   fichiers apres un redemarrage : save (voir man stockage).
   Appels systeme (int 0x80 : numero dans eax, arguments dans ebx, ecx, edx, resultat dans eax ;
   negatif = erreur) : exit 1, read 3, write 4, open 5 (options O_WRONLY, O_RDWR, O_CREAT, O_TRUNC, O_APPEND), close 6, unlink 10, time 13,
-  getpid 20, sleep_ms 200, uptime_ms 201. Tous sauf les deux derniers ont les numeros de Linux i386.
+  getpid 20, sleep_ms 200, uptime_ms 201 ; depuis la 0.7.0 : waitpid 7, kill 37, brk 45, getppid 64,
+  yield 158, spawn 202 (man processus). Seuls sleep_ms, uptime_ms, log (199) et spawn sont propres a PhoenOS.
   Ecrire un programme : user/phoenos.h (mini-bibliotheque), user/hello.c (exemple) ; tout
   fichier user/nom.c devient /bin/nom. Code de sortie : main renvoie un entier (0 = succes) ;
   un code non nul est signale par le shell.
@@ -173,10 +174,18 @@ Differences avec Unix : pas de droits ni de proprietaires (les dates existent, v
 
 == ps  - liste les programmes en cours
   Syntaxe : ps
-  Montre le shell (numero 0) et chaque programme lance (numero, etat, tours, nom).
+  Montre le shell (numero 0) et chaque programme lance (numero, PERE = numero du programme qui l'a
+  lance (0 : le shell, ou orphelin), etat, tours, nom).
   Etats : pret (attend son tour), actif (sur le processeur), attend (dort, ou attend le clavier),
   fini (termine, pas encore ramasse). TOURS = nombre de fois que la minuterie l'a interrompu
   pendant qu'il calculait. "(arriere-plan)" : lance avec &. Voir "man multitache".
+
+== wait  - attend la fin d'un programme en arriere-plan (0.7.0)
+  Syntaxe : wait <numero>
+  Bloque le shell jusqu'a la fin du programme (numero donne par ps ou par "[n] ... en arriere-plan"),
+  puis affiche son code de sortie : "[3] termine, code 0". Ctrl+C arrete l'attente (pas le programme).
+  Si le programme est deja fini, le code est quand meme rappele (les 32 derniers sont retenus).
+  Exemple : ticker A 3 300 &   puis   wait 1
 
 == schedlog  - journal de l'ordonnanceur
   Syntaxe : schedlog
@@ -202,12 +211,48 @@ Differences avec Unix : pas de droits ni de proprietaires (les dates existent, v
      ecrit "[numero] nom termine" ;
    - & ne se combine pas avec les tubes (|) ni les redirections (>) ; pas de & pour les commandes
      integrees (seulement run, exe ou un nom de programme).
-  Ordonnanceur : tourniquet, au plus 7 programmes en meme temps, 16 Kio de pile noyau chacun.
+  Ordonnanceur : tourniquet, au plus 15 programmes en meme temps, 16 Kio de pile noyau chacun.
   La minuterie (100 Hz) interrompt un programme qui calcule pour donner la main au suivant ;
   quand un programme dort (sleep_ms) ou attend, les autres tournent. Chaque programme a son propre
   espace d'adresses : aucun ne peut lire ou ecrire la memoire d'un autre.
   Limite : le noyau lui-meme n'est pas interruptible (une commande du shell va jusqu'au bout).
   Programmes de demonstration : ticker (compte avec pauses) et boucle (calcul sans pause).
+
+== processus  - programmes qui en lancent d'autres, tas (0.7.0)
+  Un programme peut lancer d'autres programmes (ses ENFANTS) et attendre leur fin :
+    pid = spawn("ticker", argv);        lance /bin/ticker (argv : textes termines par 0 ; argv[0] = nom)
+    waitpid(pid, &code, 0);             attend cet enfant ; code = son code de sortie
+    waitpid(-1, &code, 0);              attend le PREMIER enfant qui finit (renvoie son numero)
+    waitpid(pid, &code, WNOHANG);       ne bloque pas : 0 s'il tourne encore
+    kill(pid, 15);  yield();  getppid();
+  Regles : un enfant n'a pas de clavier (lire l'entree donne la fin de fichier), s'affiche sur le meme
+  ecran, et ne s'attend qu'une fois (ensuite waitpid renvoie -18 : pas un de vos enfants). Si le parent
+  s'arrete avant ses enfants, ceux-ci continuent seuls (PERE 0 dans ps) et sont liberes a leur fin.
+  Erreurs de spawn : -3 fichier introuvable, -5 trop de programmes (15 au plus), -8 trop d'arguments
+  (16 mots, 4 Kio), -16 pas un programme, -17 pointeur invalide, -12 c'est un dossier.
+  Le TAS : brk(0) donne la fin du tas, brk(adresse) la deplace (de 0 a ~4 Mio apres le programme, une
+  page de garde avant la pile). user/libc.h fournit malloc, free, calloc, realloc, printf, snprintf,
+  qsort et les fonctions de textes par-dessus brk. Demonstrations : lance, essaim, tas.
+  Numeros d'appels : waitpid 7, kill 37, brk 45 (Linux), getppid 64, yield 158 (Linux), spawn 202.
+  Differences avec Linux : pas de fork/exec (spawn fait les deux), le "statut" de waitpid est le code
+  de sortie lui-meme (pas code*256), le signal de kill est ignore (le programme est toujours arrete).
+
+== lance  - lance un programme comme enfant et l'attend (0.7.0)
+  Syntaxe : lance <programme> [arguments...]
+  Lance le programme (nom de /bin ou chemin) avec spawn, attend sa fin avec waitpid, puis affiche
+  son code de sortie et la duree. Exemple : lance primes 50      lance ticker A 3 200
+
+== essaim  - plusieurs enfants a la fois (0.7.0)
+  Syntaxe : essaim [enfants 1-8] [fois 1-100] [ms 10-5000]
+  Lance N ticker en meme temps (le dernier lance est le plus rapide) puis les attend avec waitpid(-1) :
+  ils sont annonces dans l'ordre de leur FIN, pas de leur lancement. Defaut : 4 enfants, 3 fois, 100 ms.
+  Exemple : essaim 3 4 150      puis, pendant qu'il tourne :  ps  (colonne PERE)
+
+== tas  - demonstration du tas : malloc, free, realloc (0.7.0)
+  Syntaxe : tas [blocs]
+  Alloue une liste de N blocs (defaut 1000, max 20000), la parcourt, la libere, cree des trous qu'il
+  reutilise, agrandit un tableau par realloc et le trie. Affiche a chaque etape la memoire prise au noyau
+  par brk et la memoire utilisee : on voit le tas grandir, se fragmenter puis etre rendu. Voir man processus.
 
 == ticker  - compte avec des pauses
   Syntaxe : ticker <nom> [fois] [ms]

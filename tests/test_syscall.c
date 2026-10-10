@@ -27,6 +27,7 @@ void serial_putc(char c) { (void)c; }
 u32 pit_ticks(void) { return 0; }
 u32 pit_uptime_ms(void) { return 4242; }
 static u32 slept;
+static int yielded;
 void pit_sleep_ms(u32 ms) { slept = ms; }
 void test_panic(const char *fmt, ...) { out("  PANIQUE INATTENDUE : "); out(fmt); out("\n"); exit_now(2); }
 
@@ -73,6 +74,30 @@ static int strstr_(const char *h, const char *n)
 
 int  sched_ready(void)       { return 0; }
 void sched_sleep_ms(u32 ms)  { (void)ms; }
+void sched_yield(void)       { yielded++; }
+
+/* 0.7.0 : le vrai user.c est teste dans test_user.c ; ici on verifie seulement ce que syscall.c transmet */
+static u32 sp_path_len; static int sp_argc; static char sp_arg0[32], sp_arg1[32];
+err_t user_spawn_child(struct uproc *p, const char *path, int argc, char **argv, u32 *pid)
+{
+    (void)p;
+    sp_path_len = (u32)strlen(path);
+    sp_argc = argc;
+    strcpy(sp_arg0, argc > 0 ? argv[0] : "");
+    strcpy(sp_arg1, argc > 1 ? argv[1] : "");
+    *pid = 42;
+    return strcmp(path, "/refuse") ? E_OK : E_BUSY;
+}
+static i32 wp_pid; static u32 wp_opt;
+i32 user_waitpid(struct uproc *p, i32 pid, u32 options, int *code)
+{
+    (void)p;
+    wp_pid = pid; wp_opt = options;
+    *code = 77;
+    return pid > 0 ? pid : 5;
+}
+static u32 killed_pid;
+err_t user_kill(u32 pid) { killed_pid = pid; return pid == 9 ? E_NOENT : E_OK; }
 
 int test_main(void)
 {
@@ -274,6 +299,29 @@ int test_main(void)
     CHECK(SYS(SYS_TIME, 0x1000, 0, 0) == E_FAULT);
     CHECK(SYS(999, 0, 0, 0) == E_NOSYS);
     CHECK(SYS(0, 0, 0, 0) == E_NOSYS);
+
+    /* ---- 0.7.0 : spawn, waitpid, kill, getppid, yield (le noyau valide les pointeurs puis transmet) ---- */
+    strcpy((char *)umem + 2000, "/bin/x"); strcpy((char *)umem + 2020, "arg-un"); strcpy((char *)umem + 2040, "arg-deux");
+    { u32 av[3] = { A(2020), A(2040), 0 }; memcpy(umem + 2100, av, sizeof av); }
+    CHECK(SYS(SYS_SPAWN, A(2000), A(2100), 0) == 42 && sp_argc == 2 && !strcmp(sp_arg0, "arg-un") && !strcmp(sp_arg1, "arg-deux"));
+    CHECK(SYS(SYS_SPAWN, A(2000), 0, 0) == 42 && sp_argc == 1 && !strcmp(sp_arg0, "/bin/x") && sp_path_len == 6);   /* sans argv : le chemin */
+    { u32 av0[1] = { 0 }; memcpy(umem + 2200, av0, 4); }
+    CHECK(SYS(SYS_SPAWN, A(2000), A(2200), 0) == 42 && sp_argc == 1 && !strcmp(sp_arg0, "/bin/x"));              /* argv vide : le chemin aussi */
+    CHECK(SYS(SYS_SPAWN, 0, 0, 0) == E_FAULT && SYS(SYS_SPAWN, A(2000), 0x100000, 0) == E_FAULT);
+    strcpy((char *)umem + 2300, "/refuse");
+    CHECK(SYS(SYS_SPAWN, A(2300), 0, 0) == E_BUSY);                                   /* l'erreur du noyau est rendue telle quelle */
+    CHECK(SYS(SYS_WAITPID, 7, A(2400), 0) == 7 && wp_pid == 7 && wp_opt == 0 && *(int *)(umem + 2400) == 77);
+    CHECK(SYS(SYS_WAITPID, (u32)-1, 0, WNOHANG) == 5 && wp_pid == -1 && wp_opt == WNOHANG);   /* statut optionnel */
+    CHECK(SYS(SYS_WAITPID, 7, 0x100000, 0) == E_FAULT);                               /* statut hors zone : refuse AVANT d'attendre */
+    CHECK(SYS(SYS_WAITPID, 7, A(8190), 0) == E_FAULT);
+    CHECK(SYS(SYS_KILL, 5, 15, 0) == 0 && killed_pid == 5);
+    CHECK(SYS(SYS_KILL, 9, 15, 0) == E_NOENT && SYS(SYS_KILL, 5, 32, 0) == E_INVAL);
+    CHECK(SYS(SYS_GETPPID, 0, 0, 0) == (i32)P.ppid);
+    CHECK(SYS(SYS_SCHED_YIELD, 0, 0, 0) == 0 && yielded == 0);                        /* ordonnanceur inactif ici : sans effet */
+    CHECK(SYS(SYS_BRK, 0, 0, 0) == 0);                                                 /* pas de tas dans ce test */
+    P.exit_requested = 0;
+    CHECK(SYS(SYS_KILL, P.pid, 9, 0) == 0 && P.exit_requested && P.exit_code == 130);  /* se tuer soi-meme = s'arreter */
+    P.exit_requested = 0; P.exit_code = 0;
 
     /* ---- exit ---- */
     CHECK(!P.exit_requested);

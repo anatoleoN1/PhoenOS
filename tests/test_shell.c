@@ -85,11 +85,21 @@ u32  sched_idle_count(void)       { return 7; }
 int  sched_trace_get(int i, u32 *t, char *k, u32 *a, u32 *b) { if (i) return 0; *t = 9; *k = 'S'; *a = 0; *b = 1; return 1; }
 int  sched_info(int i, struct task_info *o)
 {
-    if (i == 0) { o->id = 0; strcpy(o->name, "shell"); o->state = T_RUNNING; o->ticks = 5; o->detached = 0; return 1; }
-    if (i == 1) { o->id = 7; strcpy(o->name, "ticker"); o->state = T_BLOCKED; o->ticks = 123; o->detached = 1; return 1; }
+    if (i == 0) { o->id = 0; strcpy(o->name, "shell"); o->state = T_RUNNING; o->ticks = 5; o->detached = 0; o->parent = 0; return 1; }
+    if (i == 1) { o->id = 7; strcpy(o->name, "ticker"); o->state = T_BLOCKED; o->ticks = 123; o->detached = 1; o->parent = 0; return 1; }
     return 0;
 }
 err_t user_kill(u32 pid)          { return pid == 7 ? E_OK : (pid == 0 ? E_INVAL : E_NOENT); }
+/* faux « wait » : 7 -> code 0, 8 -> code 3, 9 -> arrete (130), 10 -> Ctrl+C, 11 -> fini mais code oublie */
+err_t user_wait_pid(u32 pid, int *code, int *known)
+{
+    *known = 0;
+    if (pid == 0) return E_INVAL;
+    if (pid == 7 || pid == 8 || pid == 9) { *known = 1; *code = pid == 7 ? 0 : (pid == 8 ? 3 : 130); return E_OK; }
+    if (pid == 10) return E_INTR;
+    if (pid == 11) return E_OK;
+    return E_NOENT;
+}
 err_t user_spawn_bg(const u8 *img, u32 size, const char *name, int argc, char **argv, u32 *pid)
 {
     if (size < 7 || memcmp(img, "FAKEELF", 7))
@@ -199,7 +209,7 @@ static void verify(void)
     CHECK(count("Taille entre 1 et 4096 Kio.") == 1);
     CHECK(count("\ndeux\n") == 2);                              /* ligne rappelee par les fleches */
     CHECK(count("\nhi\n") == 1);                                /* retour arriere */
-    CHECK(count("^C") == 3 && count("\nnope\n") == 0 && count("\nok\n") == 1);
+    CHECK(count("^C") == 4 && count("\nnope\n") == 0 && count("\nok\n") == 1);
     CHECK(count("\nzzz\n") == 0 && count("\nyes\n") == 1);      /* Ctrl+U */
     CHECK(count("\ndraft\n") == 1);                             /* brouillon restaure apres les fleches */
     CHECK(count("sleep  shutdown") == 1);                       /* Tab : plusieurs possibilites */
@@ -209,15 +219,17 @@ static void verify(void)
     CHECK(count("  1  sleep 250") == 0 || count("  1  ") >= 1); /* history : numerotation */
     CHECK(count("gris clair") == 1 && count("blanc") == 1);     /* colors */
     CHECK(count(" 10   vert clair") == 1);                      /* %2d correct dans colors */
-    CHECK(count("PhoenOS 0.6.3") == 1);                         /* version */
+    CHECK(count("PhoenOS 0.7.0") == 1);                         /* version */
     CHECK(count("<bg hello argc=3 hello a b>") == 1 && count("<bg hello argc=1 hello>") == 1);
     CHECK(count("[7] hello en arriere-plan (ps pour la liste, kill 7 pour l'arreter)") == 2);
     CHECK(count("& : seulement pour les programmes") == 1);
     CHECK(count("& ne se combine pas avec les tubes ni les redirections.") == 1);
     CHECK(count("Commande manquante avant &.") == 1);
-    CHECK(count("NUM  ETAT     TOURS  NOM") == 1 && count("    0  actif        5  shell (le shell)") == 1);
-    CHECK(count("    7  attend     123  ticker (arriere-plan)") == 1 && count("42 changement(s) de tache") == 1);
-    CHECK(count("Aucun programme avec ce numero") == 1 && count("Ce numero n'est pas un programme") == 1);
+    CHECK(count("NUM  PERE  ETAT     TOURS  NOM") == 1 && count("    0     0  actif        5  shell (le shell)") == 1);
+    CHECK(count("    7     0  attend     123  ticker (arriere-plan)") == 1 && count("42 changement(s) de tache") == 1);
+    CHECK(count("Aucun programme avec ce numero") == 2 && count("Ce numero n'est pas un programme") == 2);   /* kill et wait */
+    CHECK(count("[7] termine, code 0\n") == 1 && count("[8] termine, code 3\n") == 1 && count("[9] termine, code 130 (arrete)\n") == 1);
+    CHECK(count("[11] termine\n") == 1 && count("usage : wait <numero>") == 1 && count("[10] termine") == 0);   /* 10 : Ctrl+C */
     CHECK(count("veille (hlt) : 7 tours") == 1 && count("     9 S 0->1") == 1);
     CHECK(count("usage : kill <numero>") == 1 && count("kill : echec") == 0);
     CHECK(count("Sujets du manuel") == 1 && count(" ls  - liste\n cat  - affiche\n") == 1);   /* man seul */
@@ -436,6 +448,14 @@ int test_main(void)
     type("kill 99\n");
     type("kill 0\n");
     type("kill\n");
+    type("wait 7\n");
+    type("wait 8\n");
+    type("wait 9\n");
+    type("wait 10\n");
+    type("wait 11\n");
+    type("wait 99\n");
+    type("wait 0\n");
+    type("wait\n");
     type("schedlog\n");
     type("mkdir -p /a/b\n");
     type("cd /a\n");

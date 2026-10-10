@@ -94,6 +94,19 @@ ucheck "ticker usage" "usage : ticker" "$("$U/ticker" 2>&1)"
 ucheck "ticker borne" "fois entre 1 et 1000" "$("$U/ticker" a 0 2>&1)"
 ucheck "boucle usage" "usage : boucle" "$("$U/boucle" 0 2>&1)"
 
+# 0.7.0 : tas (malloc/free/realloc de user/libc.h, execute pour de vrai sur le brk de Linux) et programmes d'enfants
+ucheck "tas somme" "somme des valeurs : 499500 (attendu 499500)" "$("$U/tas" 1000)"
+ucheck "tas fin" "tas : tout est correct" "$("$U/tas" 1000)"
+ucheck "tas rend la memoire" "a la fin                           : tas pris au noyau   4 Kio, utilise   0 Kio" "$("$U/tas" 5000)"
+ucheck "tas gros" "tas : tout est correct" "$("$U/tas" 20000)"
+ucheck "tas usage" "usage : tas" "$("$U/tas" 0 2>&1)"
+ucheck "lance usage" "usage : lance" "$("$U/lance" 2>&1)"
+ucheck "essaim usage" "usage : essaim" "$("$U/essaim" 0 2>&1)"
+ucheck "essaim borne" "usage : essaim" "$("$U/essaim" 9 2>&1)"
+# printf de libc.h : formats, largeur, zeros, signes
+gcc $UCF -T "$ROOT/user/user.ld" -Wl,--build-id=none -I"$ROOT/user" "$ROOT/tests/user_libc_check.c" "$ROOT/user/crt0.c" -o "$B/user/libc_check" 2> "$B/user/libc_check.err" || { echo "  ECHEC de compilation : libc_check"; cat "$B/user/libc_check.err"; UFAIL=1; }
+ucheck "libc" "libc : tout est correct" "$("$B/user/libc_check" 2>&1)"
+
 # 0.4.0 : programmes qui ECRIVENT des fichiers (memes appels qu'une vraie machine Linux 32 bits)
 rm -f "$B/user/out.txt" "$B/user/notes.txt"
 # notes : meme programme, mais son carnet est un fichier de test (le vrai est /notes.txt dans PhoenOS)
@@ -150,7 +163,7 @@ ucheck "calc fin de fichier" "calc>" "$(printf '5' | "$U/calc")"
 "$U/faute" code >/dev/null 2>&1; [ $? -eq 139 ] || { echo "  ECHEC (faute code : ecriture dans le code)"; UFAIL=1; }
 "$U/faute" vide >/dev/null 2>&1; [ $? -eq 139 ] || { echo "  ECHEC (faute vide : page non attribuee)"; UFAIL=1; }
 "$U/primes" 999999 >/dev/null 2>&1; [ $? -eq 1 ] || { echo "  ECHEC (code de sortie de primes)"; UFAIL=1; }
-if [ $UFAIL -eq 0 ]; then echo "  9 programmes compiles et executes (arguments, entree, fichiers, fautes) => OK"; else echo "  => ECHEC"; FAILED=1; fi
+if [ $UFAIL -eq 0 ]; then echo "  14 programmes compiles et executes (arguments, entree, fichiers, fautes) => OK"; else echo "  => ECHEC"; FAILED=1; fi
 
 # Les ELF reels, pour le chargeur
 run elf 0 test_elf.c elf.c string.c
@@ -159,6 +172,7 @@ run pagination 0 test_paging.c paging.c pmm.c string.c
 run journal-debug 0 test_dlog.c dlog.c kprintf.c string.c
 run ordonnanceur-clavier 0 test_sched_kbd.c sched.c switch.S keyboard.c kheap.c pmm.c string.c
 run ordonnanceur 0 test_sched.c sched.c switch.S kheap.c pmm.c string.c
+run programmes-multiples 0 test_user.c sched.c switch.S syscall.c aspace.c elf.c fs.c poe.c crc32.c dlog.c kprintf.c pmm.c kheap.c string.c rtc.c
 run espaces-adressage 0 test_aspace.c aspace.c paging.c pmm.c string.c
 run appels-systeme 0 test_syscall.c syscall.c dlog.c aspace.c fs.c kprintf.c pmm.c kheap.c string.c rtc.c
 run ecran-defilement 0 -DVGA_TEST_MEMORY=test_vga test_vga.c vga.c string.c
@@ -196,7 +210,7 @@ for c in $cmds $progs; do
     grep -q "^== $c " "$ROOT/initrd/docs/manuel.txt" || { echo "  commande ou programme sans page de manuel : $c"; FAILED=1; }
 done
 for c in $(sed -n 's/^== \([a-z]*\) .*/\1/p' "$ROOT/initrd/docs/manuel.txt"); do
-    case " $cmds $progs general fichiers stockage programmes multitache " in *" $c "*) ;; *) echo "  page de manuel sans commande : $c"; FAILED=1;; esac
+    case " $cmds $progs general fichiers stockage programmes multitache processus " in *" $c "*) ;; *) echo "  page de manuel sans commande : $c"; FAILED=1;; esac
 done
 echo "  manuel verifie : $(echo $cmds | wc -w) commandes et $(echo $progs | wc -w) programmes documentes"
 

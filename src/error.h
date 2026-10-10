@@ -25,7 +25,9 @@ enum {
     E_NAMETOOLONG = -14, /* nom ou chemin trop long   */
     E_FBIG    = -15,  /* fichier trop grand           */
     E_NOEXEC  = -16,  /* pas un programme valide      */
-    E_FAULT   = -17   /* adresse interdite            */
+    E_FAULT   = -17,  /* adresse interdite            */
+    E_CHILD   = -18,  /* pas un de vos programmes enfants */
+    E_INTR    = -19   /* attente interrompue (arret demande) */
 };
 
 static inline const char *err_str(err_t e)
@@ -49,6 +51,8 @@ static inline const char *err_str(err_t e)
     case E_FBIG:    return "fichier trop grand";
     case E_NOEXEC:  return "programme invalide";
     case E_FAULT:   return "adresse interdite";
+    case E_CHILD:   return "pas un programme enfant";
+    case E_INTR:    return "attente interrompue";
     default:        return "erreur inconnue";
     }
 }

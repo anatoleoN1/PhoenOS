@@ -5,6 +5,21 @@ z = correctif ou petite amélioration. Chaque version est livrée testée automa
 les chemins de démarrage réels (GRUB, ISO, anneau 3, activation de la pagination) ne sont
 vérifiables que sur une vraie machine ou sous QEMU : ils sont validés par vos essais.
 
+## 0.7.0 — Programmes complets
+- Appels système `spawn` (202), `waitpid` (7 ; pid, -1, `WNOHANG`), `kill` (37), `brk` (45), `getppid` (64),
+  `yield` (158). Lien parent/enfant dans l'ordonnanceur (`parent`, `sched_children`, `sched_orphan`) : un enfant
+  non détaché est libéré par `waitpid` ; un parent qui s'arrête détache ses enfants.
+- Tas par programme : `brk` mappe/démappe des pages (`aspace_unmap`), de la fin du programme jusqu'à la pile
+  moins une page de garde ; refus propre si la mémoire manque (rien ne change).
+- Ordonnanceur : 16 tâches (15 programmes) ; `ps` affiche la colonne PERE ; commande `wait <numéro>` du shell
+  (codes de sortie des 32 derniers programmes retenus).
+- Programmes : `lance`, `essaim`, `tas` ; bibliothèque `user/libc.h` (malloc/free/calloc/realloc, printf, snprintf,
+  qsort, textes, `err_text`).
+- Codes d'erreur `E_CHILD` (-18), `E_INTR` (-19).
+- Tests : `test_user` (vrai `user.c` + ordonnanceur : spawn, waitpid pid/-1/WNOHANG, orphelins, kill, brk limites et mémoire
+  épuisée, table pleine, aucune fuite de pages), appels système (spawn/waitpid/kill transmis, pointeurs hostiles), shell (`wait`, `ps`),
+  `tas` et `libc.h` exécutés pour de vrai sous Linux 32 bits.
+
 ## 0.6.3 — Plusieurs commandes par ligne
 - `cmdline` : `;` et `&` hors guillemets sont des mots à part entière (même collés). Le shell découpe la ligne en
   commandes : `;` séquentiel, `&` arrière-plan (`execute` → `execute_tokens`) ; 32 mots par ligne, 16 par commande.
