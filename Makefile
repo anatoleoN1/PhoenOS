@@ -13,17 +13,25 @@
 #
 # Diagnostic :
 #   make symbol ADDR=0x100abc   traduit une adresse de la trace d'appel en fonction/ligne
-#   make test-div0 | test-gp | test-panic | test-assert
-#                                déclenche volontairement une erreur pour voir l'écran de panique
+#   make test-div0 | test-gp | test-panic | test-assert | test-doublefree | test-heapcorrupt
+#                                déclenche volontairement une erreur pour voir l'écran d'erreur
+#
+# Thème de l'écran d'erreur : orange par défaut ; violet avec
+#   make run PANIC_THEME=violet
 
 CC      := gcc
 LD      := ld
 QEMU    := qemu-system-i386
 CFLAGS  := -m32 -std=gnu11 -O2 -g -Wall -Wextra -Werror \
            -ffreestanding -fno-stack-protector -fno-pic -fno-pie \
-           -fno-builtin -fno-omit-frame-pointer -nostdlib -mno-sse -mno-mmx \
-           $(EXTRA_CFLAGS)
+           -fno-builtin -fno-omit-frame-pointer -fno-tree-loop-distribute-patterns \
+           -nostdlib -mno-sse -mno-mmx $(THEME_FLAG) $(EXTRA_CFLAGS)
 ASFLAGS := -m32
+
+# make PANIC_THEME=violet  -> écran d'erreur violet (sinon orange)
+ifeq ($(PANIC_THEME),violet)
+THEME_FLAG := -DPANIC_THEME_VIOLET
+endif
 LDFLAGS := -m elf_i386 -T linker.ld -nostdlib -z noexecstack
 
 SRC_C   := $(wildcard src/*.c)
@@ -32,8 +40,8 @@ OBJ     := $(patsubst src/%.c,build/%.o,$(SRC_C)) \
            $(patsubst src/%.S,build/%.o,$(SRC_S))
 
 KERNEL  := build/phoenos.bin
-ISO     := phoenos-0.0.3.iso
-TESTS   := test-div0 test-gp test-panic test-assert
+ISO     := phoenos-0.0.4.iso
+TESTS   := test-div0 test-gp test-panic test-assert test-doublefree test-heapcorrupt
 
 .PHONY: all iso run serial debug check symbol clean $(TESTS)
 

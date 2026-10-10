@@ -35,6 +35,20 @@ void vga_set_color(enum vga_color fg, enum vga_color bg)
     color = (u8)(fg | (bg << 4));
 }
 
+void vga_set_palette(enum vga_color c, u8 r, u8 g, u8 b)
+{
+    /* Index du DAC utilisé par chacune des 16 couleurs du mode texte standard */
+    static const u8 dac_index[16] = {
+        0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x14, 0x07,
+        0x38, 0x39, 0x3A, 0x3B, 0x3C, 0x3D, 0x3E, 0x3F
+    };
+
+    outb(0x3C8, dac_index[c & 15]);
+    outb(0x3C9, (u8)(r >> 2));          /* le DAC travaille sur 6 bits par composante */
+    outb(0x3C9, (u8)(g >> 2));
+    outb(0x3C9, (u8)(b >> 2));
+}
+
 void vga_clear(void)
 {
     for (usize i = 0; i < VGA_WIDTH * VGA_HEIGHT; i++)

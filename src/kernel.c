@@ -3,6 +3,7 @@
  * Point d'entrée du noyau (appelé depuis boot.S).
  */
 #include "types.h"
+#include "multiboot.h"
 #include "vga.h"
 #include "serial.h"
 #include "kprintf.h"
@@ -14,17 +15,12 @@
 #include "pic.h"
 #include "pit.h"
 #include "keyboard.h"
+#include "pmm.h"
+#include "kheap.h"
+#include "string.h"
 
-#define PHOENOS_VERSION            "0.0.3"
+#define PHOENOS_VERSION            "0.0.4"
 #define MULTIBOOT_BOOTLOADER_MAGIC 0x2BADB002
-#define MBI_FLAG_MEM               (1u << 0)
-
-struct multiboot_info {
-    u32 flags;
-    u32 mem_lower;   /* Kio sous 1 Mio */
-    u32 mem_upper;   /* Kio au-dessus de 1 Mio */
-    /* le reste n'est pas utilisé pour l'instant */
-};
 
 static void banner(void)
 {
@@ -45,8 +41,66 @@ static void status(int good, const char *msg)
     kprintf("%s\n", msg);
 }
 
+/* Auto-test du gestionnaire de frames : allocation, libération, réutilisation. */
+static int selftest_pmm(void)
+{
+    u32 before = pmm_free_frames();
+    u32 a = pmm_alloc_frame();
+    u32 b = pmm_alloc_frame();
+    int ok = a && b && a != b && !(a & 0xFFF) && !(b & 0xFFF);
+
+    ok = ok && pmm_free_frames() == before - 2;
+    if (a) pmm_free_frame(a);
+    if (b) pmm_free_frame(b);
+    return ok && pmm_free_frames() == before;
+}
+
+/* Auto-test du tas : blocs de tailles variées, motif d'écriture, fusion des blocs libres. */
+static int selftest_heap(void)
+{
+    struct kheap_stats s0, s1;
+    u8 *p[8];
+    int ok = 1;
+
+    kheap_get_stats(&s0);
+
+    for (int i = 0; i < 8; i++) {
+        p[i] = kmalloc(24u << i);               /* 24, 48, ... 3072 octets */
+        if (!p[i])
+            return 0;
+        memset(p[i], 0xA0 + i, 24u << i);
+    }
+    for (int i = 0; i < 8; i++)                 /* aucun bloc n'a écrasé un autre */
+        for (u32 j = 0; j < (24u << i); j++)
+            if (p[i][j] != 0xA0 + i)
+                ok = 0;
+    kheap_check();
+
+    for (int i = 0; i < 8; i += 2)              /* libère un bloc sur deux, puis le reste */
+        kfree(p[i]);
+    for (int i = 1; i < 8; i += 2)
+        kfree(p[i]);
+    kheap_check();
+
+    kheap_get_stats(&s1);                       /* tout doit avoir fusionné en un seul bloc */
+    ok = ok && s1.used_blocks == 0 && s1.free_blocks == s0.free_blocks &&
+         s1.free_bytes == s0.free_bytes;
+
+    /* kzalloc doit rendre de la mémoire à zéro, même sur un bloc réutilisé */
+    u8 *z = kzalloc(256);
+    if (!z)
+        return 0;
+    for (u32 j = 0; j < 256; j++)
+        if (z[j])
+            ok = 0;
+    kfree(z);
+
+    return ok && kmalloc(0) == NULL && kmalloc(0x7FFFFFFFu) == NULL;
+}
+
 /*
- * Tests de panique volontaires : make test-div0 | test-gp | test-panic | test-assert
+ * Tests de panique volontaires :
+ *   make test-div0 | test-gp | test-panic | test-assert | test-doublefree | test-heapcorrupt
  * (sans option, cette fonction ne fait rien).
  */
 static void run_selected_test(void)
@@ -72,11 +126,25 @@ static void run_selected_test(void)
     kprintf("\nTEST : ASSERT() dans 2 secondes...\n");
     pit_sleep_ms(2000);
     ASSERT(pit_ticks() == 0);
+#elif defined(TEST_DOUBLEFREE)
+    kprintf("\nTEST : double liberation dans 2 secondes...\n");
+    pit_sleep_ms(2000);
+    void *p = kmalloc(64);
+    kfree(p);
+    kfree(p);
+#elif defined(TEST_HEAPCORRUPT)
+    kprintf("\nTEST : debordement de tampon dans 2 secondes...\n");
+    pit_sleep_ms(2000);
+    u8 *p = kmalloc(32);
+    u8 *q = kmalloc(32);
+    memset(p, 0x41, 32 + 16 + 4);              /* déborde sur l'en-tête du bloc suivant */
+    kfree(q);                                   /* la corruption est détectée ici */
 #endif
 }
 
 void kernel_main(u32 magic, const struct multiboot_info *mbi)
 {
+    struct kheap_stats hs;
     err_t e;
 
     serial_init();
@@ -93,14 +161,6 @@ void kernel_main(u32 magic, const struct multiboot_info *mbi)
     ASSERT(mbi != NULL);
     status(1, "Demarre par un bootloader Multiboot");
 
-    if (mbi->flags & MBI_FLAG_MEM) {
-        kprintf("       Memoire : %u Kio (base) + %u Kio (etendue)\n",
-                mbi->mem_lower, mbi->mem_upper);
-        status(1, "Memoire detectee");
-    } else {
-        status(0, "Informations memoire indisponibles");
-    }
-
     gdt_init();
     status(1, "GDT chargee (segments noyau et utilisateur)");
 
@@ -115,11 +175,23 @@ void kernel_main(u32 magic, const struct multiboot_info *mbi)
     cpu_sti();
     status(1, "IDT, PIC, timer (100 Hz) et clavier AZERTY initialises");
 
-    /* Auto-test de l'IDT : un point d'arret doit être traité sans planter. */
     __asm__ volatile ("int3");
     status(isr_breakpoint_count() == 1, "Exceptions CPU : point d'arret traite");
 
-    /* Auto-test du timer : 3 secondes comptées. */
+    /* --- Mémoire --- */
+    pmm_init(mbi);
+    kprintf("       Memoire : %u Kio libres pour le noyau (%u frames de 4 Kio)\n",
+            pmm_free_frames() * 4, pmm_free_frames());
+    status(1, "Gestionnaire de memoire physique initialise");
+
+    kheap_init();
+    kprintf("       Tas du noyau : %u Kio\n", kheap_size() / 1024);
+    status(1, "Tas du noyau initialise (kmalloc / kfree)");
+
+    status(selftest_pmm(),  "Auto-test memoire physique");
+    status(selftest_heap(), "Auto-test du tas (decoupe et fusion des blocs)");
+
+    /* --- Timer --- */
     kprintf("       Timer :");
     for (u32 s = 1; s <= 3; s++) {
         pit_sleep_ms(1000);
@@ -128,11 +200,13 @@ void kernel_main(u32 magic, const struct multiboot_info *mbi)
     kprintf("\n");
     status(pit_ticks() >= 300, "Timer PIT fonctionnel");
 
-    klog(LOG_INFO, "Demarrage termine en %u ms", pit_uptime_ms());
+    kheap_get_stats(&hs);
+    klog(LOG_INFO, "Demarrage termine en %u ms, %u Kio libres dans le tas",
+         pit_uptime_ms(), hs.free_bytes / 1024);
 
     run_selected_test();
 
-    kprintf("\nProchaine etape : gestion de la memoire, puis mini-shell.\n");
+    kprintf("\nProchaine etape : mini-shell.\n");
     kprintf("Clavier AZERTY pret, tapez du texte :\n> ");
 
     for (;;) {

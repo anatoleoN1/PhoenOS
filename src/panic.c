@@ -13,6 +13,23 @@
 
 #define STACK_CANARY 0xC0FFEE42u
 
+/*
+ * Thème de l'écran d'erreur (choisi à la compilation : make PANIC_THEME=violet).
+ * Le mode texte VGA n'a que 16 couleurs : on en redéfinit une (RGB exact) juste
+ * avant d'afficher l'écran d'erreur.
+ */
+#if defined(PANIC_THEME_VIOLET)
+#define PANIC_BG  VGA_MAGENTA
+#define PANIC_R   0x5B
+#define PANIC_G   0x2A
+#define PANIC_B   0x86
+#else                                   /* orange (défaut) : couleur du phénix */
+#define PANIC_BG  VGA_BROWN
+#define PANIC_R   0xC2
+#define PANIC_G   0x56
+#define PANIC_B   0x00
+#endif
+
 static volatile int panicking;
 
 void panic_begin(const char *title)
@@ -27,9 +44,12 @@ void panic_begin(const char *title)
     }
     panicking = 1;
 
-    vga_set_color(VGA_WHITE, VGA_RED);
+    vga_set_palette(PANIC_BG, PANIC_R, PANIC_G, PANIC_B);
+    vga_set_color(VGA_WHITE, PANIC_BG);
     vga_clear();
-    kprintf("\n  PhoenOS - PANIQUE NOYAU\n  %s\n\n", title);
+    kprintf("\n\n  :(\n\n");
+    kprintf("  PhoenOS a rencontre un probleme et s'est arrete.\n");
+    kprintf("  %s\n\n", title);
 }
 
 void panic_backtrace(u32 ebp, u32 eip)

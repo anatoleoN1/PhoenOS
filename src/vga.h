@@ -12,6 +12,9 @@ enum vga_color {
 
 void vga_init(void);
 void vga_set_color(enum vga_color fg, enum vga_color bg);
+
+/* Redéfinit la couleur RGB (0-255) associée à l'une des 16 couleurs du mode texte. */
+void vga_set_palette(enum vga_color c, u8 r, u8 g, u8 b);
 void vga_clear(void);
 void vga_putc(char c);
 void vga_puts(const char *s);

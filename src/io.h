@@ -25,4 +25,17 @@ static inline void cpu_cli(void)  { __asm__ volatile ("cli"); }
 static inline void cpu_sti(void)  { __asm__ volatile ("sti"); }
 static inline void cpu_hlt(void)  { __asm__ volatile ("hlt"); }
 
+/* Section critique : coupe les interruptions et renvoie l'état précédent. */
+static inline u32 cpu_irq_save(void)
+{
+    u32 flags;
+    __asm__ volatile ("pushf; pop %0; cli" : "=r"(flags) : : "memory");
+    return flags;
+}
+
+static inline void cpu_irq_restore(u32 flags)
+{
+    __asm__ volatile ("push %0; popf" : : "r"(flags) : "memory", "cc");
+}
+
 #endif
