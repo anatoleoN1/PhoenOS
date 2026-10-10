@@ -5,6 +5,7 @@
  * Tout pointeur recu d'un programme est verifie : il doit rester dans la zone du programme.
  */
 #include "user.h"
+#include "aspace.h"
 #include "fs.h"
 #include "kprintf.h"
 #include "keyboard.h"
@@ -38,20 +39,22 @@ void user_proc_reset(struct uproc *p, const char *name)
         p->name[i] = name[i];
 }
 
-static int user_range(const struct uproc *p, u32 addr, u32 len)
+/* [addr, addr+len) est-il dans la fenetre du programme ET (s'il a un espace d'adressage) fait-il
+ * partie de ses pages mappees ? write = 1 : le noyau va y ECRIRE (la page doit etre modifiable). */
+static int user_range(const struct uproc *p, u32 addr, u32 len, int write)
 {
     u32 end = addr + len;
 
-    if (addr < p->win_lo || addr > p->win_hi || end < addr)
+    if (addr < p->win_lo || addr > p->win_hi || end < addr || end > p->win_hi)
         return 0;
-    return end <= p->win_hi;
+    return !p->as || aspace_check(p->as, addr, len, write);
 }
 
 /* Copie une chaine terminee par 0 depuis le programme ; -1 si elle sort de la zone ou est trop longue. */
 static int user_string(const struct uproc *p, u32 addr, char *dst, u32 max)
 {
     for (u32 i = 0; i < max; i++) {
-        if (!user_range(p, addr + i, 1))
+        if (!user_range(p, addr + i, 1, 0))
             return -1;
         dst[i] = *(const char *)(addr + i);
         if (!dst[i])
@@ -109,7 +112,7 @@ static i32 sys_read(struct uproc *p, u32 fd, u32 buf, u32 n)
 {
     u32 avail, take;
 
-    if (!user_range(p, buf, n))
+    if (!user_range(p, buf, n, 1))
         return E_FAULT;
     if (n == 0)
         return 0;
@@ -158,7 +161,7 @@ static i32 sys_write(struct uproc *p, u32 fd, u32 buf, u32 n)
     if (n > WRITE_MAX)
         n = WRITE_MAX;
     if (fd == 1 || fd == 2) {
-        if (!user_range(p, buf, n))
+        if (!user_range(p, buf, n, 0))
             return E_FAULT;
         out_bytes((const u8 *)buf, n, fd == 2);
         return (i32)n;
@@ -169,7 +172,7 @@ static i32 sys_write(struct uproc *p, u32 fd, u32 buf, u32 n)
 
         if (!f->writable)
             return E_INVAL;
-        if (!user_range(p, buf, n))
+        if (!user_range(p, buf, n, 0))
             return E_FAULT;
         e = fs_append(f->node, (const void *)buf, n);           /* toujours en fin de fichier */
         if (e != E_OK)
@@ -268,7 +271,7 @@ i32 syscall_dispatch(struct uproc *p, u32 nr, u32 a, u32 b, u32 c)
         u32 t = rtc_now_unix();
 
         if (a) {
-            if (!user_range(p, a, 4))
+            if (!user_range(p, a, 4, 1))
                 return E_FAULT;
             memcpy((void *)a, &t, 4);
         }

@@ -5,6 +5,8 @@
  */
 #include "user.h"
 #include "elf.h"
+#include "aspace.h"
+#include "paging.h"
 #include "pmm.h"
 #include "kprintf.h"
 #include "vga.h"
@@ -80,27 +82,61 @@ static err_t build_stack(u8 *mem, int argc, char **argv, u32 *esp)
     return E_OK;
 }
 
+_Static_assert(USER_BASE == ASPACE_BASE && USER_END == ASPACE_END, "zone des programmes = une table de pages");
+
+static struct aspace space;                     /* espace d'adressage du programme en cours */
+
+/* Rend la main au noyau (son repertoire de pages) et libere les pages du programme. */
+static void space_release(void)
+{
+    aspace_activate_kernel();
+    aspace_destroy(&space);
+}
+
 err_t user_exec(const u8 *image, u32 size, const char *name, int argc, char **argv,
                 struct user_result *res)
 {
-    u8 *mem = (u8 *)USER_BASE;
+    struct elf_seg segs[ELF_MAX_SEGS];
+    int nseg = 0;
     u32 entry, esp;
+    u32 stack_lo = USER_END - USER_STACK_SIZE;
     err_t e;
 
-    if (!user_ok)
+    if (!user_ok || !paging_enabled())
         return E_NOSYS;
     if (proc.running)
         return E_BUSY;
 
-    memset(mem, 0, USER_SIZE);                  /* repart d'une zone propre */
-    e = elf_load(image, size, mem, USER_BASE, USER_END - USER_STACK_SIZE, &entry);
+    e = elf_segments(image, size, USER_BASE, stack_lo, segs, &nseg, &entry);   /* valide avant de rien reserver */
     if (e != E_OK)
         return e;
-    e = build_stack(mem, argc, argv, &esp);
+    e = aspace_create(&space);
     if (e != E_OK)
         return e;
+    for (int i = 0; i < nseg && e == E_OK; i++)
+        e = aspace_map(&space, segs[i].lo, segs[i].hi, 1);          /* en ecriture le temps du chargement */
+    if (e == E_OK)
+        e = aspace_map(&space, stack_lo, USER_END, 1);
+    if (e != E_OK) {
+        aspace_destroy(&space);
+        return e;
+    }
+
+    aspace_activate(&space);                    /* a partir d'ici le noyau voit la memoire DU programme en 4-8 Mio */
+    e = elf_load(image, size, (u8 *)USER_BASE, USER_BASE, stack_lo, &entry);
+    if (e == E_OK)
+        e = build_stack((u8 *)USER_BASE, argc, argv, &esp);
+    if (e != E_OK) {
+        space_release();
+        return e;
+    }
+    for (int i = 0; i < nseg; i++)              /* code et constantes : lecture seule (W^X partiel) */
+        if (!segs[i].writable)
+            aspace_protect(&space, segs[i].lo, segs[i].hi, 0);
+    aspace_activate(&space);                    /* recharge CR3 : vide le cache des traductions */
 
     user_proc_reset(&proc, name);
+    proc.as = &space;
     proc.in = pending_in;
     proc.in_len = pending_in_len;
     proc.in_set = pending_in_set;
@@ -114,8 +150,10 @@ err_t user_exec(const u8 *image, u32 size, const char *name, int argc, char **ar
     user_enter(&proc.ctx, entry, esp, &tss.esp0);
 
     proc.running = 0;
+    proc.as = NULL;
     current_result = NULL;
     res->exit_code = proc.exit_code;
+    space_release();
     return E_OK;
 }
 

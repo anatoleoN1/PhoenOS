@@ -63,6 +63,14 @@ for f in "$ROOT"/user/*.c; do
 done
 echo "bonjour
 deux" > "$B/user/data.txt"
+# 0.5.0 : l'outil mkpoe (compile pour de vrai) emballe des programmes en applications .poe
+if ! gcc -Wall -Wextra -Werror -iquote "$ROOT/src" "$ROOT/tools/mkpoe.c" "$ROOT/src/crc32.c" -o "$B/mkpoe" 2> "$B/mkpoe.err"; then
+    echo "  ECHEC de compilation : mkpoe"; cat "$B/mkpoe.err"; UFAIL=1
+else
+    "$B/mkpoe" -n calc -v 9.8.7 -a "Equipe Test" "$B/user/calc" "$B/user/calc.poe" > /dev/null || UFAIL=1
+    "$B/mkpoe" -n gui -v 1.0 -a Test -g "$B/user/hello" "$B/user/gui.poe" > /dev/null || UFAIL=1
+    "$B/mkpoe" -n net -v 1.0 -a Test -r "$B/user/hello" "$B/user/net.poe" > /dev/null || UFAIL=1
+fi
 ucheck() { # description, attendu (sous-chaine), sortie
     if printf '%s' "$3" | grep -qF -- "$2"; then :; else echo "  ECHEC ($1) : attendu '$2', obtenu : $3"; UFAIL=1; fi
 }
@@ -130,13 +138,17 @@ ucheck "calc fin de fichier" "calc>" "$(printf '5' | "$U/calc")"
 "$U/faute" io >/dev/null 2>&1;  [ $? -eq 139 ] || { echo "  ECHEC (faute io)"; UFAIL=1; }
 "$U/faute" kern >/dev/null 2>&1; [ $? -eq 139 ] || { echo "  ECHEC (faute kern)"; UFAIL=1; }
 "$U/faute" nul >/dev/null 2>&1;  [ $? -eq 139 ] || { echo "  ECHEC (faute nul)"; UFAIL=1; }
+"$U/faute" code >/dev/null 2>&1; [ $? -eq 139 ] || { echo "  ECHEC (faute code : ecriture dans le code)"; UFAIL=1; }
+"$U/faute" vide >/dev/null 2>&1; [ $? -eq 139 ] || { echo "  ECHEC (faute vide : page non attribuee)"; UFAIL=1; }
 "$U/primes" 999999 >/dev/null 2>&1; [ $? -eq 1 ] || { echo "  ECHEC (code de sortie de primes)"; UFAIL=1; }
-if [ $UFAIL -eq 0 ]; then echo "  7 programmes compiles et executes (arguments, entree, fichiers, fautes) => OK"; else echo "  => ECHEC"; FAILED=1; fi
+if [ $UFAIL -eq 0 ]; then echo "  9 programmes compiles et executes (arguments, entree, fichiers, fautes) => OK"; else echo "  => ECHEC"; FAILED=1; fi
 
 # Les ELF reels, pour le chargeur
 run elf 0 test_elf.c elf.c string.c
+run poe 0 test_poe.c poe.c elf.c crc32.c string.c
 run pagination 0 test_paging.c paging.c pmm.c string.c
-run appels-systeme 0 test_syscall.c syscall.c fs.c kprintf.c pmm.c kheap.c string.c rtc.c
+run espaces-adressage 0 test_aspace.c aspace.c paging.c pmm.c string.c
+run appels-systeme 0 test_syscall.c syscall.c aspace.c fs.c kprintf.c pmm.c kheap.c string.c rtc.c
 run ecran-defilement 0 -DVGA_TEST_MEMORY=test_vga test_vga.c vga.c string.c
 run kprintf             0   test_kprintf.c kprintf.c string.c
 run fichiers 0 test_fs.c fs.c pmm.c kheap.c string.c
@@ -157,7 +169,7 @@ ligne2" ] && echo "  => OK" || { echo "  => ECHEC (contenu extrait different)"; 
         echo "  => ECHEC : tar refuse l'archive"; cat "$B/snapshot.err"; FAILED=1
     fi
 fi
-SH="test_shell.c shell.c cmdline.c kprintf.c pmm.c kheap.c string.c fs.c initrd.c persist.c ata.c crc32.c tarw.c rtc.c"
+SH="test_shell.c shell.c poe.c cmdline.c kprintf.c pmm.c kheap.c string.c fs.c initrd.c persist.c ata.c crc32.c tarw.c rtc.c"
 run shell-session       0   -DMODE=0 $SH
 run shell-crash-panic   100 -DMODE=1 $SH
 run shell-crash-assert  100 -DMODE=2 $SH

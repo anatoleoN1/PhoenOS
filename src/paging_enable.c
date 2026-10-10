@@ -5,6 +5,7 @@
 #include "paging.h"
 #include "pmm.h"
 #include "user.h"
+#include "aspace.h"
 #include "kprintf.h"
 #include "string.h"
 
@@ -14,6 +15,7 @@ extern char kernel_ro_end[];                    /* fin de .text + .rodata (linke
 static int enabled;
 static u32 table_bytes;
 static u32 mapped_top;
+static u32 kernel_cr3;
 
 err_t paging_init(void)
 {
@@ -33,10 +35,6 @@ err_t paging_init(void)
     cfg.map_top = top;
     cfg.ro_lo = (u32)kernel_start;
     cfg.ro_hi = (u32)kernel_ro_end;
-    if (user_available()) {
-        cfg.user_lo = USER_BASE;
-        cfg.user_hi = USER_END;
-    }
     cfg.unc_lo = 0xA0000;                       /* memoire video : sans cache */
     cfg.unc_hi = 0xC0000;
 
@@ -53,6 +51,9 @@ err_t paging_init(void)
         return e;
     }
 
+    /* La zone des programmes (4-8 Mio) reste mappee dans le noyau (reservee au noyau, U/S = 0) :
+     * chaque programme la remplace par SA table de pages (aspace.c). */
+
     __asm__ volatile (
         "movl %0, %%cr3\n\t"
         "movl %%cr0, %%eax\n\t"
@@ -62,6 +63,8 @@ err_t paging_init(void)
         : : "r"(base) : "eax", "memory");
 
     enabled = 1;
+    kernel_cr3 = base;
+    aspace_set_kernel_dir((const u32 *)base);
     table_bytes = frames * PAGE_SIZE;
     mapped_top = top;
     return E_OK;
@@ -70,3 +73,17 @@ err_t paging_init(void)
 int paging_enabled(void)      { return enabled; }
 u32 paging_table_bytes(void)  { return table_bytes; }
 u32 paging_mapped_top(void)   { return mapped_top; }
+
+void aspace_activate(const struct aspace *a)
+{
+    u32 cr3 = aspace_cr3(a);
+
+    __asm__ volatile ("movl %0, %%cr3" : : "r"(cr3) : "memory");
+}
+
+void aspace_activate_kernel(void)
+{
+    u32 cr3 = kernel_cr3;
+
+    __asm__ volatile ("movl %0, %%cr3" : : "r"(cr3) : "memory");
+}

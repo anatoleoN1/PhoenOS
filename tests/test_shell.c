@@ -20,6 +20,7 @@
 #include "fs.h"
 #include "rtc.h"
 #include "user.h"
+#include "crc32.h"
 #include "initrd.h"
 #include "ata.h"
 #include "persist.h"
@@ -173,14 +174,14 @@ static void verify(void)
     CHECK(count("  1  sleep 250") == 0 || count("  1  ") >= 1); /* history : numerotation */
     CHECK(count("gris clair") == 1 && count("blanc") == 1);     /* colors */
     CHECK(count(" 10   vert clair") == 1);                      /* %2d correct dans colors */
-    CHECK(count("PhoenOS 0.4.0") == 1);                         /* version */
+    CHECK(count("PhoenOS 0.5.0") == 1);                         /* version */
     CHECK(count("Sujets du manuel") == 1 && count(" ls  - liste\n cat  - affiche\n") == 1);   /* man seul */
     CHECK(count("ls  - liste\n  Syntaxe : ls [-l]\n  Option -l\n") == 1 && count("Syntaxe : cat [-n]") == 0);   /* man ls : uniquement sa section */
     CHECK(count("man: pas de manuel pour 'nope'") == 1);
     CHECK(count("usage : man [commande]") == 1);
     CHECK(count("    1  hello\n    2  more\n    3  hello\n    4  more\n") == 1);
     CHECK(count("usage : cat [-n] [fichier...]") == 1);
-    CHECK(count("5 dossier(s)\n") == 1 && count("tree -d") == 1);
+    CHECK(count("6 dossier(s)\n") == 1 && count("tree -d") == 1);
     CHECK(scroll_total == 36 && scroll_resets > 100);           /* +12 +12 -12 ; toute autre touche ramene en bas */
     CHECK(count("\napres-defilement\n") == 1);
     CHECK(count("FAKE DISK 9000  16 Mio") == 2);
@@ -212,7 +213,7 @@ static void verify(void)
     CHECK(count("b/  f.txt  g.txt  ") == 1);                    /* ls apres cp */
     CHECK(count("cat g.txt \n") == 1);                          /* Tab complete g<Tab> en g.txt */
     CHECK(count("00000000  68 65 6c 6c 6f") == 1 && count("... 6 octet(s) de plus") == 1);   /* hexdump */
-    CHECK(count("4 dossier(s), 7 fichier(s)") == 1);            /* tree / */
+    CHECK(count("5 dossier(s), 10 fichier(s)") == 1);            /* tree / */
     CHECK(count("Redirection : cmd") == 3);                /* help, puis cat h.txt (help redirige) */
     CHECK(count("Commandes (Tab complete") == 3);               /* help redirige + cat : sortie bien capturee */
     CHECK(count("PANIQUE") == 0);
@@ -256,6 +257,14 @@ static void verify(void)
     CHECK(count_end("usage : more [fichier]") == 1 && count_end("more: /nofile: introuvable") == 1);
     CHECK(count_end("\nL1\n") >= 1);                                /* more fichier > fichier : copie sans invite */
     CHECK(count_end("apres-more\n") >= 1 && count_end("apres-more2\n") >= 1 && count_end("apres-more3\n") >= 1);
+    CHECK(count_end("<fake argc=3 fake a b>\n") == 1 && count_end("<fake argc=1 fake>\n") == 1 && count_end("<fake argc=2 fake z>\n") == 1);
+    CHECK(count_end("Application    : fake 1.2\n") == 1 && count_end("Auteur         : Moi\n") == 2);
+    CHECK(count_end("Etat           : valide\n") == 1 && count_end("somme de controle exacte") == 1);
+    CHECK(count_end("/apps/bad.poe : programme abime") == 1 && count_end("somme de controle FAUSSE") == 1);
+    CHECK(count_end("/apps/gui.poe : exige une fonction pas encore disponible") == 1);
+    CHECK(count_end("exe : /long.txt n'est pas une application .poe") == 1);
+    CHECK(count_end("exe: nofile: introuvable") == 1 && count_end("usage : exe <application>") == 1);
+    CHECK(count_end("/long.txt : ce n'est pas une application .poe") == 1);
     CHECK(count_end("Redemarrage...") == 1);
     CHECK(count_end("Sauvegarde des fichiers sur le disque... ok (generation 3)") == 1);
     {                                                           /* la sauvegarde automatique est bien sur le « disque » */
@@ -310,6 +319,25 @@ int test_main(void)
         fs_create("/bin/hello", &f); fs_write(f, "FAKEELF", 7);
         fs_create("/bin/bad", &f); fs_write(f, "FAKEELF", 7);
         fs_create("/bin/notelf", &f); fs_write(f, "junkjunk", 8);
+        fs_mkdir("/apps");
+        {   /* applications .poe : fake (valide), bad (somme de controle fausse), gui (exige l'interface graphique) */
+            static const struct { const char *path, *name; u32 flags; u32 crc_xor; } apps[] = {
+                { "/apps/fake.poe", "fake", 0, 0 }, { "/apps/bad.poe", "bad", 0, 1 }, { "/apps/gui.poe", "gui", 1, 0 },
+            };
+
+            for (int i = 0; i < 3; i++) {
+                u8 poe[96 + 8];
+                u32 crc = crc32_update(0, "FAKEELF!", 8) ^ apps[i].crc_xor;
+
+                memset(poe, 0, sizeof poe);
+                memcpy(poe, "POE\1", 4); poe[4] = 1; poe[6] = (u8)apps[i].flags; poe[8] = 1;
+                poe[12] = 96; poe[16] = 8;
+                memcpy(poe + 20, &crc, 4);
+                strcpy((char *)poe + 24, apps[i].name); strcpy((char *)poe + 56, "1.2"); strcpy((char *)poe + 72, "Moi");
+                memcpy(poe + 96, "FAKEELF!", 8);
+                fs_create(apps[i].path, &f); fs_write(f, poe, sizeof poe);
+            }
+        }
         fs_mkdir("/docs");
         fs_create("/docs/manuel.txt", &f);
         fs_write(f, man, sizeof man - 1);
@@ -458,6 +486,18 @@ int test_main(void)
     type("more /nofile\n");
     type("more a b\n");
     type("more\n");
+    /* ---- 0.5.0 : applications .poe ---- */
+    type("exe fake a b\n");
+    type("exe /apps/fake.poe\n");
+    type("fake z\n");                                           /* nom seul : /apps/fake.poe */
+    type("poeinfo fake\n");
+    type("exe bad\n");
+    type("poeinfo bad\n");
+    type("exe gui\n");
+    type("exe /long.txt\n");
+    type("exe nofile\n");
+    type("exe\n");
+    type("poeinfo /long.txt\n");
     type("reboot\n");
 #elif MODE == 1
     expect = "Panique demandee"; type("crash panic\n");

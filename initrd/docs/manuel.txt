@@ -1,4 +1,4 @@
-MANUEL DE PHOENOS 0.4.0
+MANUEL DE PHOENOS 0.5.0
 =======================
 Tapez  man            pour la liste des sujets,
        man <sujet>    pour lire un sujet (exemple : man ls).
@@ -86,7 +86,7 @@ Differences avec Unix : pas de droits ni de proprietaires (les dates existent, v
     saisie   demande un nom (clavier ou tube : echo Zoe | saisie) et dit bonjour
     compte   lignes et octets de fichiers (compte /etc/motd)
     heure    heure machine (secondes depuis 1970), duree depuis le demarrage, pause
-    faute    provoque une erreur (gp | div | ud | io | kern | nul) : le noyau arrete le programme
+    faute    provoque une erreur (gp | div | ud | io | kern | nul | code | vide) : le noyau arrete le programme
     calc     calculatrice (calc 2+3*4, ou sans argument : mode interactif ; man calc)
     copie    copie un fichier (copie a.txt b.txt)
     notes    carnet de notes dans /notes.txt (notes acheter du pain ; notes ; notes -v)
@@ -95,12 +95,14 @@ Differences avec Unix : pas de droits ni de proprietaires (les dates existent, v
   arrete avec un message (adresse, exception) et vous revenez au shell. Ctrl+C arrete un
   programme qui attend une saisie. Les programmes marchent dans les tubes et les redirections :
   primes 50 > p.txt    echo Zoe | saisie.
-  Memoire : depuis la 0.2.0 la pagination est active. Un programme ne voit et ne modifie que
-  SA zone (4 Mio a 8 Mio) ; toucher le noyau, l'adresse 0 ou n'importe quelle autre adresse
-  l'arrete aussitot (essayez faute kern et faute nul) : le noyau et le shell restent intacts.
-  Limites actuelles : un seul programme a la fois ; 4 Mio de memoire par programme ;
-  les programmes partagent encore le meme espace d'adresses (un espace par programme viendra
-  avec le multitache).
+  Memoire : depuis la 0.5.0 chaque programme a SON espace d'adressage (son propre repertoire
+  de pages). Il voit ses pages a partir de 4 Mio ; le noyau lui donne uniquement ce dont il a
+  besoin (son code, ses donnees, 64 Kio de pile) et reprend tout a la fin. Le code du programme
+  est en lecture seule. Toute autre adresse l'arrete aussitot : le noyau (faute kern), l'adresse 0
+  (faute nul), une page non attribuee (faute vide), son propre code (faute code). Le noyau et le
+  shell restent intacts.
+  Limites actuelles : un seul programme a la fois (les espaces separes preparent le multitache,
+  pas encore le partage du processeur) ; 4 Mio d'adresses par programme.
   Depuis la 0.4.0 un programme peut aussi CREER, ECRIRE et SUPPRIMER des fichiers (open avec
   options, write, unlink). Les ecritures vont toujours en fin de fichier. Pour garder ces
   fichiers apres un redemarrage : save (voir man stockage).
@@ -373,9 +375,11 @@ Differences avec Unix : pas de droits ni de proprietaires (les dates existent, v
   En mode interactif : q (ou quit, exit, Ctrl+C) pour sortir.  Voir "man programmes".
 
 == faute  - provoque une erreur dans un programme (pour tester la protection)
-  Syntaxe : faute <type>   (types : gp | div | ud | io | kern | nul)
+  Syntaxe : faute <type>   (types : gp | div | ud | io | kern | nul | code | vide)
   Types : gp (instruction privilegiee), div (division par zero), ud (instruction invalide),
-          io (acces a un port), kern (ecriture dans la memoire du noyau), nul (adresse 0).
+          io (acces a un port), kern (ecriture dans la memoire du noyau), nul (adresse 0),
+          code (ecriture dans le code du programme lui-meme : lecture seule),
+          vide (lecture d'une page que le noyau n'a pas donnee au programme).
   Le noyau arrete uniquement le programme, affiche la cause et l'adresse, puis vous revenez
   au shell : rien d'autre n'est touche. Sans argument : message d'usage.
   Exemple : faute kern   puis   mem   (le noyau est intact)
@@ -411,3 +415,18 @@ Differences avec Unix : pas de droits ni de proprietaires (les dates existent, v
             notes                affiche les notes, numerotees
             notes -v             vide le carnet
   Pour les garder apres un redemarrage : save.  Exemple : notes acheter du pain
+
+== exe  - lance une application .poe
+  Syntaxe : exe <application>[.poe] [arguments...]
+  Une application .poe est un programme emballe avec une etiquette (nom, version, auteur,
+  exigences). exe la cherche telle quelle, avec ".poe", puis dans /apps. Avant de la lancer,
+  PhoenOS verifie l'etiquette et la somme de controle, et refuse proprement ce qu'il ne sait
+  pas encore faire (interface graphique, reseau, systeme trop ancien).
+  Taper simplement le nom (calc) marche aussi si /apps/calc.poe existe.
+  Voir aussi poeinfo.  Exemple : exe calc 2+3
+
+== poeinfo  - etiquette d'une application .poe
+  Syntaxe : poeinfo <application>[.poe]
+  Affiche nom, version, auteur, exigences, taille et etat (valide, abimee, trop recente...).
+  Exemple : poeinfo calc
+

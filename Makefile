@@ -88,6 +88,9 @@ iso: $(KERNEL) $(USER_ELFS)
 	cp -r initrd build/initrd
 	mkdir -p build/initrd/bin
 	for p in $(USER_PROGS); do cp build/user/$$p.elf build/initrd/bin/$$p; done
+	mkdir -p build/initrd/apps
+	gcc -Wall -iquote src tools/mkpoe.c src/crc32.c -o build/mkpoe
+	for p in $(USER_PROGS); do build/mkpoe -n $$p -v $(VERSION) -a PhoenOS build/user/$$p.elf build/initrd/apps/$$p.poe >/dev/null; done
 	tar --format=ustar --owner=0 --group=0 --numeric-owner -cf build/isodir/boot/initrd.tar -C build/initrd .
 	grub-mkrescue -o $(ISO) build/isodir
 	@echo ">> $(ISO) pret"

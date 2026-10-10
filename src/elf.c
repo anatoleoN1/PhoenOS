@@ -22,12 +22,14 @@ struct elf_phdr {
     u32 type, offset, vaddr, paddr, filesz, memsz, flags, align;
 } __attribute__((packed));
 
-err_t elf_load(const u8 *img, u32 size, u8 *mem, u32 lo, u32 hi, u32 *entry)
+/* mem == NULL : valide seulement (et remplit segs / nsegs si fournis). */
+static err_t elf_walk(const u8 *img, u32 size, u8 *mem, u32 lo, u32 hi, u32 *entry,
+                      struct elf_seg *segs, int *nsegs)
 {
     struct elf_header h;
     int loaded = 0, entry_ok = 0;
 
-    if (!img || !mem || hi <= lo || size < sizeof(h))
+    if (!img || hi <= lo || size < sizeof(h))
         return E_NOEXEC;
     memcpy(&h, img, sizeof(h));
 
@@ -55,8 +57,20 @@ err_t elf_load(const u8 *img, u32 size, u8 *mem, u32 lo, u32 hi, u32 *entry)
         if (p.offset > size || p.filesz > size - p.offset)
             return E_NOEXEC;                                        /* segment hors du fichier */
 
-        memcpy(mem + (p.vaddr - lo), img + p.offset, p.filesz);
-        memset(mem + (p.vaddr - lo) + p.filesz, 0, p.memsz - p.filesz);
+        if (segs) {
+            if (loaded >= ELF_MAX_SEGS)
+                return E_NOEXEC;
+            for (int k = 0; k < loaded; k++)
+                if (p.vaddr < segs[k].hi && segs[k].lo < p.vaddr + p.memsz)
+                    return E_NOEXEC;                            /* segments qui se chevauchent */
+            segs[loaded].lo = p.vaddr;
+            segs[loaded].hi = p.vaddr + p.memsz;
+            segs[loaded].writable = (p.flags & 2) != 0;
+        }
+        if (mem) {
+            memcpy(mem + (p.vaddr - lo), img + p.offset, p.filesz);
+            memset(mem + (p.vaddr - lo) + p.filesz, 0, p.memsz - p.filesz);
+        }
         loaded++;
         if (h.entry >= p.vaddr && h.entry - p.vaddr < p.memsz)
             entry_ok = 1;
@@ -64,5 +78,19 @@ err_t elf_load(const u8 *img, u32 size, u8 *mem, u32 lo, u32 hi, u32 *entry)
     if (!loaded || !entry_ok)
         return E_NOEXEC;
     *entry = h.entry;
+    if (nsegs)
+        *nsegs = loaded;
     return E_OK;
+}
+
+err_t elf_segments(const u8 *img, u32 size, u32 lo, u32 hi, struct elf_seg *segs, int *nsegs, u32 *entry)
+{
+    return elf_walk(img, size, NULL, lo, hi, entry, segs, nsegs);
+}
+
+err_t elf_load(const u8 *img, u32 size, u8 *mem, u32 lo, u32 hi, u32 *entry)
+{
+    if (!mem)
+        return E_NOEXEC;
+    return elf_walk(img, size, mem, lo, hi, entry, NULL, NULL);
 }

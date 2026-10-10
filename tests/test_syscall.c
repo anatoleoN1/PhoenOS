@@ -1,6 +1,7 @@
 /* Test du vrai syscall.c : appels systeme avec un faux programme (memoire = tableau du test). */
 #include "testlib.h"
 #include "user.h"
+#include "aspace.h"
 #include "fs.h"
 #include "kprintf.h"
 #include "keyboard.h"
@@ -41,6 +42,9 @@ static void type(const char *s) { while (*s) keys[nk++] = (u8)*s++; }
 static int shows(const char *sub) { usize n = strlen(sub); for (usize i = 0; i + n <= slen_; i++) if (!memcmp(screen + i, sub, n)) return 1; return 0; }
 
 enum { O_WRONLY = 1, O_RDWR = 2, O_CREAT = 0x40, O_TRUNC = 0x200, O_APPEND = 0x400 };
+void aspace_activate(const struct aspace *a) { (void)a; }
+void aspace_activate_kernel(void) { }
+static u32 kdir[1024] __attribute__((aligned(4096)));
 static struct uproc P;
 #define A(x) ((u32)(umem + (x)))
 #define SYS(nr, a, b, c) syscall_dispatch(&P, (nr), (a), (b), (c))
@@ -157,6 +161,31 @@ int test_main(void)
         CHECK(fs_lookup("/d/sous.txt", &f) == E_OK && f->size == big);      /* rien d'ecrit a moitie */
         SYS(SYS_CLOSE, 3, 0, 0);
         fs_remove("/d/sous.txt", 0);
+    }
+
+    /* ---- pages reellement mappees (0.5.0) : un pointeur dans la fenetre mais sur une page absente est refuse ---- */
+    {
+        struct aspace S;
+        struct uproc Q;
+
+        aspace_set_kernel_dir(kdir);
+        CHECK(aspace_create(&S) == E_OK);
+        CHECK(aspace_map(&S, 0x400000, 0x401000, 1) == E_OK && aspace_map(&S, 0x500000, 0x501000, 1) == E_OK);
+        CHECK(aspace_protect(&S, 0x500000, 0x501000, 0) == E_OK);
+        user_proc_reset(&Q, "espace");
+        Q.as = &S;                                                              /* fenetre par defaut : 4-8 Mio */
+        CHECK(syscall_dispatch(&Q, SYS_WRITE, 1, 0x600000, 4) == E_FAULT);      /* dans la fenetre, mais page absente */
+        CHECK(syscall_dispatch(&Q, SYS_WRITE, 1, 0x400FFE, 4) == E_FAULT);      /* commence sur une page mappee, finit sur une absente */
+        CHECK(syscall_dispatch(&Q, SYS_WRITE, 1, 0x400000, 0) == 0);            /* longueur nulle sur page mappee */
+        CHECK(syscall_dispatch(&Q, SYS_READ, 0, 0x600000, 4) == E_FAULT);
+        CHECK(syscall_dispatch(&Q, SYS_READ, 0, 0x500000, 4) == E_FAULT);       /* le noyau n'ecrit pas dans une page en lecture seule */
+        CHECK(syscall_dispatch(&Q, SYS_READ, 0, 0x500000, 0) == 0);
+        CHECK(syscall_dispatch(&Q, SYS_OPEN, 0x600000, 0, 0) == E_FAULT);          /* chemin sur une page absente */
+        CHECK(syscall_dispatch(&Q, SYS_UNLINK, 0x600000, 0, 0) == E_FAULT);
+        CHECK(syscall_dispatch(&Q, SYS_TIME, 0x600000, 0, 0) == E_FAULT);
+        CHECK(syscall_dispatch(&Q, SYS_TIME, 0x500000, 0, 0) == E_FAULT);          /* time(&t) vers une page en lecture seule */
+        CHECK(syscall_dispatch(&Q, SYS_WRITE, 1, 0x3FFFF0, 4) == E_FAULT);      /* avant la fenetre */
+        aspace_destroy(&S);
     }
 
     /* ---- entree standard : tube ---- */

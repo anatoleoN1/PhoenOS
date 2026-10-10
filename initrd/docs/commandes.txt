@@ -1,4 +1,4 @@
 Fichiers : ls [-l] cat cd pwd mkdir [-p] touch rm [-r] rmdir cp mv tree df hexdump
-Texte : echo head tail wc grep sort more      Systeme : date run ...      Programmes : ls /bin (hello primes saisie compte heure faute calc copie notes)
+Texte : echo head tail wc grep sort more      Systeme : date run ...      Programmes : ls /bin (hello primes saisie compte heure faute calc copie notes) ; applications : exe, poeinfo (/apps)
 Redirection : commande > fichier   |   commande >> fichier   |   Tube : cmd | cmd
 Tab complete les commandes et les chemins.

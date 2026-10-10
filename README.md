@@ -1,7 +1,7 @@
 # PhoenOS
 
 Système d'exploitation x86 écrit en C : léger, efficace, gratuit.
-Version actuelle : **0.4.0** (les programmes peuvent créer, écrire et supprimer des fichiers : `copie`, `notes`) — historique complet dans [CHANGELOG.md](CHANGELOG.md).
+Version actuelle : **0.5.0** (un espace d'adressage par programme, première brique du multitâche) — historique complet dans [CHANGELOG.md](CHANGELOG.md)
 Le détail de chaque commande et de ses options est dans **[MANUEL.md](MANUEL.md)** (et dans PhoenOS : `man`).
 
 ## Prérequis (Debian / Ubuntu, machine x86_64 ou WSL sous Windows)
@@ -30,7 +30,7 @@ make clean
 Pour tester sur une vraie machine : écrire `phoenos-0.1.0.iso` sur une clé USB
 (`sudo dd if=phoenos-0.1.0.iso of=/dev/sdX bs=4M status=progress`, en vérifiant bien `sdX`).
 
-## Ce qu'on doit voir au démarrage (v0.4.0)
+## Ce qu'on doit voir au démarrage (v0.5.0)
 
 Des lignes `[ OK ]` pour : VGA + port série, Multiboot, GDT, IDT/PIC/timer/clavier,
 exceptions (point d'arrêt traité), **mémoire physique, tas du noyau et leurs auto-tests**,
@@ -73,6 +73,13 @@ QEMU s'arrête au lieu de redémarrer, et `qemu.log` contient la dernière excep
 Limites connues : un débordement de pile est détecté après coup (canari testé à chaque tick du
 timer) mais peut provoquer une triple faute avant ; la protection complète demande un TSS dédié
 pour la double faute (prévu plus tard).
+
+## Nouveautés de la 0.5.0
+
+- **Un espace d'adressage par programme** : chaque programme vit dans ses propres pages, vues à partir de 4 Mio.
+  Ce que le noyau ne lui a pas donné n'existe pas pour lui (`faute vide`) ; son code est en lecture seule
+  (`faute code`) ; le noyau reste inaccessible (`faute kern`). Les pages sont rendues à la fin du programme.
+- Fondations `.poe` (application = programme + en-tête vérifié) : `exe`, `poeinfo`, outil `tools/mkpoe.c`.
 
 ## Nouveautés de la 0.4.0
 
@@ -296,6 +303,7 @@ Chaque étape produit une ISO fonctionnelle.
 10. [x] Pagination : noyau protégé, programmes isolés (0.2.0)
 10b. [x] Calculatrice, `more`, défilement au clavier réduit (0.3.0)
 10c. [x] Programmes qui écrivent des fichiers (0.4.0)
+10d. [x] Un espace d'adressage par programme (0.5.0)
 11. [ ] Un espace d'adresses par programme, multitâche
 12. [ ] Mode graphique (framebuffer) et interface soignée
 13. [ ] Passage en x86_64

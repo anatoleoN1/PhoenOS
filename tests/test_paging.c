@@ -105,6 +105,7 @@ int test_main(void)
     c = kcfg();                                   CHECK(paging_build((u32 *)((u8 *)dir + 4), tabs, 32, &c) == E_INVAL);
     c = kcfg();                                   CHECK(paging_build(dir, (u32 *)((u8 *)tabs + 8), 32, &c) == E_INVAL);
 
+
     /* pmm_top / pmm_limit */
     {
         static struct { struct multiboot_info mbi; struct multiboot_mmap_entry e[1]; } M;

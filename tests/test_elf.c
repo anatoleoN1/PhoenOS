@@ -49,7 +49,13 @@ static int try_hostile(u32 va, u32 fs, u32 ms, u32 off, u32 entry, u32 size_over
 
     if (size_override)
         sz = size_override;
-    return elf_load(img, sz, mem, LO, HI, &e);
+    struct elf_seg segs[ELF_MAX_SEGS];
+    int ns = 0;
+    err_t r = elf_load(img, sz, mem, LO, HI, &e), r2 = elf_segments(img, sz, LO, HI, segs, &ns, &e);
+
+    if ((r == E_OK) != (r2 == E_OK))
+        test_fails++, out("  ECHEC : elf_load et elf_segments ne sont pas d'accord\n");
+    return r;
 }
 
 int test_main(void)
@@ -68,6 +74,16 @@ int test_main(void)
         memset(mem, 0xEE, sizeof mem);
         CHECK(elf_load(img, (u32)n, mem, LO, HI, &entry) == E_OK);
         CHECK(entry >= LO && entry < LO + 0x2000);
+        {
+            struct elf_seg segs[ELF_MAX_SEGS];
+            int ns = 0;
+            u32 e2 = 0;
+
+            CHECK(elf_segments(img, (u32)n, LO, HI, segs, &ns, &e2) == E_OK && e2 == entry);
+            CHECK(ns >= 1 && ns <= 2 && !segs[0].writable && entry >= segs[0].lo && entry < segs[0].hi);   /* le code est en lecture seule */
+            CHECK(ns == 1 || (segs[1].writable && segs[1].lo >= segs[0].hi && segs[1].lo % 4096 == 0));    /* donnees : page a part */
+            CHECK(segs[ns - 1].hi <= HI && segs[0].lo >= LO);
+        }
         CHECK(mem[entry - LO] != 0xEE);                         /* le code est bien charge au point d'entree */
         CHECK(mem[HI - LO - 1] == 0xEE);                        /* rien n'ecrit hors de la zone utile */
     }
@@ -131,6 +147,33 @@ int test_main(void)
       img[16] = 3; CHECK(elf_load(img, sz, mem, LO, HI, &e) == E_NOEXEC); img[16] = 2;           /* ET_DYN? (ici 3) */
       img[18] = 62; CHECK(elf_load(img, sz, mem, LO, HI, &e) == E_NOEXEC); img[18] = 3;          /* x86-64 */
       CHECK(elf_load(img, sz, mem, LO, HI, &e) == E_OK); }
+
+
+    /* ---- segments qui se chevauchent / trop nombreux : refuses par elf_segments (et jamais charges) ---- */
+    {
+        struct elf_seg segs[ELF_MAX_SEGS];
+        struct ph p2;
+        int ns = 0;
+        u32 en;
+
+        forge(LO + 0x1000, 256, 256, 4096, LO + 0x1000);
+        img[44] = 2;                                                            /* phnum = 2 */
+        memset(&p2, 0, sizeof p2);
+        p2.type = 1; p2.offset = 4096; p2.vaddr = LO + 0x1080; p2.paddr = p2.vaddr; p2.filesz = 64; p2.memsz = 64; p2.flags = 6;
+        memcpy(img + 52 + 32, &p2, sizeof p2);
+        CHECK(elf_segments(img, 4352, LO, HI, segs, &ns, &en) == E_NOEXEC);     /* chevauchement */
+        p2.vaddr = LO + 0x2000;
+        memcpy(img + 52 + 32, &p2, sizeof p2);
+        CHECK(elf_segments(img, 4352, LO, HI, segs, &ns, &en) == E_OK && ns == 2 && segs[1].writable && !segs[0].writable);
+        CHECK(segs[0].lo == LO + 0x1000 && segs[0].hi == LO + 0x1100 && segs[1].lo == LO + 0x2000 && segs[1].hi == LO + 0x2040);
+        forge(LO + 0x1000, 256, 256, 4096, LO + 0x1000);
+        img[44] = 9;                                                            /* 9 segments : plus que ELF_MAX_SEGS */
+        for (int i = 1; i < 9; i++) {
+            p2.vaddr = LO + 0x2000u + 0x1000u * (u32)i;
+            memcpy(img + 52 + 32 * (usize)i, &p2, sizeof p2);
+        }
+        CHECK(elf_segments(img, 4352, LO, HI, segs, &ns, &en) == E_NOEXEC);
+    }
 
     out("  chargeur ELF verifie : 9 vrais programmes (dont des ELF a deux segments), 13 fichiers hostiles, en-tetes corrompus\n");
     return 0;

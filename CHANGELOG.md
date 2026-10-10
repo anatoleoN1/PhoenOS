@@ -5,6 +5,20 @@ z = correctif ou petite amélioration. Chaque version est livrée testée automa
 les chemins de démarrage réels (GRUB, ISO, anneau 3, activation de la pagination) ne sont
 vérifiables que sur une vraie machine ou sous QEMU : ils sont validés par vos essais.
 
+## 0.5.0 — Un espace d'adressage par programme
+- Chaque programme a son propre repertoire de pages (`src/aspace.c`) : il ne voit que les pages
+  que le noyau lui a donnees (code, donnees, 64 Kio de pile), mappees a partir de 4 Mio ; tout le
+  reste (noyau, adresse 0, pages non attribuees) provoque une faute qui n'arrete que le programme.
+  A la fin du programme, ses pages sont rendues au gestionnaire de memoire (test : 1000 cycles sans fuite).
+- Le code d'un programme est en lecture seule (ecrire dedans = faute) ; le depassement de pile est detecte.
+- Les appels systeme verifient que les pointeurs du programme visent des pages REELLEMENT mappees
+  (et modifiables quand le noyau doit y ecrire), plus seulement une plage d'adresses.
+- Le chargeur ELF annonce les segments avant de charger (`elf_segments`), refuse les segments qui se chevauchent.
+- `faute code` et `faute vide` pour voir ces protections ; `mkpoe` et applications `.poe` (premiere
+  version du format : en-tete verifie, `exe`, `poeinfo`, /apps/*.poe dans l'ISO) — pas prioritaire,
+  simple fondation.
+- Pas encore de multitache : un seul programme a la fois (c'est la prochaine etape).
+
 ## 0.4.0 — Les programmes écrivent des fichiers
 - Nouveaux appels système : `open` avec options (`O_WRONLY`, `O_RDWR`, `O_CREAT`, `O_TRUNC`,
   `O_APPEND`, mêmes valeurs que Linux), `write` sur un fichier, `unlink` (suppression).

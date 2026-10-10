@@ -6,6 +6,7 @@
 #include "isr.h"
 
 struct fs_node;
+struct aspace;
 
 /*
  * Programmes utilisateur (ring 3). Un seul a la fois. Ils sont charges a USER_BASE dans une
@@ -50,6 +51,7 @@ struct uproc {
     u32  pid;
     char name[32];
     u32  win_lo, win_hi;                /* seule zone que le programme peut passer au noyau */
+    const struct aspace *as;            /* ses pages reellement mappees (NULL : seule la fenetre compte, tests) */
     struct user_fd fd[USER_MAX_FDS];
     const u8 *in;                       /* entree standard issue d'un tube (sinon in_set == 0) */
     u32  in_len, in_pos;

@@ -8,6 +8,7 @@
  */
 #include "rtc.h"
 #include "user.h"
+#include "poe.h"
 #include "paging.h"
 #include "shell.h"
 #include "cmdline.h"
@@ -90,6 +91,8 @@ static err_t cmd_save(int argc, char **argv);
 static err_t cmd_load(int argc, char **argv);
 static err_t cmd_date(int argc, char **argv);
 static err_t cmd_run(int argc, char **argv);
+static err_t cmd_exe(int argc, char **argv);
+static err_t cmd_poeinfo(int argc, char **argv);
 static err_t cmd_head(int argc, char **argv);
 static err_t cmd_tail(int argc, char **argv);
 static err_t cmd_wc(int argc, char **argv);
@@ -116,6 +119,8 @@ static const struct command commands[] = {
     { G_SYS, "mem",      "",             "Etat de la memoire physique et du tas",          cmd_mem      },
     { G_SYS, "memtest",  "[Kio]",        "Teste le tas : ecrit et relit des motifs",       cmd_memtest  },
     { G_SYS, "date",     "[-s]",         "Date et heure (-s : secondes depuis 1970)",      cmd_date     },
+    { G_SYS, "exe",      "<application> [args]", "Lance une application .poe (cherche aussi dans /apps)", cmd_exe },
+    { G_SYS, "poeinfo",  "<application>",     "Montre l'en-tete d'une application .poe", cmd_poeinfo },
     { G_SYS, "run",      "<programme> [args]", "Lance un programme (ex. run /bin/hello ; /bin/ implicite)", cmd_run },
     { G_SYS, "sleep",    "<ms>",         "Attend un nombre de millisecondes",              cmd_sleep    },
     { G_SYS, "colors",   "",             "Affiche les 16 couleurs du mode texte",          cmd_colors   },
@@ -1443,14 +1448,31 @@ static err_t exec_program(const char *path, int argc, char **argv)
 {
     struct fs_node *n;
     struct user_result res;
+    const u8 *image;
+    u32 size;
     err_t e = fs_lookup(path, &n);
 
     if (e == E_OK && n->type != FS_FILE)
         e = E_ISDIR;
     if (e != E_OK)
         return e;
+    image = n->data;
+    size = n->size;
+    if (poe_is(image, size)) {                              /* application .poe : on verifie puis on lance son programme */
+        struct poe_info info;
+        enum poe_status s = poe_parse(image, size, &info);
+
+        if (s != POE_OK) {
+            color(VGA_LIGHT_RED);
+            keprintf("%s : %s\n", path, poe_status_text(s));
+            color(VGA_LIGHT_GREY);
+            return E_REPORTED;
+        }
+        image = info.payload;
+        size = info.payload_len;
+    }
     user_set_stdin(stdin_buf, stdin_len, has_stdin);
-    e = user_exec(n->data, n->size, argv[0], argc, argv, &res);
+    e = user_exec(image, size, argv[0], argc, argv, &res);
     if (e == E_NOSYS) {
         fail_msg("Programmes utilisateur indisponibles (zone memoire non reservee au demarrage).");
         return E_REPORTED;
@@ -1483,6 +1505,99 @@ static const char *base_name(const char *path)
         if (*c == '/')
             b = c + 1;
     return b;
+}
+
+/* Nom d'application : "calc.poe" -> "calc". */
+static void poe_app_name(const char *path, char *dst, usize size)
+{
+    const char *b = base_name(path);
+    usize n = strlen(b);
+
+    if (n > 4 && strcmp(b + n - 4, ".poe") == 0)
+        n -= 4;
+    if (n >= size)
+        n = size - 1;
+    memcpy(dst, b, n);
+    dst[n] = 0;
+}
+
+/* Cherche une application : chemin tel quel, avec ".poe", puis dans /apps. */
+static err_t find_poe(const char *arg, char *path, usize size)
+{
+    static const struct { const char *pre, *post; } forms[] = { { "", "" }, { "", ".poe" }, { "/apps/", "" }, { "/apps/", ".poe" } };
+    struct fs_node *n;
+
+    if (strlen(arg) + 12 > size)
+        return E_NAMETOOLONG;
+    for (int i = 0; i < 4; i++) {
+        if (i >= 2 && strchr(arg, '/'))
+            break;
+        strcpy(path, forms[i].pre);
+        strcpy(path + strlen(path), arg);
+        strcpy(path + strlen(path), forms[i].post);
+        if (fs_lookup(path, &n) == E_OK && n->type == FS_FILE)
+            return E_OK;
+    }
+    return E_NOENT;
+}
+
+static err_t cmd_exe(int argc, char **argv)
+{
+    char path[128], app[40];
+    char *pargv[MAX_ARGS + 1];
+    struct fs_node *n;
+    err_t e;
+
+    if (argc < 2)
+        return usage("exe <application>[.poe] [arguments...]");
+    e = find_poe(argv[1], path, sizeof path);
+    if (e != E_OK)
+        return fail_path("exe", argv[1], e);
+    fs_lookup(path, &n);
+    if (!poe_is(n->data, n->size)) {
+        color(VGA_LIGHT_RED);
+        keprintf("exe : %s n'est pas une application .poe (pour un programme ordinaire : run)\n", path);
+        color(VGA_LIGHT_GREY);
+        return E_REPORTED;
+    }
+    poe_app_name(path, app, sizeof app);
+    for (int i = 1; i < argc; i++)
+        pargv[i - 1] = argv[i];
+    pargv[0] = app;
+    e = exec_program(path, argc - 1, pargv);
+    return e;
+}
+
+static err_t cmd_poeinfo(int argc, char **argv)
+{
+    char path[128];
+    struct fs_node *n;
+    struct poe_info info;
+    enum poe_status s;
+    err_t e;
+
+    if (argc != 2)
+        return usage("poeinfo <application>[.poe]");
+    e = find_poe(argv[1], path, sizeof path);
+    if (e != E_OK)
+        return fail_path("poeinfo", argv[1], e);
+    fs_lookup(path, &n);
+    s = poe_parse(n->data, n->size, &info);
+    if (s == POE_NOT_POE || s == POE_TRUNCATED || s == POE_BAD_HEADER) {
+        color(VGA_LIGHT_RED);
+        keprintf("%s : %s\n", path, poe_status_text(s));
+        color(VGA_LIGHT_GREY);
+        return E_REPORTED;
+    }
+    kprintf("Fichier        : %s\n", path);
+    kprintf("Application    : %s %s\n", info.name, info.version);
+    kprintf("Auteur         : %s\n", info.author);
+    kprintf("API requise    : %u (ce PhoenOS : %u)\n", info.min_api, (u32)POE_API_LEVEL);
+    kprintf("Exige          : %s%s%s\n", info.flags ? "" : "rien de special",
+            (info.flags & POE_NEEDS_GUI) ? "interface graphique " : "", (info.flags & POE_NEEDS_NET) ? "reseau" : "");
+    kprintf("Programme      : %u octets, somme de controle %s\n", info.payload_len, s == POE_BAD_CRC ? "FAUSSE" : "exacte");
+    kprintf("Etat           : %s\n", poe_status_text(s));
+    return E_OK;
 }
 
 static err_t cmd_run(int argc, char **argv)
@@ -1534,6 +1649,12 @@ static err_t run_command(int argc, char **argv)
         strcpy(path, "/bin/");
         strcpy(path + 5, argv[0]);
         e = exec_program(path, argc, argv);
+        if (e == E_NOENT && strlen(argv[0]) <= 40) {            /* sinon : application /apps/<nom>.poe */
+            strcpy(path, "/apps/");
+            strcpy(path + 6, argv[0]);
+            strcpy(path + 6 + strlen(argv[0]), ".poe");
+            e = exec_program(path, argc, argv);
+        }
         if (e != E_NOENT && e != E_ISDIR) {
             if (e != E_OK && e != E_REPORTED) {
                 color(VGA_LIGHT_RED);
