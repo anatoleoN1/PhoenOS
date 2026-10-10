@@ -1,4 +1,4 @@
-# Manuel de PhoenOS 0.5.3
+# Manuel de PhoenOS 0.6.0
 
 > Généré à partir de `initrd/docs/manuel.txt` (lisible dans PhoenOS avec `man`).
 
@@ -95,6 +95,7 @@ Differences avec Unix : pas de droits ni de proprietaires (les dates existent, v
     calc     calculatrice (calc 2+3*4, ou sans argument : mode interactif ; man calc)
     copie    copie un fichier (copie a.txt b.txt)
     notes    carnet de notes dans /notes.txt (notes acheter du pain ; notes ; notes -v)
+    ticker   compte avec des pauses (ticker A 5 400 &)       boucle   calcul sans pause (boucle 5 &)
   Ce que le noyau garantit : un programme n'a le droit ni de couper les interruptions, ni
   d'acceder aux ports, ni d'executer une instruction privilegiee ; en cas de faute il est
   arrete avec un message (adresse, exception) et vous revenez au shell. Ctrl+C arrete un
@@ -167,6 +168,47 @@ Differences avec Unix : pas de droits ni de proprietaires (les dates existent, v
   programme de /bin, mais fonctionne aussi pour un chemin quelconque : run /home/prog a b.
   Message d'erreur "pas un programme PhoenOS valide" si le fichier n'est pas un ELF 32 bits statique.
   Voir "man programmes".  Exemple : run hello monde
+
+== ps  - liste les programmes en cours
+  Syntaxe : ps
+  Montre le shell (numero 0) et chaque programme lance (numero, etat, tours, nom).
+  Etats : pret (attend son tour), actif (sur le processeur), attend (dort, ou attend le clavier),
+  fini (termine, pas encore ramasse). TOURS = nombre de fois que la minuterie l'a interrompu
+  pendant qu'il calculait. "(arriere-plan)" : lance avec &. Voir "man multitache".
+
+== kill  - arrete un programme
+  Syntaxe : kill <numero>
+  Arrete le programme dont ps donne le numero. Il s'arrete des qu'il reprend la main (tout de suite
+  s'il dort ou attend, au prochain tick de 10 ms s'il calcule). Le shell (numero 0) ne s'arrete pas.
+  Exemple : boucle 60 &   puis   kill 1
+
+== multitache  - plusieurs programmes en meme temps (0.6.0)
+  Un programme lance normalement garde le clavier : le shell attend sa fin (Ctrl+C l'arrete).
+  Ajoutez & en fin de ligne pour le lancer en ARRIERE-PLAN : le shell rend la main aussitot.
+    ticker A 5 400 &      ticker B 5 300 &      ps      kill 2
+  Ce qui change pour un programme en arriere-plan :
+   - il n'a pas de clavier : lire l'entree standard donne tout de suite la fin de fichier ;
+   - il affiche sur le meme ecran (les lignes se melangent) ; a sa fin le noyau ecrit
+     "[numero] nom termine" ;
+   - & ne se combine pas avec les tubes (|) ni les redirections (>) ; pas de & pour les commandes
+     integrees (seulement run, exe ou un nom de programme).
+  Ordonnanceur : tourniquet, au plus 7 programmes en meme temps, 16 Kio de pile noyau chacun.
+  La minuterie (100 Hz) interrompt un programme qui calcule pour donner la main au suivant ;
+  quand un programme dort (sleep_ms) ou attend, les autres tournent. Chaque programme a son propre
+  espace d'adresses : aucun ne peut lire ou ecrire la memoire d'un autre.
+  Limite : le noyau lui-meme n'est pas interruptible (une commande du shell va jusqu'au bout).
+  Programmes de demonstration : ticker (compte avec pauses) et boucle (calcul sans pause).
+
+== ticker  - compte avec des pauses
+  Syntaxe : ticker <nom> [fois] [ms]
+  Affiche "nom 1/N", "nom 2/N"... avec une pause de <ms> millisecondes entre deux lignes (defaut :
+  5 fois, 500 ms). Fait pour etre lance plusieurs fois avec & : ticker A 5 400 & ticker B 5 300 &
+
+== boucle  - occupe le processeur
+  Syntaxe : boucle [secondes]
+  Calcule sans arret pendant N secondes (defaut 3, max 600), sans aucun appel au noyau, et affiche
+  "boucle <numero> : 1 s", "2 s"... Preuve de la preemption : le shell reste utilisable et
+  deux boucle & avancent ensemble. Ctrl+C (au premier plan) ou kill l'arrete.
 
 == sleep  - attend
   Syntaxe : sleep <ms>
@@ -436,4 +478,6 @@ Differences avec Unix : pas de droits ni de proprietaires (les dates existent, v
   Syntaxe : poeinfo <application>[.poe]
   Affiche nom, version, auteur, exigences, taille et etat (valide, abimee, trop recente...).
   Exemple : poeinfo calc
+
+
 ```

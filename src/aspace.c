@@ -121,6 +121,32 @@ void aspace_destroy(struct aspace *a)
     memset(a, 0, sizeof(*a));
 }
 
+err_t aspace_put(struct aspace *a, u32 va, const u8 *src, u32 n)
+{
+    u32 end = va + n;
+
+    if (!a->pt || va < ASPACE_BASE || end < va || end > ASPACE_END)
+        return E_FAULT;
+    while (va < end) {
+        u32 e = a->pt[(va - ASPACE_BASE) >> 12];
+        u32 off = va & (PAGE_SIZE - 1);
+        u32 take = PAGE_SIZE - off;
+
+        if (!(e & PAGE_P))
+            return E_FAULT;
+        if (take > end - va)
+            take = end - va;
+        if (src) {
+            memcpy((u8 *)(e & ~(PAGE_SIZE - 1)) + off, src, take);
+            src += take;
+        } else {
+            memset((u8 *)(e & ~(PAGE_SIZE - 1)) + off, 0, take);
+        }
+        va += take;
+    }
+    return E_OK;
+}
+
 u32 aspace_cr3(const struct aspace *a)
 {
     return (u32)a->dir;

@@ -5,6 +5,23 @@ z = correctif ou petite amélioration. Chaque version est livrée testée automa
 les chemins de démarrage réels (GRUB, ISO, anneau 3, activation de la pagination) ne sont
 vérifiables que sur une vraie machine ou sous QEMU : ils sont validés par vos essais.
 
+## 0.6.0 — Multitâche
+- Ordonnanceur à tourniquet (`src/sched.c`) : jusqu'à 8 tâches, pile noyau de 16 Kio chacune, commutation
+  en assembleur (`src/switch.S`, pile par tâche), attente par prédicat (clavier, sommeil, fin d'un programme),
+  tâche inactive qui dort (`hlt`), tâches terminées libérées (y compris pages et mémoire).
+- Préemption : à chaque tick de la minuterie, un programme en anneau 3 cède la place au suivant ; le noyau
+  lui-même n'est pas interruptible (règle volontairement simple).
+- Chaque programme est une tâche avec son espace d'adresses ; le parent le charge sans changer de CR3
+  (`aspace_put`, `elf_load_with`). À chaque commutation : pile noyau du CPU (`tss.esp0`) et CR3 de la tâche.
+- Shell : `programme &` (arrière-plan), `ps`, `kill`, Ctrl+C sur un programme de premier plan qui calcule.
+  `sleep` et `sleep_ms` laissent tourner les autres. Un programme en arrière-plan lit la fin de fichier.
+- Nouveaux programmes `ticker` et `boucle` ; manuel : `man multitache`, `ps`, `kill`.
+- Descripteurs de fichiers vérifiés (`fs_is_live`) : supprimer un fichier ouvert par un autre programme
+  ne laisse plus de pointeur invalide.
+- Tests : `test_sched` (vraies commutations de pile : tourniquet, prédicats, sommeil, kill, détachement,
+  table pleine, piles isolées, 300 créations sans fuite), `aspace_put`, `elf_load_with`, shell (`&`, `ps`, `kill`).
+- Chemins vérifiables seulement sur machine/QEMU : changement de pile en ring 3, préemption réelle.
+
 ## 0.5.3 — Disque automatique, lancement de QEMU
 (La 0.5.2 n'a pas ete publiee : on est passe directement a la 0.5.3.)
 - Disque vierge : PhoenOS le prepare tout seul, au demarrage ou au premier `save` — plus de

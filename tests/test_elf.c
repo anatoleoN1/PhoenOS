@@ -58,9 +58,19 @@ static int try_hostile(u32 va, u32 fs, u32 ms, u32 off, u32 entry, u32 size_over
     return r;
 }
 
+static err_t put_cb(void *c, u32 va, const u8 *src, u32 n)
+{
+    u8 *m = *(u8 **)c;
+
+    if (va < LO || va - LO + n > HI - LO)
+        return E_FAULT;
+    if (src) memcpy(m + (va - LO), src, n); else memset(m + (va - LO), 0, n);
+    return E_OK;
+}
+
 int test_main(void)
 {
-    static const char *const progs[] = { "hello", "primes", "saisie", "compte", "faute", "heure", "calc" };
+    static const char *const progs[] = { "hello", "primes", "saisie", "compte", "faute", "heure", "calc", "ticker", "boucle" };
     u32 entry = 0, sz;
 
     /* ---- vrais programmes ---- */
@@ -74,6 +84,15 @@ int test_main(void)
         memset(mem, 0xEE, sizeof mem);
         CHECK(elf_load(img, (u32)n, mem, LO, HI, &entry) == E_OK);
         CHECK(entry >= LO && entry < LO + 0x2000);
+        {
+            static u8 mem2[sizeof mem];
+            struct pc { u8 *m; } pcx = { mem2 };
+            u32 e3 = 0;
+
+            memset(mem2, 0xEE, sizeof mem2);
+            CHECK(elf_load_with(img, (u32)n, put_cb, &pcx, LO, HI, &e3) == E_OK && e3 == entry);
+            CHECK(memcmp(mem, mem2, sizeof mem) == 0);                  /* meme resultat que elf_load */
+        }
         {
             struct elf_seg segs[ELF_MAX_SEGS];
             int ns = 0;
@@ -175,6 +194,6 @@ int test_main(void)
         CHECK(elf_segments(img, 4352, LO, HI, segs, &ns, &en) == E_NOEXEC);
     }
 
-    out("  chargeur ELF verifie : 9 vrais programmes (dont des ELF a deux segments), 13 fichiers hostiles, en-tetes corrompus\n");
+    out("  chargeur ELF verifie : 11 vrais programmes (dont des ELF a deux segments), 13 fichiers hostiles, en-tetes corrompus\n");
     return 0;
 }

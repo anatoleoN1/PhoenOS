@@ -46,6 +46,12 @@ err_t aspace_protect(struct aspace *a, u32 lo, u32 hi, int writable);
  */
 int aspace_check(const struct aspace *a, u32 addr, u32 len, int write);
 
+/*
+ * Ecrit n octets (src NULL : des zeros) a l'adresse virtuelle va DE CET espace, directement dans ses
+ * cadres, sans le rendre actif. E_FAULT si une page n'est pas mappee ou si on sort de la zone.
+ */
+err_t aspace_put(struct aspace *a, u32 va, const u8 *src, u32 n);
+
 /* Rend tous les cadres, la table et le repertoire. Sans danger sur un espace vide ou deja detruit. */
 void aspace_destroy(struct aspace *a);
 

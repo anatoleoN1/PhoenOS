@@ -10,6 +10,7 @@
 #include "kprintf.h"
 #include "keyboard.h"
 #include "pit.h"
+#include "sched.h"
 #include "rtc.h"
 #include "string.h"
 
@@ -108,6 +109,24 @@ static int read_console_line(struct uproc *p)
     }
 }
 
+/* Descripteur de fichier valide ? Si le fichier a ete supprime entre-temps (par un autre programme ou le
+ * shell), le descripteur est ferme et on renvoie NULL. */
+static struct user_fd *get_fd(struct uproc *p, u32 fd)
+{
+    struct user_fd *f;
+
+    if (fd < USER_FIRST_FD || fd >= USER_FIRST_FD + USER_MAX_FDS)
+        return NULL;
+    f = &p->fd[fd - USER_FIRST_FD];
+    if (!f->node)
+        return NULL;
+    if (!fs_is_live(f->node)) {
+        f->node = NULL;
+        return NULL;
+    }
+    return f;
+}
+
 static i32 sys_read(struct uproc *p, u32 fd, u32 buf, u32 n)
 {
     u32 avail, take;
@@ -142,9 +161,11 @@ static i32 sys_read(struct uproc *p, u32 fd, u32 buf, u32 n)
         p->line_pos += take;
         return (i32)take;
     }
-    if (fd >= USER_FIRST_FD && fd < USER_FIRST_FD + USER_MAX_FDS && p->fd[fd - USER_FIRST_FD].node) {
-        struct user_fd *f = &p->fd[fd - USER_FIRST_FD];
+    {
+        struct user_fd *f = get_fd(p, fd);
 
+        if (!f)
+            return E_INVAL;
         if (!f->readable)
             return E_INVAL;
         avail = f->pos < f->node->size ? f->node->size - f->pos : 0;
@@ -153,7 +174,6 @@ static i32 sys_read(struct uproc *p, u32 fd, u32 buf, u32 n)
         f->pos += take;
         return (i32)take;
     }
-    return E_INVAL;
 }
 
 static i32 sys_write(struct uproc *p, u32 fd, u32 buf, u32 n)
@@ -166,9 +186,12 @@ static i32 sys_write(struct uproc *p, u32 fd, u32 buf, u32 n)
         out_bytes((const u8 *)buf, n, fd == 2);
         return (i32)n;
     }
-    if (fd >= USER_FIRST_FD && fd < USER_FIRST_FD + USER_MAX_FDS && p->fd[fd - USER_FIRST_FD].node) {
-        struct user_fd *f = &p->fd[fd - USER_FIRST_FD];
+    {
+        struct user_fd *f = get_fd(p, fd);
         err_t e;
+
+        if (!f)
+            return E_INVAL;
 
         if (!f->writable)
             return E_INVAL;
@@ -180,7 +203,6 @@ static i32 sys_write(struct uproc *p, u32 fd, u32 buf, u32 n)
         f->pos = f->node->size;
         return (i32)n;
     }
-    return E_INVAL;
 }
 
 static i32 sys_open(struct uproc *p, u32 path_addr, u32 flags)
@@ -280,7 +302,10 @@ i32 syscall_dispatch(struct uproc *p, u32 nr, u32 a, u32 b, u32 c)
     case SYS_GETPID:
         return (i32)p->pid;
     case SYS_SLEEP_MS:
-        pit_sleep_ms(a > SLEEP_MAX_MS ? SLEEP_MAX_MS : a);
+        if (sched_ready())
+            sched_sleep_ms(a > SLEEP_MAX_MS ? SLEEP_MAX_MS : a);      /* les autres programmes tournent pendant ce temps */
+        else
+            pit_sleep_ms(a > SLEEP_MAX_MS ? SLEEP_MAX_MS : a);
         return 0;
     case SYS_UPTIME:
         return (i32)pit_uptime_ms();

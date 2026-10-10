@@ -34,4 +34,11 @@ int keyboard_try_getc(void);
 /* Attend (en veille) puis renvoie le prochain caractère ou la prochaine touche spéciale. */
 int keyboard_getc(void);
 
+/* Prochaine touche SANS la retirer (-1 : rien). */
+int keyboard_peek(void);
+
+/* Si non NULL, appelee (interruptions actives) a la place de la veille quand aucune touche n'est la : elle doit
+ * revenir quand une touche est peut-etre arrivee, et renvoie 1 si la tache doit s'arreter (getc renvoie alors Ctrl+C). Pose par l'ordonnanceur. */
+extern int (*keyboard_wait_hook)(void);
+
 #endif

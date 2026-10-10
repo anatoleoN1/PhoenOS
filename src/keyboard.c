@@ -289,6 +289,20 @@ int keyboard_try_getc(void)
     return c;
 }
 
+int (*keyboard_wait_hook)(void);
+
+int keyboard_peek(void)
+{
+    u32 f = cpu_irq_save();                     /* peut etre appelee interruptions coupees (ordonnanceur) */
+    int c = -1;
+
+    serial_poll();
+    if (head != tail)
+        c = buffer[tail];
+    cpu_irq_restore(f);
+    return c;
+}
+
 int keyboard_getc(void)
 {
     for (;;) {
@@ -299,6 +313,12 @@ int keyboard_getc(void)
             tail = (tail + 1) % KBD_BUF_SIZE;
             cpu_sti();
             return c;
+        }
+        if (keyboard_wait_hook) {               /* ordonnanceur actif : on dort pendant que les autres tournent */
+            cpu_sti();
+            if (keyboard_wait_hook())           /* tache arretee pendant l'attente : comme un Ctrl+C */
+                return 3;
+            continue;
         }
         /* sti + hlt : aucune interruption ne peut se glisser entre les deux */
         __asm__ volatile ("sti; hlt");

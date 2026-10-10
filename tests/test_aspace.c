@@ -70,6 +70,24 @@ int test_main(void)
         CHECK(paging_lookup(A.dir, 0x100000, NULL, &f) == E_OK && !(f & PAGE_US) && !(f & PAGE_RW));
         CHECK(paging_lookup(A.dir, 0x200000, NULL, &f) == E_OK && !(f & PAGE_US));
 
+        /* aspace_put : ecriture directe dans les cadres, a cheval sur plusieurs pages */
+        {
+            u8 src[6000], got[6000];
+
+            for (int i = 0; i < 6000; i++) src[i] = (u8)(i * 7 + 1);
+            CHECK(aspace_put(&A, 0x400F00, src, 6000) == E_OK);
+            for (u32 i = 0; i < 6000; i++) {
+                u32 va = 0x400F00 + i;
+                got[i] = ((u8 *)(A.pt[(va - 0x400000) >> 12] & ~0xFFFu))[va & 0xFFF];
+            }
+            CHECK(memcmp(src, got, 6000) == 0);
+            CHECK(aspace_put(&A, 0x401000, NULL, 100) == E_OK && ((u8 *)(A.pt[1] & ~0xFFFu))[50] == 0 && ((u8 *)(A.pt[1] & ~0xFFFu))[100] == src[0x164]);
+            CHECK(aspace_put(&A, 0x400000, src, 0) == E_OK);
+            CHECK(aspace_put(&A, 0x3FFFFF, src, 2) == E_FAULT && aspace_put(&A, 0x7FFFFF, src, 2) == E_FAULT);
+            CHECK(aspace_put(&A, 0x700000, src, 4) == E_FAULT);                 /* page non mappee */
+            CHECK(aspace_put(&A, 0xFFFFFFF0u, src, 0x20) == E_FAULT);
+        }
+
         /* verification des pointeurs que donne un programme */
         CHECK(aspace_check(&A, 0x400000, 0x3000, 1) && aspace_check(&A, 0x402FFF, 1, 0));
         CHECK(!aspace_check(&A, 0x400000, 0x3001, 0));                          /* depasse sur une page absente */

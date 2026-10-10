@@ -20,6 +20,7 @@
 #include "fs.h"
 #include "rtc.h"
 #include "user.h"
+#include "sched.h"
 #include "crc32.h"
 #include "initrd.h"
 #include "ata.h"
@@ -75,6 +76,29 @@ static u32 last_sleep;
 u32  pit_ticks(void)       { return 1234; }
 u32  pit_uptime_ms(void)   { return 3725000; }              /* 1 h 2 min 5 s */
 void pit_sleep_ms(u32 ms)  { last_sleep = ms; }
+
+/* faux ordonnanceur : le shell (0) et un programme "ticker" (7) en arriere-plan */
+int  sched_ready(void)            { return 0; }
+void sched_sleep_ms(u32 ms)       { last_sleep = ms; }
+u32  sched_switches(void)         { return 42; }
+int  sched_info(int i, struct task_info *o)
+{
+    if (i == 0) { o->id = 0; strcpy(o->name, "shell"); o->state = T_RUNNING; o->ticks = 5; o->detached = 0; return 1; }
+    if (i == 1) { o->id = 7; strcpy(o->name, "ticker"); o->state = T_BLOCKED; o->ticks = 123; o->detached = 1; return 1; }
+    return 0;
+}
+err_t user_kill(u32 pid)          { return pid == 7 ? E_OK : (pid == 0 ? E_INVAL : E_NOENT); }
+err_t user_spawn_bg(const u8 *img, u32 size, const char *name, int argc, char **argv, u32 *pid)
+{
+    if (size < 7 || memcmp(img, "FAKEELF", 7))
+        return E_NOEXEC;
+    kprintf("<bg %s argc=%d", name, argc);
+    for (int i = 0; i < argc; i++)
+        kprintf(" %s", argv[i]);
+    kprintf(">\n");
+    *pid = 7;
+    return E_OK;
+}
 
 /* faux noyau utilisateur : « execute » un fichier commencant par FAKEELF en affichant ses arguments */
 static const u8 *fake_in; static u32 fake_in_len; static int fake_in_set;
@@ -174,7 +198,16 @@ static void verify(void)
     CHECK(count("  1  sleep 250") == 0 || count("  1  ") >= 1); /* history : numerotation */
     CHECK(count("gris clair") == 1 && count("blanc") == 1);     /* colors */
     CHECK(count(" 10   vert clair") == 1);                      /* %2d correct dans colors */
-    CHECK(count("PhoenOS 0.5.3") == 1);                         /* version */
+    CHECK(count("PhoenOS 0.6.0") == 1);                         /* version */
+    CHECK(count("<bg hello argc=3 hello a b>") == 1 && count("<bg hello argc=1 hello>") == 1);
+    CHECK(count("[7] hello en arriere-plan (ps pour la liste, kill 7 pour l'arreter)") == 2);
+    CHECK(count("& : seulement pour les programmes") == 1);
+    CHECK(count("& ne se combine pas avec les tubes ni les redirections.") == 1);
+    CHECK(count("Commande manquante avant &.") == 1);
+    CHECK(count("NUM  ETAT     TOURS  NOM") == 1 && count("    0  actif        5  shell (le shell)") == 1);
+    CHECK(count("    7  attend     123  ticker (arriere-plan)") == 1 && count("42 changement(s) de tache") == 1);
+    CHECK(count("Aucun programme avec ce numero") == 1 && count("Ce numero n'est pas un programme") == 1);
+    CHECK(count("usage : kill <numero>") == 1 && count("kill : echec") == 0);
     CHECK(count("Sujets du manuel") == 1 && count(" ls  - liste\n cat  - affiche\n") == 1);   /* man seul */
     CHECK(count("ls  - liste\n  Syntaxe : ls [-l]\n  Option -l\n") == 1 && count("Syntaxe : cat [-n]") == 0);   /* man ls : uniquement sa section */
     CHECK(count("man: pas de manuel pour 'nope'") == 1);
@@ -373,6 +406,16 @@ int test_main(void)
     type("history\n");
     type("colors\n");
     type("version\n");
+    type("hello a b &\n");                                      /* arriere-plan */
+    type("run hello &\n");
+    type("echo x &\n");                                         /* refuse : pas un programme */
+    type("hello | cat &\n");                                    /* refuse : tube */
+    type("&\n");
+    type("ps\n");
+    type("kill 7\n");
+    type("kill 99\n");
+    type("kill 0\n");
+    type("kill\n");
     type("mkdir -p /a/b\n");
     type("cd /a\n");
     type("pwd\n");

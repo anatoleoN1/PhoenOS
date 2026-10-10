@@ -9,10 +9,10 @@ struct fs_node;
 struct aspace;
 
 /*
- * Programmes utilisateur (ring 3). Un seul a la fois. Ils sont charges a USER_BASE dans une
- * zone de 4 Mio reservee au demarrage ; pile en haut de la zone. Pas encore de pagination :
- * la zone n'est PAS isolee du noyau (c'est l'etape suivante), mais les instructions privilegiees,
- * les ports d'entree/sortie et les erreurs sont bien interceptes.
+ * Programmes utilisateur (ring 3). Plusieurs a la fois (0.6.0) : chacun est une tache de
+ * l'ordonnanceur (sched.h) avec son espace d'adresses (aspace.h), vu a USER_BASE..USER_END ;
+ * pile en haut de la zone. Le programme "de premier plan" bloque le shell jusqu'a sa fin ;
+ * un programme lance avec & tourne en arriere-plan (sans clavier : sa lecture donne la fin de fichier).
  */
 #define USER_BASE       0x400000u
 #define USER_SIZE       0x400000u
@@ -58,7 +58,6 @@ struct uproc {
     int  in_set;
     char line[256];                     /* ligne en cours de lecture au clavier */
     u32  line_len, line_pos;
-    struct { u32 ebx, esi, edi, ebp, esp; } ctx;   /* contexte du noyau a retrouver a la fin */
 };
 
 /* Noyau : reserve la zone. E_BUSY / E_NOMEM : les programmes seront indisponibles. */
@@ -73,9 +72,21 @@ struct user_result {
     int killed;                         /* 1 : arrete par le noyau (faute) ou Ctrl+C */
 };
 
+/* Charge `image` et le lance en arriere-plan (detache) ; *pid = son numero. Memes erreurs que user_exec. */
+err_t user_spawn_bg(const u8 *image, u32 size, const char *name, int argc, char **argv, u32 *pid);
+
+/* Demande l'arret du programme `pid` (E_NOENT : inconnu ; E_INVAL : pas un programme). Il s'arrete des qu'il reprend la main. */
+err_t user_kill(u32 pid);
+
+/* Pose les liens avec l'ordonnanceur (commutation, attente clavier). A appeler apres sched_init. */
+void user_sched_init(void);
+
+/* Appele par isr.c apres l'EOI de chaque tick de la minuterie : preemption d'un programme en ring 3. */
+void user_preempt(void);
+
 /*
  * Charge et execute `image` (fichier ELF) ; rend la main a la fin du programme.
- * E_NOSYS : indisponible ; E_NOEXEC : ELF invalide ; E_BUSY : deja un programme ; E_2BIG : arguments.
+ * E_NOSYS : indisponible ; E_NOEXEC : ELF invalide ; E_BUSY : table des taches pleine ; E_2BIG : arguments.
  */
 err_t user_exec(const u8 *image, u32 size, const char *name, int argc, char **argv,
                 struct user_result *res);

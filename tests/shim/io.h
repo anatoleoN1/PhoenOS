@@ -21,6 +21,7 @@ static inline void io_wait(void)             { }
 static inline void cpu_cli(void)             { }
 static inline void cpu_sti(void)             { }
 static inline void cpu_hlt(void)             { }
+static inline void cpu_sti_hlt(void)         { }
 static inline u32  cpu_irq_save(void)        { return 0; }
 static inline void cpu_irq_restore(u32 f)    { (void)f; }
 #endif

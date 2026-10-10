@@ -22,8 +22,8 @@ struct elf_phdr {
     u32 type, offset, vaddr, paddr, filesz, memsz, flags, align;
 } __attribute__((packed));
 
-/* mem == NULL : valide seulement (et remplit segs / nsegs si fournis). */
-static err_t elf_walk(const u8 *img, u32 size, u8 *mem, u32 lo, u32 hi, u32 *entry,
+/* put == NULL : valide seulement (et remplit segs / nsegs si fournis). */
+static err_t elf_walk(const u8 *img, u32 size, elf_put_fn put, void *pctx, u32 lo, u32 hi, u32 *entry,
                       struct elf_seg *segs, int *nsegs)
 {
     struct elf_header h;
@@ -67,9 +67,13 @@ static err_t elf_walk(const u8 *img, u32 size, u8 *mem, u32 lo, u32 hi, u32 *ent
             segs[loaded].hi = p.vaddr + p.memsz;
             segs[loaded].writable = (p.flags & 2) != 0;
         }
-        if (mem) {
-            memcpy(mem + (p.vaddr - lo), img + p.offset, p.filesz);
-            memset(mem + (p.vaddr - lo) + p.filesz, 0, p.memsz - p.filesz);
+        if (put) {
+            err_t pe = put(pctx, p.vaddr, img + p.offset, p.filesz);
+
+            if (pe == E_OK && p.memsz > p.filesz)
+                pe = put(pctx, p.vaddr + p.filesz, NULL, p.memsz - p.filesz);      /* .bss : zeros */
+            if (pe != E_OK)
+                return pe;
         }
         loaded++;
         if (h.entry >= p.vaddr && h.entry - p.vaddr < p.memsz)
@@ -85,12 +89,34 @@ static err_t elf_walk(const u8 *img, u32 size, u8 *mem, u32 lo, u32 hi, u32 *ent
 
 err_t elf_segments(const u8 *img, u32 size, u32 lo, u32 hi, struct elf_seg *segs, int *nsegs, u32 *entry)
 {
-    return elf_walk(img, size, NULL, lo, hi, entry, segs, nsegs);
+    return elf_walk(img, size, NULL, NULL, lo, hi, entry, segs, nsegs);
+}
+
+err_t elf_load_with(const u8 *img, u32 size, elf_put_fn put, void *pctx, u32 lo, u32 hi, u32 *entry)
+{
+    if (!put)
+        return E_NOEXEC;
+    return elf_walk(img, size, put, pctx, lo, hi, entry, NULL, NULL);
+}
+
+struct mem_ctx { u8 *mem; u32 lo; };
+
+static err_t mem_put(void *c, u32 va, const u8 *src, u32 n)
+{
+    struct mem_ctx *m = c;
+
+    if (src)
+        memcpy(m->mem + (va - m->lo), src, n);
+    else
+        memset(m->mem + (va - m->lo), 0, n);
+    return E_OK;
 }
 
 err_t elf_load(const u8 *img, u32 size, u8 *mem, u32 lo, u32 hi, u32 *entry)
 {
+    struct mem_ctx m = { mem, lo };
+
     if (!mem)
         return E_NOEXEC;
-    return elf_walk(img, size, mem, lo, hi, entry, NULL, NULL);
+    return elf_walk(img, size, mem_put, &m, lo, hi, entry, NULL, NULL);
 }

@@ -264,6 +264,22 @@ void fs_init(void)
 }
 
 struct fs_node *fs_root(void) { return root; }
+
+static int live_in(const struct fs_node *dir, const struct fs_node *n)
+{
+    for (const struct fs_node *c = dir->child; c; c = c->next) {
+        if (c == n)
+            return 1;
+        if (c->type == FS_DIR && live_in(c, n))
+            return 1;
+    }
+    return 0;
+}
+
+int fs_is_live(const struct fs_node *n)
+{
+    return n && root && (n == root || live_in(root, n));
+}
 struct fs_node *fs_cwd(void)  { return cwd; }
 
 /* ------------------------------------------------------------------ */

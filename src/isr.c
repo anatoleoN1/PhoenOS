@@ -153,4 +153,6 @@ void isr_handler(struct regs *r)
         klog(LOG_WARN, "IRQ %u recue sans handler", (u32)irq);
 
     pic_eoi(irq);
+    if (irq == 0 && (r->cs & 3) == 3)           /* tick de la minuterie pendant un programme : tourniquet */
+        user_preempt();
 }

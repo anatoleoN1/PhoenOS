@@ -87,6 +87,13 @@ ucheck "compte" "2 ligne(s), 13 octet(s)" "$("$U/compte" "$B/user/data.txt")"
 ucheck "compte absent" "impossible d'ouvrir" "$("$U/compte" /nofile 2>&1)"
 ucheck "heure" "time()" "$("$U/heure")"
 
+# 0.6.0 : programmes pour le multitache
+ucheck "ticker" "zed 3/3" "$("$U/ticker" zed 3 10)"
+ucheck "ticker debut" "zed 1/3" "$("$U/ticker" zed 3 10)"
+ucheck "ticker usage" "usage : ticker" "$("$U/ticker" 2>&1)"
+ucheck "ticker borne" "fois entre 1 et 1000" "$("$U/ticker" a 0 2>&1)"
+ucheck "boucle usage" "usage : boucle" "$("$U/boucle" 0 2>&1)"
+
 # 0.4.0 : programmes qui ECRIVENT des fichiers (memes appels qu'une vraie machine Linux 32 bits)
 rm -f "$B/user/out.txt" "$B/user/notes.txt"
 # notes : meme programme, mais son carnet est un fichier de test (le vrai est /notes.txt dans PhoenOS)
@@ -149,6 +156,7 @@ if [ $UFAIL -eq 0 ]; then echo "  9 programmes compiles et executes (arguments, 
 run elf 0 test_elf.c elf.c string.c
 run poe 0 test_poe.c poe.c elf.c crc32.c string.c
 run pagination 0 test_paging.c paging.c pmm.c string.c
+run ordonnanceur 0 test_sched.c sched.c switch.S kheap.c pmm.c string.c
 run espaces-adressage 0 test_aspace.c aspace.c paging.c pmm.c string.c
 run appels-systeme 0 test_syscall.c syscall.c aspace.c fs.c kprintf.c pmm.c kheap.c string.c rtc.c
 run ecran-defilement 0 -DVGA_TEST_MEMORY=test_vga test_vga.c vga.c string.c
@@ -186,7 +194,7 @@ for c in $cmds $progs; do
     grep -q "^== $c " "$ROOT/initrd/docs/manuel.txt" || { echo "  commande ou programme sans page de manuel : $c"; FAILED=1; }
 done
 for c in $(sed -n 's/^== \([a-z]*\) .*/\1/p' "$ROOT/initrd/docs/manuel.txt"); do
-    case " $cmds $progs general fichiers stockage programmes " in *" $c "*) ;; *) echo "  page de manuel sans commande : $c"; FAILED=1;; esac
+    case " $cmds $progs general fichiers stockage programmes multitache " in *" $c "*) ;; *) echo "  page de manuel sans commande : $c"; FAILED=1;; esac
 done
 echo "  manuel verifie : $(echo $cmds | wc -w) commandes et $(echo $progs | wc -w) programmes documentes"
 

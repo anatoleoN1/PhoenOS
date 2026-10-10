@@ -20,6 +20,13 @@ struct elf_seg { u32 lo, hi; int writable; };
  */
 err_t elf_segments(const u8 *img, u32 size, u32 lo, u32 hi, struct elf_seg *segs, int *nsegs, u32 *entry);
 
+/*
+ * Variante qui n'ecrit pas directement : chaque morceau passe par put(ctx, adresse_virtuelle, source, n)
+ * (source NULL = n octets a zero). Sert a remplir l'espace d'un AUTRE programme sans changer de CR3.
+ */
+typedef err_t (*elf_put_fn)(void *ctx, u32 va, const u8 *src, u32 n);
+err_t elf_load_with(const u8 *img, u32 size, elf_put_fn put, void *pctx, u32 lo, u32 hi, u32 *entry);
+
 err_t elf_load(const u8 *img, u32 size, u8 *mem, u32 lo, u32 hi, u32 *entry);
 
 #endif

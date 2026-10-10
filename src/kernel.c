@@ -24,6 +24,7 @@
 #include "rtc.h"
 #include "user.h"
 #include "paging.h"
+#include "sched.h"
 #include "initrd.h"
 #include "ata.h"
 #include "persist.h"
@@ -280,6 +281,10 @@ void kernel_main(u32 magic, const struct multiboot_info *mbi)
             kprintf("       Pagination : %u Mio mappes, tables de %u Kio, code du noyau en lecture seule\n",
                     paging_mapped_top() >> 20, paging_table_bytes() / 1024);
     }
+
+    sched_init();                               /* le noyau qui tourne devient la tache 0 (le shell) */
+    user_sched_init();
+    status(1, "Ordonnanceur initialise (multitache : taches de 16 Kio, tourniquet a 100 Hz)");
 
     fs_set_clock(rtc_now_unix);                 /* dates des fichiers : horloge materielle (0 si illisible) */
     fs_init();

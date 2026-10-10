@@ -62,6 +62,9 @@ u32 fs_version(void);
 void fs_init(void);
 
 struct fs_node *fs_root(void);
+
+/* Le noeud est-il toujours dans l'arbre ? (un programme garde des descripteurs ; un autre a pu supprimer le fichier) */
+int fs_is_live(const struct fs_node *n);
 struct fs_node *fs_cwd(void);
 
 /* Cherche un élément. E_NOENT s'il n'existe pas, E_NOTDIR si un fichier barre le chemin. */

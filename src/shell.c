@@ -8,6 +8,7 @@
  */
 #include "rtc.h"
 #include "user.h"
+#include "sched.h"
 #include "poe.h"
 #include "paging.h"
 #include "shell.h"
@@ -49,6 +50,7 @@ static struct history hist;
 
 /* Vrai pendant une redirection : cat copie alors les octets tels quels. */
 static int raw_output;
+static int bg_mode;                              /* 1 : la ligne se termine par & (programme en arriere-plan) */
 
 /* Entree standard : la sortie de la commande precedente d'un tube (sinon absente). */
 static const u8 *stdin_buf;
@@ -64,6 +66,8 @@ static err_t cmd_mem(int argc, char **argv);
 static err_t cmd_memtest(int argc, char **argv);
 static err_t cmd_echo(int argc, char **argv);
 static err_t cmd_sleep(int argc, char **argv);
+static err_t cmd_ps(int argc, char **argv);
+static err_t cmd_kill(int argc, char **argv);
 static err_t cmd_colors(int argc, char **argv);
 static err_t cmd_dmesg(int argc, char **argv);
 static err_t cmd_history(int argc, char **argv);
@@ -122,6 +126,8 @@ static const struct command commands[] = {
     { G_SYS, "exe",      "<application> [args]", "Lance une application .poe (cherche aussi dans /apps)", cmd_exe },
     { G_SYS, "poeinfo",  "<application>",     "Montre l'en-tete d'une application .poe", cmd_poeinfo },
     { G_SYS, "run",      "<programme> [args]", "Lance un programme (ex. run /bin/hello ; /bin/ implicite)", cmd_run },
+    { G_SYS, "ps",       "",             "Liste les programmes en cours (taches)",         cmd_ps       },
+    { G_SYS, "kill",     "<numero>",     "Arrete un programme (voir ps)",                  cmd_kill     },
     { G_SYS, "sleep",    "<ms>",         "Attend un nombre de millisecondes",              cmd_sleep    },
     { G_SYS, "colors",   "",             "Affiche les 16 couleurs du mode texte",          cmd_colors   },
     { G_SYS, "dmesg",    "",             "Rejoue tout le journal du noyau",                cmd_dmesg    },
@@ -331,8 +337,42 @@ static err_t cmd_sleep(int argc, char **argv)
         return usage("sleep <millisecondes>");
     if (ms > 60000)
         return fail_msg("Maximum : 60000 ms.");
-    pit_sleep_ms(ms);
+    if (sched_ready())
+        sched_sleep_ms(ms);                     /* les programmes en arriere-plan continuent */
+    else
+        pit_sleep_ms(ms);
     return E_OK;
+}
+
+static err_t cmd_ps(int argc, char **argv)
+{
+    static const char *const state[] = { "libre", "pret", "actif", "attend", "fini" };
+    struct task_info ti;
+
+    (void)argv;
+    if (argc != 1)
+        return usage("ps");
+    kprintf("  NUM  ETAT     TOURS  NOM\n");
+    for (int i = 0; sched_info(i, &ti); i++)
+        kprintf("%5u  %-7s %6u  %s%s\n", ti.id, state[ti.state], ti.ticks, ti.name,
+                ti.id == 0 ? " (le shell)" : (ti.detached ? " (arriere-plan)" : ""));
+    kprintf("%u changement(s) de tache depuis le demarrage\n", sched_switches());
+    return E_OK;
+}
+
+static err_t cmd_kill(int argc, char **argv)
+{
+    u32 pid;
+    err_t e;
+
+    if (argc != 2 || cmdline_parse_u32(argv[1], &pid) != E_OK)
+        return usage("kill <numero>   (numeros : commande ps)");
+    e = user_kill(pid);
+    if (e == E_NOENT)
+        return fail_msg("Aucun programme avec ce numero (voir ps).");
+    if (e == E_INVAL)
+        return fail_msg("Ce numero n'est pas un programme (le shell ne s'arrete pas).");
+    return e;
 }
 
 static err_t cmd_colors(int argc, char **argv)
@@ -1478,8 +1518,22 @@ static err_t exec_program(const char *path, int argc, char **argv)
         image = info.payload;
         size = info.payload_len;
     }
-    user_set_stdin(stdin_buf, stdin_len, has_stdin);
-    e = user_exec(image, size, argv[0], argc, argv, &res);
+    if (bg_mode) {
+        u32 pid = 0;
+
+        e = user_spawn_bg(image, size, argv[0], argc, argv, &pid);
+        if (e == E_OK) {
+            color(VGA_YELLOW);
+            kprintf("[%u] %s en arriere-plan (ps pour la liste, kill %u pour l'arreter)\n", pid, argv[0], pid);
+            color(VGA_LIGHT_GREY);
+            return E_OK;
+        }
+        res.exit_code = 0;
+        res.killed = 0;
+    } else {
+        user_set_stdin(stdin_buf, stdin_len, has_stdin);
+        e = user_exec(image, size, argv[0], argc, argv, &res);
+    }
     if (e == E_NOSYS) {
         fail_msg("Programmes utilisateur indisponibles (zone memoire non reservee au demarrage).");
         return E_REPORTED;
@@ -1639,7 +1693,11 @@ static err_t run_command(int argc, char **argv)
 {
     for (int i = 0; i < COMMAND_COUNT; i++) {
         if (strcmp(commands[i].name, argv[0]) == 0) {
-            err_t e = commands[i].fn(argc, argv);
+            err_t e;
+
+            if (bg_mode && strcmp(argv[0], "run") != 0 && strcmp(argv[0], "exe") != 0)
+                return fail_msg("& : seulement pour les programmes (run, exe ou un nom de programme).");
+            e = commands[i].fn(argc, argv);
 
             if (e != E_OK && e != E_REPORTED) {
                 color(VGA_LIGHT_RED);
@@ -1718,6 +1776,26 @@ static void execute(char *line)
     }
     if (argc == 0)
         return;
+
+    /* Arriere-plan :  programme ... &  */
+    if (!quoted[argc - 1] && strcmp(argv[argc - 1], "&") == 0) {
+        argc--;
+        argv[argc] = NULL;
+        if (argc == 0) {
+            fail_msg("Commande manquante avant &.");
+            return;
+        }
+        for (int i = 0; i < argc; i++)
+            if (!quoted[i] && (is_redirect_token(argv[i]) || strcmp(argv[i], "|") == 0)) {
+                fail_msg("& ne se combine pas avec les tubes ni les redirections.");
+                return;
+            }
+        bg_mode = 1;
+        run_command(argc, argv);
+        bg_mode = 0;
+        color(VGA_LIGHT_GREY);
+        return;
+    }
 
     /* Redirection : uniquement en fin de ligne :  commande ... > fichier */
     if (argc >= 2 && !quoted[argc - 2] && is_redirect_token(argv[argc - 2])) {

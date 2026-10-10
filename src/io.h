@@ -36,6 +36,8 @@ static inline void io_wait(void)
 static inline void cpu_cli(void)  { __asm__ volatile ("cli"); }
 static inline void cpu_sti(void)  { __asm__ volatile ("sti"); }
 static inline void cpu_hlt(void)  { __asm__ volatile ("hlt"); }
+/* sti puis hlt, SANS interruption possible entre les deux (sinon un reveil pourrait etre rate). */
+static inline void cpu_sti_hlt(void) { __asm__ volatile ("sti; hlt" : : : "memory"); }
 
 /* Section critique : coupe les interruptions et renvoie l'état précédent. */
 static inline u32 cpu_irq_save(void)

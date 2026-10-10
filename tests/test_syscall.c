@@ -49,6 +49,9 @@ static struct uproc P;
 #define A(x) ((u32)(umem + (x)))
 #define SYS(nr, a, b, c) syscall_dispatch(&P, (nr), (a), (b), (c))
 
+int  sched_ready(void)       { return 0; }
+void sched_sleep_ms(u32 ms)  { (void)ms; }
+
 int test_main(void)
 {
     static struct { struct multiboot_info mbi; struct multiboot_mmap_entry e[1]; } M;

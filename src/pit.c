@@ -40,6 +40,11 @@ void pit_init(u32 hz)
         PANIC("Impossible d'installer le handler du timer : %s", err_str(e));
 }
 
+u32 pit_hz(void)
+{
+    return frequency;
+}
+
 u32 pit_ticks(void)
 {
     return ticks;
