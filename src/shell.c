@@ -9,6 +9,7 @@
 #include "rtc.h"
 #include "user.h"
 #include "sched.h"
+#include "dlog.h"
 #include "poe.h"
 #include "paging.h"
 #include "shell.h"
@@ -71,6 +72,7 @@ static err_t cmd_kill(int argc, char **argv);
 static err_t cmd_schedlog(int argc, char **argv);
 static err_t cmd_colors(int argc, char **argv);
 static err_t cmd_dmesg(int argc, char **argv);
+static err_t cmd_log(int argc, char **argv);
 static err_t cmd_history(int argc, char **argv);
 static err_t cmd_crash(int argc, char **argv);
 static err_t cmd_reboot(int argc, char **argv);
@@ -133,6 +135,7 @@ static const struct command commands[] = {
     { G_SYS, "sleep",    "<ms>",         "Attend un nombre de millisecondes",              cmd_sleep    },
     { G_SYS, "colors",   "",             "Affiche les 16 couleurs du mode texte",          cmd_colors   },
     { G_SYS, "dmesg",    "",             "Rejoue tout le journal du noyau",                cmd_dmesg    },
+    { G_SYS, "log",      "[-a|-n N] [-t tag] [-l niveau] | level | clear | save | add", "Journal de debogage du systeme (voir man log)", cmd_log },
     { G_SYS, "history",  "",             "Liste les commandes precedentes",                cmd_history  },
     { G_SYS, "crash",    "<type>",       "Provoque une erreur : voir l'ecran d'erreur",    cmd_crash    },
     { G_SYS, "reboot",   "",             "Redemarre la machine",                           cmd_reboot   },
@@ -419,6 +422,108 @@ static err_t cmd_dmesg(int argc, char **argv)
 {
     (void)argc; (void)argv;
     dmesg_print();
+    return E_OK;
+}
+
+static int log_save_file(const char *path)
+{
+    struct fs_node *f;
+    char line[160], msg[DLOG_MSG_MAX + 2], tag[DLOG_TAG_MAX];
+    u32 ms;
+    int lv;
+    err_t e;
+
+    fs_mkdir_p("/var/log");
+    if ((e = fs_create(path, &f)) != E_OK || (e = fs_write(f, "", 0)) != E_OK)
+        return e;
+    for (u32 i = 0; dlog_get(i, &ms, &lv, tag, msg); i++) {
+        usize n = dlog_format(line, sizeof line - 1, ms, lv, tag, msg);
+
+        line[n++] = '\n';
+        if ((e = fs_append(f, line, (u32)n)) != E_OK)
+            return e;
+    }
+    return E_OK;
+}
+
+static err_t cmd_log(int argc, char **argv)
+{
+    u32 want = 20, ms, shown = 0;
+    int minlv = DL_TRACE, lv, all = 0;
+    const char *tagf = NULL;
+    char line[160], msg[DLOG_MSG_MAX + 2], tag[DLOG_TAG_MAX];
+
+    if (argc >= 2 && strcmp(argv[1], "level") == 0) {
+        if (argc == 3) {
+            int l = dlog_parse_level(argv[2]);
+
+            if (l < 0)
+                return usage("log");
+            dlog_set_level(l);
+        }
+        kprintf("Niveau minimal enregistre : %s (port de debogage : %s)\n", dlog_level_name(dlog_level()),
+                dlog_port_present() ? "present" : "absent");
+        return E_OK;
+    }
+    if (argc >= 2 && strcmp(argv[1], "clear") == 0) {
+        dlog_clear();
+        return E_OK;
+    }
+    if (argc >= 2 && strcmp(argv[1], "save") == 0) {
+        const char *path = argc > 2 ? argv[2] : "/var/log/phoenos.log";
+        err_t e = (argc > 3) ? usage("log") : log_save_file(path);
+
+        if (e == E_OK)
+            kprintf("Journal enregistre dans %s (%u lignes).\n", path, dlog_kept());
+        return e;
+    }
+    if (argc >= 2 && strcmp(argv[1], "add") == 0) {
+        if (argc < 3)
+            return usage("log");
+        usize o = 0;
+
+        for (int i = 2; i < argc; i++) {
+            if (i > 2 && o + 1 < sizeof msg)
+                msg[o++] = ' ';
+            for (const char *s = argv[i]; *s && o + 1 < sizeof msg; s++)
+                msg[o++] = *s;
+        }
+        msg[o] = 0;
+        dlog(DL_INFO, "user", "%s", msg);
+        return E_OK;
+    }
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "-a") == 0) all = 1;
+        else if (strcmp(argv[i], "-n") == 0 && i + 1 < argc) {
+            if (cmdline_parse_u32(argv[++i], &want) != E_OK)
+                return usage("log");
+        }
+        else if (strcmp(argv[i], "-t") == 0 && i + 1 < argc) tagf = argv[++i];
+        else if (strcmp(argv[i], "-l") == 0 && i + 1 < argc) {
+            minlv = dlog_parse_level(argv[++i]);
+            if (minlv < 0)
+                return usage("log");
+        } else
+            return usage("log");
+    }
+    /* On cherche d'abord le debut : les `want` dernieres lignes qui passent les filtres. */
+    u32 skip = 0, total = 0;
+
+    for (u32 i = 0; dlog_get(i, &ms, &lv, tag, msg); i++)
+        if (lv >= minlv && (!tagf || strcmp(tag, tagf) == 0))
+            total++;
+    if (!all && total > want)
+        skip = total - want;
+    for (u32 i = 0, k = 0; dlog_get(i, &ms, &lv, tag, msg); i++) {
+        if (lv < minlv || (tagf && strcmp(tag, tagf) != 0))
+            continue;
+        if (k++ < skip)
+            continue;
+        dlog_format(line, sizeof line, ms, lv, tag, msg);
+        kprintf("%s\n", line);
+        shown++;
+    }
+    kprintf("-- %u ligne(s) affichee(s) sur %u enregistrees depuis le demarrage --\n", shown, dlog_total());
     return E_OK;
 }
 
@@ -2083,6 +2188,7 @@ static void read_line(char *line, usize *len_out)
     for (;;) {
         int key = keyboard_getc();
 
+        DTRACE("key", "touche %#x", (u32)key);
         if (key == KEY_PGUP || key == 2) {      /* page precedente : PageHaut, Ctrl+B (voir man general) */
             vga_scroll_view(SCROLL_STEP);
             continue;
@@ -2174,6 +2280,12 @@ void shell_run(void)
 
         history_add(&hist, line);
         memcpy(copy, line, len + 1);            /* execute() découpe la copie sur place */
-        execute(copy);
+        {
+            u32 t0 = pit_uptime_ms();
+
+            DINFO("shell", "$ %s", line);
+            execute(copy);
+            DDEBUG("shell", "fin (%u ms) : %s", pit_uptime_ms() - t0, line);
+        }
     }
 }

@@ -4,6 +4,9 @@
 #include "types.h"
 
 void pit_init(u32 hz);            /* démarre le timer (IRQ 0) à `hz` ticks/s */
+/* Appele depuis l'interruption toutes les 5 secondes (battement : etat du systeme dans le journal). */
+extern void (*pit_second_hook)(u32 seconds);
+
 u32  pit_hz(void);                /* ticks par seconde */
 u32  pit_ticks(void);             /* ticks depuis le démarrage */
 u32  pit_uptime_ms(void);         /* millisecondes depuis le démarrage */

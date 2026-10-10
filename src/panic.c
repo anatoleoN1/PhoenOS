@@ -10,6 +10,7 @@
 #include "serial.h"
 #include "vga.h"
 #include "io.h"
+#include "dlog.h"
 
 #define STACK_CANARY 0xC0FFEE42u
 
@@ -44,6 +45,8 @@ void panic_begin(const char *title)
             cpu_hlt();
     }
     panicking = 1;
+    dlog_panic_mode();
+    DERROR("panic", "PANIQUE : %s", title);
 
     vga_set_palette(PANIC_BG, PANIC_R, PANIC_G, PANIC_B);
     vga_set_color(VGA_WHITE, PANIC_BG);
@@ -95,6 +98,15 @@ void kpanic_at(const char *file, int line, const char *fmt, ...)
     va_list ap;
 
     panic_begin("Erreur fatale du noyau");
+    {
+        char m[DLOG_MSG_MAX];
+        va_list ap2;
+
+        va_start(ap2, fmt);
+        kvsnprintf(m, sizeof m, fmt, ap2);
+        va_end(ap2);
+        DERROR("panic", "%s (%s:%d)", m, file, line);
+    }
 
     kprintf("  Message : ");
     va_start(ap, fmt);

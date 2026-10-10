@@ -4,7 +4,6 @@
 #include "kheap.h"
 #include "string.h"
 
-static struct task tasks[SCHED_MAX_TASKS];
 static struct task *cur;
 static u32 next_id = 1;
 static u32 switches;
@@ -16,9 +15,17 @@ static struct { u32 t; char k; u8 a, b; } trace_buf[TRACE_N];
 static u32 trace_n;
 static u32 idle_loops;
 
+void (*sched_event_hook)(char kind, u32 id_a, u32 id_b, const char *name_a);
+
+static struct task tasks[SCHED_MAX_TASKS];
+
 static void trace(char k, u32 a, u32 b)
 {
     u32 i = trace_n++ % TRACE_N;
+
+    if (sched_event_hook)                       /* ids (et non plus indices) pour le journal de debogage */
+        sched_event_hook(k, tasks[a % SCHED_MAX_TASKS].id, k == 'S' ? tasks[b % SCHED_MAX_TASKS].id : b,
+                         tasks[a % SCHED_MAX_TASKS].name);
 
     trace_buf[i].t = pit_ticks();
     trace_buf[i].k = k;
@@ -308,6 +315,8 @@ err_t sched_create(const char *name, void (*entry)(void *), void *arg, void (*cl
     *--sp = 0;                                  /* edi */
     t->kesp = (u32)sp;
     t->state = T_READY;
+    if (sched_event_hook)
+        sched_event_hook('C', t->id, 0, t->name);
     if (out)
         *out = t;
     return E_OK;

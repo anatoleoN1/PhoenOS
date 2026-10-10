@@ -23,7 +23,26 @@ void kprintf_redirect(kprintf_sink_fn fn, void *ctx)
     sink_ctx = ctx;
 }
 
-static void out(char c)
+/* Destination d'un formatage : l'ecran, ou un tampon (kvsnprintf). Passee en argument : reentrant (IRQ). */
+struct putter {
+    char *buf;                              /* NULL : ecran */
+    usize cap, len;                         /* tampon : capacite (terminateur compris) et taille voulue */
+};
+
+static void console_out(char c);
+
+static void out(struct putter *p, char c)
+{
+    if (!p->buf) {
+        console_out(c);
+        return;
+    }
+    if (p->len + 1 < p->cap)
+        p->buf[p->len] = c;
+    p->len++;
+}
+
+static void console_out(char c)
 {
     if (sink && !bypass) {
         sink(c, sink_ctx);
@@ -35,10 +54,10 @@ static void out(char c)
     serial_putc((u8)c >= 0x80 ? '?' : c);
 }
 
-static void out_n(char c, usize n)
+static void out_n(struct putter *p, char c, usize n)
 {
     while (n--)
-        out(c);
+        out(p, c);
 }
 
 /*
@@ -46,24 +65,24 @@ static void out_n(char c, usize n)
  *   left  : remplissage à droite (flag '-')
  *   zero  : zéros entre le préfixe et le corps (flag '0', nombres seulement)
  */
-static void emit_field(const char *prefix, const char *body, usize width, int left, int zero)
+static void emit_field(struct putter *p, const char *prefix, const char *body, usize width, int left, int zero)
 {
     usize plen = strlen(prefix), blen = strlen(body);
     usize total = plen + blen;
     usize fill = width > total ? width - total : 0;
 
     if (left) {
-        for (usize i = 0; i < plen; i++) out(prefix[i]);
-        for (usize i = 0; i < blen; i++) out(body[i]);
-        out_n(' ', fill);
+        for (usize i = 0; i < plen; i++) out(p, prefix[i]);
+        for (usize i = 0; i < blen; i++) out(p, body[i]);
+        out_n(p, ' ', fill);
     } else if (zero) {
-        for (usize i = 0; i < plen; i++) out(prefix[i]);
-        out_n('0', fill);
-        for (usize i = 0; i < blen; i++) out(body[i]);
+        for (usize i = 0; i < plen; i++) out(p, prefix[i]);
+        out_n(p, '0', fill);
+        for (usize i = 0; i < blen; i++) out(p, body[i]);
     } else {
-        out_n(' ', fill);
-        for (usize i = 0; i < plen; i++) out(prefix[i]);
-        for (usize i = 0; i < blen; i++) out(body[i]);
+        out_n(p, ' ', fill);
+        for (usize i = 0; i < plen; i++) out(p, prefix[i]);
+        for (usize i = 0; i < blen; i++) out(p, body[i]);
     }
 }
 
@@ -86,7 +105,7 @@ static char *utoa(u32 value, u32 base, int upper, char *buf)
     return buf;
 }
 
-void kvprintf(const char *fmt, va_list ap)
+static void vformat(struct putter *p, const char *fmt, va_list ap)
 {
     for (; *fmt; fmt++) {
         int alt = 0, zero = 0, left = 0;
@@ -94,7 +113,7 @@ void kvprintf(const char *fmt, va_list ap)
         char buf[40], chbuf[2];
 
         if (*fmt != '%') {
-            out(*fmt);
+            out(p, *fmt);
             continue;
         }
         fmt++;
@@ -118,47 +137,79 @@ void kvprintf(const char *fmt, va_list ap)
         case 's': {
             const char *str = va_arg(ap, const char *);
 
-            emit_field("", str ? str : "(null)", width, left, 0);
+            emit_field(p, "", str ? str : "(null)", width, left, 0);
             break;
         }
         case 'c':
             chbuf[0] = (char)va_arg(ap, int);
             chbuf[1] = '\0';
             if (chbuf[0] == '\0')
-                out(0);                         /* un NUL est affiché tel quel */
+                out(p, 0);                         /* un NUL est affiché tel quel */
             else
-                emit_field("", chbuf, width, left, 0);
+                emit_field(p, "", chbuf, width, left, 0);
             break;
         case 'd': {
             i32 v = va_arg(ap, i32);
 
             if (v >= 0)
-                emit_field("", utoa((u32)v, 10, 0, buf), width, left, zero);
+                emit_field(p, "", utoa((u32)v, 10, 0, buf), width, left, zero);
             else
-                emit_field("-", utoa((u32)(-(v + 1)) + 1u, 10, 0, buf), width, left, zero);
+                emit_field(p, "-", utoa((u32)(-(v + 1)) + 1u, 10, 0, buf), width, left, zero);
             break;
         }
         case 'u':
-            emit_field("", utoa(va_arg(ap, u32), 10, 0, buf), width, left, zero);
+            emit_field(p, "", utoa(va_arg(ap, u32), 10, 0, buf), width, left, zero);
             break;
         case 'x':
         case 'X':
             /* Avec '#', le préfixe 0x est TOUJOURS affiché (même pour 0), la largeur l'inclut. */
-            emit_field(alt ? "0x" : "", utoa(va_arg(ap, u32), 16, *fmt == 'X', buf),
+            emit_field(p, alt ? "0x" : "", utoa(va_arg(ap, u32), 16, *fmt == 'X', buf),
                        width, left, zero);
             break;
         case '%':
-            out('%');
+            out(p, '%');
             break;
         case '\0':                              /* '%' isolé en fin de texte : affiché tel quel */
-            out('%');
+            out(p, '%');
             return;
         default:
-            out('%');
-            out(*fmt);
+            out(p, '%');
+            out(p, *fmt);
             break;
         }
     }
+}
+
+void kvprintf(const char *fmt, va_list ap)
+{
+    struct putter p = { NULL, 0, 0 };
+
+    vformat(&p, fmt, ap);
+}
+
+/* Formate dans buf (toujours termine par 0 si n > 0). Renvoie la longueur voulue (comme snprintf). Reentrant. */
+usize kvsnprintf(char *buf, usize n, const char *fmt, va_list ap)
+{
+    struct putter p = { buf, n, 0 };
+
+    if (!buf || n == 0) {
+        p.buf = NULL;
+        return 0;
+    }
+    vformat(&p, fmt, ap);
+    buf[p.len < n ? p.len : n - 1] = '\0';
+    return p.len;
+}
+
+usize ksnprintf(char *buf, usize n, const char *fmt, ...)
+{
+    va_list ap;
+    usize r;
+
+    va_start(ap, fmt);
+    r = kvsnprintf(buf, n, fmt, ap);
+    va_end(ap);
+    return r;
 }
 
 void kprintf(const char *fmt, ...)

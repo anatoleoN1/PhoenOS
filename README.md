@@ -30,7 +30,7 @@ make clean
 Pour tester sur une vraie machine : écrire `phoenos-0.1.0.iso` sur une clé USB
 (`sudo dd if=phoenos-0.1.0.iso of=/dev/sdX bs=4M status=progress`, en vérifiant bien `sdX`).
 
-## Ce qu'on doit voir au démarrage (v0.6.1)
+## Ce qu'on doit voir au démarrage (v0.6.2)
 
 Des lignes `[ OK ]` pour : VGA + port série, Multiboot, GDT, IDT/PIC/timer/clavier,
 exceptions (point d'arrêt traité), **mémoire physique, tas du noyau et leurs auto-tests**,
@@ -73,6 +73,20 @@ QEMU s'arrête au lieu de redémarrer, et `qemu.log` contient la dernière excep
 Limites connues : un débordement de pile est détecté après coup (canari testé à chaque tick du
 timer) mais peut provoquer une triple faute avant ; la protection complète demande un TSS dédié
 pour la double faute (prévu plus tard).
+
+## Nouveautés de la 0.6.2 — Système de debug complet
+
+- `make debug` (et `debug-window`, `debug-sdl`, `debug-gtk`) enregistre **tout** dans `logs/<date-heure>/`, sans rien
+  afficher de plus dans le terminal : `session.log` (variables, étapes, commande QEMU, code de sortie),
+  `build.log` (compilation), `os.log` (journal interne de PhoenOS, via le port de débogage 0xE9),
+  `console.log` (tout le port série), `qemu.log` (exceptions CPU, redémarrages). `logs/latest` pointe sur la dernière
+  session ; un résumé (erreurs, panique, triple faute) s'affiche à la fin. `make logs`, `make logs-clean`.
+  `qemu.log` peut devenir très gros sur une longue session : `make debug QEMU_D=` le désactive.
+- Dans PhoenOS : commande `log` (`log -a`, `-n N`, `-t tag`, `-l niveau`, `log level`, `log clear`, `log save`, `log add`).
+  Le noyau y note le démarrage, chaque commande, chaque touche (trace), les programmes (lancement, fin, fautes
+  avec EIP/CR2), chaque appel système, l'ordonnanceur, les exceptions, la panique et un battement toutes les 5 s.
+- Appel système `log(niveau, texte)` pour les programmes (`ticker` et `boucle` l'utilisent).
+- Pour envoyer un problème : zippez `logs/latest/` (surtout `os.log`, `console.log`, `session.log`).
 
 ## Nouveautés de la 0.6.1
 

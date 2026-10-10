@@ -2,6 +2,6 @@
 #define PHOENOS_VERSION_H
 
 #define PHOENOS_NAME    "PhoenOS"
-#define PHOENOS_VERSION "0.6.1"
+#define PHOENOS_VERSION "0.6.2"
 
 #endif

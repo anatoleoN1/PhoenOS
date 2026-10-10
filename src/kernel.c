@@ -25,6 +25,7 @@
 #include "user.h"
 #include "paging.h"
 #include "sched.h"
+#include "dlog.h"
 #include "initrd.h"
 #include "ata.h"
 #include "persist.h"
@@ -48,6 +49,7 @@ static void status(int good, const char *msg)
     kprintf(good ? "[ OK ] " : "[FAIL] ");
     vga_set_color(VGA_LIGHT_GREY, VGA_BLACK);
     kprintf("%s\n", msg);
+    dlog(good ? DL_INFO : DL_ERROR, "boot", "%s : %s", good ? "OK" : "ECHEC", msg);
 }
 
 /* Auto-test du gestionnaire de frames : allocation, libération, réutilisation. */
@@ -216,11 +218,24 @@ static void init_storage(void)
     persist_mark_clean();                       /* ce qui vient d'être chargé est déjà enregistré */
 }
 
+/* Toutes les 5 s : etat du systeme dans le journal (utile pour voir une fuite ou un blocage dans logs/.../os.log). */
+static void heartbeat(u32 seconds)
+{
+    struct task_info ti;
+    int tasks = 0;
+
+    while (sched_info(tasks, &ti))
+        tasks++;
+    DDEBUG("tick", "%us : %u Kio libres, %d tache(s), %u commutations, %u veilles, %u lignes de journal", seconds,
+           pmm_free_frames() * 4, tasks, sched_switches(), sched_idle_count(), dlog_total());
+}
+
 void kernel_main(u32 magic, const struct multiboot_info *mbi)
 {
     struct kheap_stats hs;
     err_t e;
 
+    dlog_init();                                /* tout premier : le journal commence ici */
     serial_init();
     vga_init();
     stack_guard_init();
@@ -229,10 +244,13 @@ void kernel_main(u32 magic, const struct multiboot_info *mbi)
     kprintf("%s %s - noyau x86 (32 bits)\n\n", PHOENOS_NAME, PHOENOS_VERSION);
 
     status(1, "Pilote VGA texte et port serie COM1 initialises");
+    DINFO("boot", "%s %s - port de debogage 0xE9 : %s - niveau %s", PHOENOS_NAME, PHOENOS_VERSION,
+          dlog_port_present() ? "present (tout est enregistre)" : "absent", dlog_level_name(dlog_level()));
 
     if (magic != MULTIBOOT_BOOTLOADER_MAGIC)
         PANIC("Magic Multiboot invalide (%#x) : demarrez via GRUB", magic);
     ASSERT(mbi != NULL);
+    DINFO("boot", "multiboot : flags %#x, carte memoire %u octets, modules %u", mbi->flags, mbi->mmap_length, mbi->mods_count);
     status(1, "Demarre par un bootloader Multiboot");
 
     gdt_init();
@@ -256,6 +274,7 @@ void kernel_main(u32 magic, const struct multiboot_info *mbi)
     pmm_init(mbi);
     kprintf("       Memoire : %u Kio libres pour le noyau (%u frames de 4 Kio)\n",
             pmm_free_frames() * 4, pmm_free_frames());
+    DINFO("mem", "memoire physique : %u frames libres (%u Kio)", pmm_free_frames(), pmm_free_frames() * 4);
     status(1, "Gestionnaire de memoire physique initialise");
 
     {
@@ -282,6 +301,7 @@ void kernel_main(u32 magic, const struct multiboot_info *mbi)
                     paging_mapped_top() >> 20, paging_table_bytes() / 1024);
     }
 
+    pit_second_hook = heartbeat;
     sched_init();                               /* le noyau qui tourne devient la tache 0 (le shell) */
     user_sched_init();
     status(1, "Ordonnanceur initialise (multitache : taches de 16 Kio, tourniquet a 100 Hz)");

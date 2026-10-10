@@ -10,7 +10,8 @@
 #   make run          lance l'ISO ; le journal du noyau s'affiche aussi dans le terminal
 #   make serial       SANS fenêtre : tout se passe dans ce terminal (clavier compris). Quitter : Ctrl+A puis X.
 #                     Utile sans affichage (WSL, Chromebook) ou si la fenêtre ne reçoit pas le clavier.
-#   make debug        comme run + journal des exceptions CPU dans qemu.log
+#   make debug        SANS fenetre, enregistre tout dans logs/<session>/ (os.log, console.log, qemu.log, build.log)
+#                     variantes : debug-window, debug-sdl, debug-gtk ; make logs liste les sessions
 #   make newdisk     recree un disque vide disk.img (celui qui garde vos fichiers entre deux lancements)
 #
 # Diagnostic :
@@ -59,7 +60,7 @@ USER_PROGS  := $(patsubst user/%.c,%,$(filter-out user/crt0.c,$(wildcard user/*.
 USER_ELFS   := $(addprefix build/user/,$(addsuffix .elf,$(USER_PROGS)))
 TESTS   := test-div0 test-gp test-panic test-assert test-doublefree test-heapcorrupt
 
-.PHONY: all iso run run-sdl run-gtk serial debug debug-window check symbol test clean newdisk $(TESTS)
+.PHONY: all iso run run-sdl run-gtk serial debug debug-window debug-sdl debug-gtk logs logs-clean check symbol test clean newdisk $(TESTS)
 
 all: $(KERNEL)
 
@@ -119,14 +120,33 @@ run-gtk: iso $(DISK)
 serial: iso $(DISK)
 	$(QEMU) $(QEMU_DISK) -cdrom $(ISO) $(QEMU_SERIAL)
 
-# Diagnostic : comme « serial » (sans fenêtre) + journal de QEMU (qemu.log : exceptions et redémarrages du processeur).
-debug: iso $(DISK)
-	$(QEMU) $(QEMU_DISK) -cdrom $(ISO) $(QEMU_SERIAL) -d int,cpu_reset -D qemu.log
-	@echo ">> Journal QEMU : qemu.log (chercher : grep -n 'v=0\|Triple' qemu.log)"
+# Diagnostic (0.6.2) : tout est enregistre dans logs/<date-heure>/ (voir tools/debug-session.sh) : compilation,
+# journal interne de PhoenOS (os.log), console serie, journal de QEMU. Rien de tout cela n'est affiche a l'ecran.
+#   make debug          sans fenetre (comme serial)      make debug-window | debug-sdl | debug-gtk : avec fenetre
+#   make debug QEMU_D=   desactive qemu.log (tres gros sur une longue session) ;  make logs : liste ;  make logs-clean
+DEBUG_ENV := MAKE="$(MAKE)" QEMU="$(QEMU)" ISO="$(ISO)" DISK="$(DISK)" QEMU_DISK="$(QEMU_DISK)"
+ifneq ($(origin QEMU_D),undefined)
+DEBUG_ENV += QEMU_D="$(QEMU_D)"
+endif
 
-# Même diagnostic mais avec une fenêtre.
-debug-window: iso $(DISK)
-	$(QEMU) $(QEMU_DISK) -cdrom $(ISO) -serial stdio -no-reboot -d int,cpu_reset -D qemu.log
+debug:
+	@$(DEBUG_ENV) sh tools/debug-session.sh serial
+
+debug-window:
+	@$(DEBUG_ENV) sh tools/debug-session.sh window
+
+debug-sdl:
+	@$(DEBUG_ENV) sh tools/debug-session.sh sdl
+
+debug-gtk:
+	@$(DEBUG_ENV) sh tools/debug-session.sh gtk
+
+logs:
+	@ls -1dt logs/*/ 2>/dev/null || echo "Aucune session (lancez make debug)"
+	@echo ">> derniere session : logs/latest  (ex. : less logs/latest/os.log)"
+
+logs-clean:
+	rm -rf logs
 
 test:
 	sh tests/run.sh

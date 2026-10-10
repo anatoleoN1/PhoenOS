@@ -1,6 +1,7 @@
 /* Test du vrai syscall.c : appels systeme avec un faux programme (memoire = tableau du test). */
 #include "testlib.h"
 #include "user.h"
+#include "dlog.h"
 #include "aspace.h"
 #include "fs.h"
 #include "kprintf.h"
@@ -46,6 +47,19 @@ void aspace_activate(const struct aspace *a) { (void)a; }
 void aspace_activate_kernel(void) { }
 static u32 kdir[1024] __attribute__((aligned(4096)));
 static struct uproc P;
+
+static int strstr_(const char *h, const char *n)
+{
+    for (; *h; h++) {
+        usize i = 0;
+
+        while (n[i] && h[i] == n[i])
+            i++;
+        if (!n[i])
+            return 1;
+    }
+    return 0;
+}
 #define A(x) ((u32)(umem + (x)))
 #define SYS(nr, a, b, c) syscall_dispatch(&P, (nr), (a), (b), (c))
 
@@ -218,6 +232,23 @@ int test_main(void)
     /* ---- divers ---- */
     CHECK(SYS(SYS_GETPID, 0, 0, 0) == (i32)P.pid);
     CHECK(SYS(SYS_UPTIME, 0, 0, 0) == 4242);
+    /* ---- journal : log(niveau, texte) ---- */
+    {
+        char tag[DLOG_TAG_MAX], msg[DLOG_MSG_MAX + 2];
+        u32 ms, n0 = dlog_total();
+        int lv, ok = 0;
+
+        memcpy(umem + 700, "bonjour", 8);
+        dlog_set_level(DL_TRACE);
+        CHECK(SYS(SYS_LOG, 2, A(700), 0) == 0);
+        CHECK(dlog_total() > n0);
+        for (u32 i = 0; dlog_get(i, &ms, &lv, tag, msg); i++)
+            if (lv == DL_INFO && strcmp(tag, P.name) == 0 && strstr_(msg, "bonjour"))
+                ok = 1;
+        CHECK(ok);
+        CHECK(SYS(SYS_LOG, 9, A(700), 0) == E_INVAL);                       /* niveau inconnu */
+        CHECK(SYS(SYS_LOG, 2, 0x600000, 0) == E_FAULT);                     /* pointeur invalide */
+    }
     SYS(SYS_SLEEP_MS, 250, 0, 0);
     CHECK(slept == 250);
     SYS(SYS_SLEEP_MS, 0xFFFFFFFFu, 0, 0);

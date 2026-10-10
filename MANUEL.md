@@ -1,4 +1,4 @@
-# Manuel de PhoenOS 0.6.1
+# Manuel de PhoenOS 0.6.2
 
 > Généré à partir de `initrd/docs/manuel.txt` (lisible dans PhoenOS avec `man`).
 
@@ -228,6 +228,19 @@ Differences avec Unix : pas de droits ni de proprietaires (les dates existent, v
   Syntaxe : dmesg
   Rejoue tout ce que le noyau a ecrit depuis le demarrage (les 8 derniers Kio).
   La sortie ne peut pas etre redirigee vers un fichier pour l'instant.
+
+== log  - journal de debogage du systeme (0.6.2)
+  Syntaxe : log [-a | -n N] [-t tag] [-l niveau]   affiche les N dernieres lignes (20 par defaut ; -a : toutes)
+            log level [niveau]                     montre ou change le niveau minimal enregistre
+            log clear                              vide le journal
+            log save [fichier]                     ecrit le journal dans un fichier (/var/log/phoenos.log)
+            log add <texte>                        ajoute une ligne de votre cru (tag "user")
+  Niveaux : trace, debug, info, warn, error (ou 0 a 4). Rien n'est affiche a l'ecran tout seul : le systeme
+  note en silence le demarrage, chaque commande tapee, chaque touche (trace), les programmes lances,
+  termines ou fautifs, les appels systeme, l'ordonnanceur et un battement toutes les 5 s (tag "tick").
+  Un programme peut ecrire dans le meme journal avec l'appel systeme log() (tag = nom du programme).
+  Exemples : log -t ticker     log -l warn -a     log save   puis   cat /var/log/phoenos.log
+  Hors de l'OS : "make debug" garde tout dans logs/latest/ (os.log, qemu.log, console.log, session.log).
 
 == history  - commandes precedentes
   Syntaxe : history
@@ -484,6 +497,4 @@ Differences avec Unix : pas de droits ni de proprietaires (les dates existent, v
   Syntaxe : poeinfo <application>[.poe]
   Affiche nom, version, auteur, exigences, taille et etat (valide, abimee, trop recente...).
   Exemple : poeinfo calc
-
-
 ```

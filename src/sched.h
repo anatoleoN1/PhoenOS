@@ -81,6 +81,7 @@ int  sched_trace_get(int index, u32 *tick, char *kind, u32 *a, u32 *b);
 u32  sched_idle_count(void);       /* tours de veille (hlt) depuis le demarrage */                                  /* nombre de commutations (statistiques / tests) */
 
 /* Reglages (materiel) */
+extern void (*sched_event_hook)(char kind, u32 id_a, u32 id_b, const char *name_a);   /* journal de debogage : C creation, S commutation, B bloque, W reveille, X fin */
 extern void (*sched_switch_hook)(struct task *next);        /* avant chaque commutation : tss.esp0, CR3 */
 extern void (*sched_idle_hook)(void);                       /* a la place de sti+hlt quand rien n'est pret (tests) */
 

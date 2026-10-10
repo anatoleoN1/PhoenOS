@@ -11,7 +11,7 @@ typedef unsigned int  uint;
 typedef unsigned char uchar;
 
 enum { SYS_EXIT = 1, SYS_READ = 3, SYS_WRITE = 4, SYS_OPEN = 5, SYS_CLOSE = 6, SYS_UNLINK = 10, SYS_TIME = 13,
-       SYS_GETPID = 20, SYS_SLEEP_MS = 200, SYS_UPTIME = 201 };
+       SYS_GETPID = 20, SYS_LOG = 199, SYS_SLEEP_MS = 200, SYS_UPTIME = 201 };
 
 static inline int syscall3(int n, int a, int b, int c)
 {
@@ -33,6 +33,8 @@ static inline int  unlink(const char *path)             { return syscall3(SYS_UN
 static inline int  close(int fd)                        { return syscall3(SYS_CLOSE, fd, 0, 0); }
 static inline int  getpid(void)                         { return syscall3(SYS_GETPID, 0, 0, 0); }
 static inline uint time(void)                           { return (uint)syscall3(SYS_TIME, 0, 0, 0); }
+/* Journal du systeme (commande `log`) : niveau 0 trace .. 4 erreur. */
+static inline int log_msg(int level, const char *text)  { return syscall3(SYS_LOG, level, (int)text, 0); }
 static inline void sleep_ms(uint ms)                    { syscall3(SYS_SLEEP_MS, (int)ms, 0, 0); }
 static inline uint uptime_ms(void)                      { return (uint)syscall3(SYS_UPTIME, 0, 0, 0); }
 

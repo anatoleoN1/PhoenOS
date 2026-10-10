@@ -10,6 +10,7 @@
 #include "panic.h"
 #include "log.h"
 #include "user.h"
+#include "dlog.h"
 
 static const char *const exception_names[32] = {
     "Division par zero",              /*  0 #DE */
@@ -104,6 +105,10 @@ static void describe_cause(const struct regs *r)
 static void panic_exception(const struct regs *r)
 {
     panic_begin("Exception du processeur");
+    DERROR("panic", "exception %u (%s) err=%#x EIP=%#x CS=%#x EFLAGS=%#x", r->int_no, exception_names[r->int_no],
+           r->err_code, r->eip, r->cs, r->eflags);
+    DERROR("panic", "EAX=%#x EBX=%#x ECX=%#x EDX=%#x ESI=%#x EDI=%#x EBP=%#x ESP=%#x", r->eax, r->ebx, r->ecx,
+           r->edx, r->esi, r->edi, r->ebp, r->esp_pusha);
 
     kprintf("  Exception %u : %s\n", r->int_no, exception_names[r->int_no]);
     kprintf("  Code d'erreur : %#x\n", r->err_code);
@@ -151,6 +156,8 @@ void isr_handler(struct regs *r)
         irq_handlers[irq](r);
     else
         klog(LOG_WARN, "IRQ %u recue sans handler", (u32)irq);
+    if (irq != 0)                               /* le tick de 100 Hz noierait le journal */
+        DTRACE("irq", "IRQ %u", (u32)irq);
 
     pic_eoi(irq);
     if (irq == 0 && (r->cs & 3) == 3)           /* tick de la minuterie pendant un programme : tourniquet */

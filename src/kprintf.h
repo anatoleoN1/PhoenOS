@@ -14,6 +14,10 @@
 void kvprintf(const char *fmt, va_list ap) __attribute__((format(printf, 1, 0)));
 void kprintf(const char *fmt, ...)          __attribute__((format(printf, 1, 2)));
 
+/* Formate dans un tampon (sans ecran ni port serie) ; reentrant, donc utilisable dans une interruption. */
+usize kvsnprintf(char *buf, usize n, const char *fmt, va_list ap) __attribute__((format(printf, 3, 0)));
+usize ksnprintf(char *buf, usize n, const char *fmt, ...)         __attribute__((format(printf, 3, 4)));
+
 /* Comme kprintf, mais ignore la redirection : messages d'erreur qui doivent rester à l'écran. */
 void kveprintf(const char *fmt, va_list ap) __attribute__((format(printf, 1, 0)));
 void keprintf(const char *fmt, ...)         __attribute__((format(printf, 1, 2)));

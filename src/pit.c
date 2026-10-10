@@ -14,10 +14,14 @@
 static volatile u32 ticks;
 static u32 frequency = 100;
 
+void (*pit_second_hook)(u32 seconds);
+
 static void pit_irq(struct regs *r)
 {
     (void)r;
     ticks++;
+    if (pit_second_hook && ticks % (frequency * 5) == 0)
+        pit_second_hook(ticks / frequency);
     stack_guard_check();            /* détecte un débordement de pile */
 }
 

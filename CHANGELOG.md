@@ -5,6 +5,17 @@ z = correctif ou petite amélioration. Chaque version est livrée testée automa
 les chemins de démarrage réels (GRUB, ISO, anneau 3, activation de la pagination) ne sont
 vérifiables que sur une vraie machine ou sous QEMU : ils sont validés par vos essais.
 
+## 0.6.2 — Système de debug
+- `src/dlog.c` : journal de débogage (anneau de 1024 lignes + port 0xE9), niveaux trace/debug/info/warn/error ;
+  `kprintf` rendu réentrant (`kvsnprintf`) pour pouvoir journaliser depuis les interruptions.
+- Journalisé : démarrage et mémoire, multiboot, commandes du shell et durée, touches, programmes (lancement,
+  fin, kill, fautes), appels système (arguments, résultat, erreur), ordonnanceur, IRQ, exceptions, panique,
+  battement toutes les 5 s.
+- Commande `log` ; appel système `log` (199) ; `ticker` et `boucle` écrivent dans le journal.
+- `make debug*` : session `logs/<date-heure>/` (session, build, os, console, qemu), résumé final,
+  `make logs`, `make logs-clean` ; script `tools/debug-session.sh`.
+- Tests : `test_dlog`, `SYS_LOG`, commande `log`.
+
 ## 0.6.0 — Multitâche
 - Ordonnanceur à tourniquet (`src/sched.c`) : jusqu'à 8 tâches, pile noyau de 16 Kio chacune, commutation
   en assembleur (`src/switch.S`, pile par tâche), attente par prédicat (clavier, sommeil, fin d'un programme),

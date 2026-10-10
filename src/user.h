@@ -33,6 +33,7 @@ enum {
     SYS_UNLINK   = 10,   /* unlink(chemin) : supprime un fichier */
     SYS_TIME     = 13,   /* time(&t) : secondes depuis 1970  */
     SYS_GETPID   = 20,   /* getpid()                         */
+    SYS_LOG      = 199,  /* log(niveau, texte) : ecrit dans le journal du systeme (propre a PhoenOS ; 199 = appel sans effet sous Linux) */
     SYS_SLEEP_MS = 200,  /* sleep_ms(ms)    propre a PhoenOS */
     SYS_UPTIME   = 201   /* uptime_ms()     propre a PhoenOS */
 };

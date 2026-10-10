@@ -15,6 +15,7 @@ int main(int argc, char **argv)
         puts_fd(2, "usage : boucle [secondes]   (1 a 600)\n");
         return 1;
     }
+    log_msg(2, "demarre");
     start = uptime_ms();
     for (int s = 1; s <= secs; s++) {
         while (uptime_ms() - start < (uint)s * 1000u)

@@ -18,10 +18,12 @@ int main(int argc, char **argv)
         puts_fd(2, "ticker : fois entre 1 et 1000, ms entre 0 et 60000\n");
         return 1;
     }
+    log_msg(2, "demarre");
     for (int i = 1; i <= n; i++) {
         puts(argv[1]); puts(" "); putu((uint)i); puts("/"); putu((uint)n); puts("\n");
         if (i < n)
             sleep_ms((uint)ms);
     }
+    log_msg(2, "termine");
     return 0;
 }

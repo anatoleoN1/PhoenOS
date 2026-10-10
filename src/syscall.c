@@ -11,6 +11,7 @@
 #include "keyboard.h"
 #include "pit.h"
 #include "sched.h"
+#include "dlog.h"
 #include "rtc.h"
 #include "string.h"
 
@@ -272,7 +273,97 @@ static i32 sys_close(struct uproc *p, u32 fd)
     return E_INVAL;
 }
 
+static i32 sys_log(struct uproc *p, u32 level, u32 text)
+{
+    char msg[DLOG_MSG_MAX - 12];
+    usize i;
+
+    if (level > DL_ERROR)
+        return E_INVAL;
+    for (i = 0; i + 1 < sizeof msg; i++) {          /* texte trop long : tronque, sans erreur */
+        if (!user_range(p, text + i, 1, 0))
+            return E_FAULT;
+        msg[i] = *(const char *)(text + i);
+        if (!msg[i])
+            break;
+    }
+    msg[i] = 0;
+    dlog((int)level, p->name, "[%u] %s", p->pid, msg);
+    return 0;
+}
+
+static i32 dispatch(struct uproc *p, u32 nr, u32 a, u32 b, u32 c);
+
+static const char *sys_name(u32 nr)
+{
+    switch (nr) {
+    case SYS_EXIT:     return "exit";
+    case SYS_READ:     return "read";
+    case SYS_WRITE:    return "write";
+    case SYS_OPEN:     return "open";
+    case SYS_CLOSE:    return "close";
+    case SYS_UNLINK:   return "unlink";
+    case SYS_TIME:     return "time";
+    case SYS_GETPID:   return "getpid";
+    case SYS_LOG:      return "log";
+    case SYS_SLEEP_MS: return "sleep_ms";
+    case SYS_UPTIME:   return "uptime";
+    default:           return "?";
+    }
+}
+
+/* Texte du programme, abrege et sans caracteres genants, pour le journal. */
+static void excerpt(struct uproc *p, u32 addr, u32 n, char *out, usize size)
+{
+    usize o = 0;
+
+    if (n > 40)
+        n = 40;
+    if (!user_range(p, addr, n, 0)) {
+        strcpy(out, "?");
+        return;
+    }
+    for (u32 i = 0; i < n && o + 3 < size; i++) {
+        u8 ch = ((const u8 *)addr)[i];
+
+        if (ch == '\n') { out[o++] = '\\'; out[o++] = 'n'; }
+        else if (ch >= 32 && ch < 127) out[o++] = (char)ch;
+        else out[o++] = '.';
+    }
+    out[o] = 0;
+}
+
 i32 syscall_dispatch(struct uproc *p, u32 nr, u32 a, u32 b, u32 c)
+{
+    char txt[96];
+    i32 r;
+
+    if (nr == SYS_LOG)                              /* le journal ne se journalise pas lui-meme */
+        return dispatch(p, nr, a, b, c);
+    if (nr == SYS_READ || nr == SYS_SLEEP_MS)       /* appels qui peuvent durer : on note aussi l'entree */
+        DTRACE("sys", "[%u %s] %s(%u, %#x, %u) ...", p->pid, p->name, sys_name(nr), a, b, c);
+    r = dispatch(p, nr, a, b, c);
+    switch (nr) {
+    case SYS_WRITE:
+        excerpt(p, b, c, txt, sizeof txt);
+        DTRACE("sys", "[%u %s] write(%u, %u octets \"%s\") = %d", p->pid, p->name, a, c, txt, r);
+        break;
+    case SYS_OPEN:
+    case SYS_UNLINK:
+        if (user_string(p, a, txt, sizeof txt) != 0)
+            strcpy(txt, "?");
+        DTRACE("sys", "[%u %s] %s(\"%s\", %#x) = %d%s%s", p->pid, p->name, sys_name(nr), txt, b, r,
+               r < 0 ? " " : "", r < 0 ? err_str(r) : "");
+        break;
+    default:
+        DTRACE("sys", "[%u %s] %s(%u, %#x, %u) = %d%s%s", p->pid, p->name, sys_name(nr), a, b, c, r,
+               r < 0 ? " " : "", r < 0 ? err_str(r) : "");
+        break;
+    }
+    return r;
+}
+
+static i32 dispatch(struct uproc *p, u32 nr, u32 a, u32 b, u32 c)
 {
     switch (nr) {
     case SYS_EXIT:
@@ -301,6 +392,8 @@ i32 syscall_dispatch(struct uproc *p, u32 nr, u32 a, u32 b, u32 c)
     }
     case SYS_GETPID:
         return (i32)p->pid;
+    case SYS_LOG:
+        return sys_log(p, a, b);
     case SYS_SLEEP_MS:
         if (sched_ready())
             sched_sleep_ms(a > SLEEP_MAX_MS ? SLEEP_MAX_MS : a);      /* les autres programmes tournent pendant ce temps */

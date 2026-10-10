@@ -16,6 +16,7 @@
 #include "kprintf.h"
 #include "keyboard.h"
 #include "sched.h"
+#include "dlog.h"
 #include "vga.h"
 #include "string.h"
 
@@ -145,8 +146,21 @@ static int wait_key(void)
     return sched_current()->killed;
 }
 
+static void sched_event(char kind, u32 a, u32 b, const char *name)
+{
+    switch (kind) {
+    case 'C': DTRACE("sched", "tache %u creee : %s", a, name); break;
+    case 'S': DTRACE("sched", "commutation %u -> %u", a, b); break;
+    case 'B': DTRACE("sched", "tache %u (%s) se bloque", a, name); break;
+    case 'W': DTRACE("sched", "tache %u (%s) repart", a, name); break;
+    case 'X': DTRACE("sched", "tache %u (%s) termine, code %d", a, name, (int)b); break;
+    default: break;
+    }
+}
+
 void user_sched_init(void)
 {
+    sched_event_hook = sched_event;
     sched_switch_hook = on_switch;
     keyboard_wait_hook = wait_key;
 }
@@ -167,6 +181,9 @@ static void user_exit(int code)
 {
     struct utask *u = current_utask();
 
+    if (u)
+        DINFO("prog", "pid %u : %s termine, code %d%s", u->proc.pid, u->proc.name, code,
+              u->faulted ? " (faute)" : (code == 130 ? " (arrete)" : ""));
     if (u && u->bg) {
         vga_set_color(VGA_YELLOW, VGA_BLACK);
         if (code == 0)
@@ -204,6 +221,7 @@ err_t user_kill(u32 pid)
         return E_NOENT;
     if (!t->owner || t->entry != user_task_main)
         return E_INVAL;
+    DINFO("prog", "kill demande pour pid %u (%s)", pid, t->name);
     return sched_kill(t);
 }
 
@@ -275,6 +293,10 @@ static err_t user_spawn(const u8 *image, u32 size, const char *name, int argc, c
         return e;
     }
     u->proc.pid = u->task->id;
+    DINFO("prog", "pid %u : %s lance (%s), image %u octets, %u pages, point d'entree %#x, argc %d", u->proc.pid, name,
+          bg ? "arriere-plan" : "premier plan", size, u->space.pages, entry, argc);
+    for (int i = 1; i < argc; i++)
+        DDEBUG("prog", "pid %u : argv[%d] = \"%s\"", u->proc.pid, i, argv[i]);
     *out = u;
     return E_OK;
 }
@@ -311,6 +333,7 @@ err_t user_exec(const u8 *image, u32 size, const char *name, int argc, char **ar
         if (t->state == T_ZOMBIE)
             break;
         keyboard_try_getc();                    /* Ctrl+C en attente : on le consomme et on arrete le programme */
+        DINFO("prog", "Ctrl+C : arret du programme pid %u", t->id);
         kprintf("^C\n");
         sched_kill(t);
     }
@@ -354,5 +377,13 @@ void user_fault(struct regs *r, const char *what)
     }
     vga_set_color(VGA_LIGHT_GREY, VGA_BLACK);
     u->faulted = 1;
+    {
+        u32 cr2 = 0;
+
+        if (r->int_no == 14)
+            __asm__ volatile ("movl %%cr2, %0" : "=r"(cr2));
+        DERROR("fault", "pid %u (%s) : %s - exception %u, code d'erreur %#x, EIP=%#x, CR2=%#x, ESP=%#x", u->proc.pid,
+               u->proc.name, what, r->int_no, r->err_code, r->eip, cr2, r->useresp);
+    }
     user_exit(128 + (int)r->int_no);
 }
