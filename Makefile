@@ -1,5 +1,6 @@
 # PhoenOS - Makefile
 # Cibles : make        -> compile le noyau (build/phoenos.bin)
+#          make test-fault -> démo de l'écran de panique (division par zéro)
 #          make iso    -> génère l'image bootable PhoenOS.iso
 #          make run    -> lance l'ISO dans QEMU
 #          make check  -> vérifie que le noyau est un binaire Multiboot valide
@@ -9,7 +10,7 @@ CC      := gcc
 LD      := ld
 CFLAGS  := -m32 -std=gnu11 -O2 -Wall -Wextra -Werror \
            -ffreestanding -fno-stack-protector -fno-pic -fno-pie \
-           -fno-builtin -nostdlib -mno-sse -mno-mmx
+           -fno-builtin -nostdlib -mno-sse -mno-mmx $(EXTRA_CFLAGS)
 ASFLAGS := -m32
 LDFLAGS := -m elf_i386 -T linker.ld -nostdlib -z noexecstack
 
@@ -19,9 +20,9 @@ OBJ     := $(patsubst src/%.c,build/%.o,$(SRC_C)) \
            $(patsubst src/%.S,build/%.o,$(SRC_S))
 
 KERNEL  := build/phoenos.bin
-ISO     := phoenos-0.0.1.iso
+ISO     := phoenos-0.0.2.iso
 
-.PHONY: all iso run check clean
+.PHONY: all iso run check test-fault clean
 
 all: $(KERNEL)
 
@@ -50,6 +51,12 @@ run: iso
 
 check: $(KERNEL)
 	grub-file --is-x86-multiboot $(KERNEL) && echo "Multiboot OK"
+
+# Provoque volontairement une division par zéro pour voir l'écran de panique.
+test-fault:
+	$(MAKE) clean
+	$(MAKE) run EXTRA_CFLAGS=-DTEST_FAULT
+	$(MAKE) clean
 
 clean:
 	rm -rf build $(ISO)
