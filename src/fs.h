@@ -31,6 +31,7 @@ struct fs_node {
     u8  *data;                      /* contenu (fichiers)  */
     u32  size;                      /* taille en octets    */
     u32  cap;                       /* capacité allouée    */
+    u32  mtime;                     /* dernière modification : secondes depuis 1970 (0 = inconnue) */
 };
 
 struct fs_stats {
@@ -42,6 +43,16 @@ struct fs_stats {
 /* Flags de fs_remove */
 #define FS_RM_DIR_OK    1           /* accepte de supprimer un dossier (vide) */
 #define FS_RM_RECURSIVE 2           /* supprime aussi le contenu des dossiers */
+
+/*
+ * Horloge utilisée pour dater les modifications : renvoie des secondes depuis 1970 (0 si inconnue).
+ * Sans horloge installée, tout est daté 0. À appeler avant fs_init() pour dater aussi la racine.
+ */
+/* Installe l'horloge (NULL = tout est date 0) ; renvoie la precedente. */
+u32 (*fs_set_clock(u32 (*clock)(void)))(void);
+
+/* Impose la date d'un élément (utilisé par les chargeurs : initrd, sauvegarde disque). */
+void fs_set_mtime(struct fs_node *n, u32 mtime);
 
 /* Compteur qui augmente à chaque modification (création, écriture, suppression, déplacement) :
  * permet de savoir si une sauvegarde est nécessaire. */

@@ -18,6 +18,7 @@ void test_panic(const char *fmt, ...) { out("  PANIQUE INATTENDUE : "); out(fmt)
 static struct { struct multiboot_info mbi; struct multiboot_mmap_entry e[1]; } M;
 
 /* ---- constructeur d'archives ---- */
+static u32 cur_mtime = 1234567890;
 static u8 tar[1 << 20];
 static u32 tlen;
 
@@ -36,6 +37,7 @@ static u8 *add_raw(const char *prefix, const char *name, char type, const void *
     memcpy(h + 345, prefix, strlen(prefix));
     octal(h + 100, 8, 0644);
     octal(h + 124, 12, declared);
+    octal(h + 136, 12, cur_mtime);
     h[156] = (u8)type;
     memcpy(h + 257, "ustar", 5);
     memset(h + 148, ' ', 8);
@@ -84,6 +86,8 @@ int test_main(void)
     finish();
     CHECK(initrd_load(tar, tlen, &st) == E_OK);
     CHECK(st.files == 6 && st.skipped == 0);
+    { struct fs_node *n; CHECK(fs_lookup("/etc/motd", &n) == E_OK && n->mtime == 1234567890u);
+      CHECK(fs_lookup("/etc", &n) == E_OK && n->mtime == 1234567890u); }          /* dossiers aussi */
     CHECK(content_is("/etc/motd", "bonjour") && content_is("/deep/er/file.txt", "profond"));
     CHECK(content_is("/hello.txt", "salut") && content_is("/empty", "") && content_is("/long/prefix/name.txt", "pfx"));
     { struct fs_node *n; CHECK(fs_lookup("/exactly512", &n) == E_OK && n->size > 300); }
@@ -192,6 +196,7 @@ int test_main(void)
         CHECK(initrd_load(real, (u32)got, &st) == E_OK);
         CHECK(content_is("/etc/motd", "Bonjour\n") && content_is("/hello.txt", "salut\n"));
         CHECK(content_is("/docs/a/b/c.txt", "profond\n") && st.skipped == 0);
+        { struct fs_node *n; CHECK(fs_lookup("/hello.txt", &n) == E_OK && n->mtime > 1600000000u); }   /* date reelle de tar */
         fs_get_stats(&fst);
         CHECK(fst.files == 3);
         out("  archive GNU tar reelle chargee : "); outnum(st.files); out(" fichiers\n");

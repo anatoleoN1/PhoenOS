@@ -1,7 +1,7 @@
 # PhoenOS
 
 Système d'exploitation x86 écrit en C : léger, efficace, gratuit.
-Version actuelle : **0.0.8** (stockage sur disque ATA, défilement de l'écran PageHaut/PageBas, console série).
+Version actuelle : **0.0.9** (horloge et dates des fichiers, tubes `|`, outils texte `head tail wc grep sort`).
 Le détail de chaque commande et de ses options est dans **[MANUEL.md](MANUEL.md)** (et dans PhoenOS : `man`).
 
 ## Prérequis (Debian / Ubuntu, machine x86_64 ou WSL sous Windows)
@@ -30,7 +30,7 @@ make clean
 Pour tester sur une vraie machine : écrire `PhoenOS.iso` sur une clé USB
 (`sudo dd if=PhoenOS.iso of=/dev/sdX bs=4M status=progress`, en vérifiant bien `sdX`).
 
-## Ce qu'on doit voir au démarrage (v0.0.8)
+## Ce qu'on doit voir au démarrage (v0.0.9)
 
 Des lignes `[ OK ]` pour : VGA + port série, Multiboot, GDT, IDT/PIC/timer/clavier,
 exceptions (point d'arrêt traité), **mémoire physique, tas du noyau et leurs auto-tests**,
@@ -74,7 +74,17 @@ Limites connues : un débordement de pile est détecté après coup (canari test
 timer) mais peut provoquer une triple faute avant ; la protection complète demande un TSS dédié
 pour la double faute (prévu plus tard).
 
-## Stockage et défilement (nouveau en 0.0.8)
+## Horloge, tubes et outils texte (nouveau en 0.0.9)
+
+- `date` lit l'horloge de la machine (puce CMOS) ; `date -s` donne les secondes depuis 1970. `make run` règle QEMU sur
+  l'heure de votre ordinateur. Pas de fuseaux horaires : c'est l'heure locale de la machine.
+- Chaque fichier et dossier a une date de modification : `ls -l` l'affiche, elle est conservée dans la sauvegarde
+  disque (champ « mtime » du tar, donc lisible aussi par `tar tvf`).
+- Tubes : `ls -l / | grep docs | wc` (espaces autour du `|` obligatoires, 4 commandes au plus). Redirection en fin : `a | b > f`.
+- Nouveaux outils : `head -N`, `tail -N`, `wc [-lwc]`, `grep [-inv] motif`, `sort [-ru]` ; `cat` sans fichier lit le tube.
+- Limite d'arguments portée à 16. Détails : `man <commande>`.
+
+## Stockage et défilement (0.0.8)
 
 **Défilement** : PageHaut / PageBas remontent dans les 500 dernières lignes de l'écran (12 lignes par appui) ;
 toute autre touche ramène à la saisie.
@@ -240,6 +250,7 @@ Chaque étape produit une ISO fonctionnelle.
 5. [x] Mémoire physique et tas du noyau (`kmalloc`) — *la pagination viendra plus tard*
 6. [x] Mini-shell, historique, complétion, tests automatiques
 7. [x] Système de fichiers en RAM + initrd (0.0.6), disque ATA et sauvegarde (0.0.8)
-8. [ ] Appels système et programmes utilisateur
-9. [ ] Mode graphique (framebuffer) et interface soignée
-10. [ ] Passage en x86_64
+8. [x] Horloge, dates, tubes et outils texte (0.0.9)
+9. [ ] Appels système et programmes utilisateur
+10. [ ] Mode graphique (framebuffer) et interface soignée
+11. [ ] Passage en x86_64

@@ -47,6 +47,7 @@ run erreur-frame-double 100 -DMODE=5 test_mem.c pmm.c kheap.c string.c
 run erreur-frame-reservee 100 -DMODE=6 test_mem.c pmm.c kheap.c string.c
 run shell-cmdline       0   test_cmdline.c cmdline.c string.c
 run clavier-azerty      0   test_keyboard.c keyboard.c serial.c string.c
+run horloge 0 test_rtc.c rtc.c string.c
 run ecran-defilement 0 -DVGA_TEST_MEMORY=test_vga test_vga.c vga.c string.c
 run kprintf             0   test_kprintf.c kprintf.c string.c
 run fichiers 0 test_fs.c fs.c pmm.c kheap.c string.c
@@ -67,7 +68,7 @@ ligne2" ] && echo "  => OK" || { echo "  => ECHEC (contenu extrait different)"; 
         echo "  => ECHEC : tar refuse l'archive"; cat "$B/snapshot.err"; FAILED=1
     fi
 fi
-SH="test_shell.c shell.c cmdline.c kprintf.c pmm.c kheap.c string.c fs.c initrd.c persist.c ata.c crc32.c tarw.c"
+SH="test_shell.c shell.c cmdline.c kprintf.c pmm.c kheap.c string.c fs.c initrd.c persist.c ata.c crc32.c tarw.c rtc.c"
 run shell-session       0   -DMODE=0 $SH
 run shell-crash-panic   100 -DMODE=1 $SH
 run shell-crash-assert  100 -DMODE=2 $SH

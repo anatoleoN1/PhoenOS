@@ -18,6 +18,7 @@
 #include "panic.h"
 #include "shell.h"
 #include "fs.h"
+#include "rtc.h"
 #include "initrd.h"
 #include "ata.h"
 #include "persist.h"
@@ -27,6 +28,7 @@
 #endif
 
 u8 test_scancode;
+static u32 fake_clock(void) { return 1791185472u; }      /* 2026-10-05 07:31:12 */
 char kernel_start[4096] __attribute__((aligned(4096)));
 char kernel_end[1];
 static char fake_ram[16u << 20] __attribute__((aligned(4096)));
@@ -137,19 +139,19 @@ static void verify(void)
     CHECK(count("\nzzz\n") == 0 && count("\nyes\n") == 1);      /* Ctrl+U */
     CHECK(count("\ndraft\n") == 1);                             /* brouillon restaure apres les fleches */
     CHECK(count("sleep  shutdown") == 1);                       /* Tab : plusieurs possibilites */
-    CHECK(count("Trop d'arguments (maximum 8).") == 1);
+    CHECK(count("Trop d'arguments (maximum 16).") == 1);
     CHECK(count("Guillemet non ferme.") == 1);
     CHECK(count("\ncaf\x82\n") == 1);                           /* caractere accentue CP437 */
     CHECK(count("  1  sleep 250") == 0 || count("  1  ") >= 1); /* history : numerotation */
     CHECK(count("gris clair") == 1 && count("blanc") == 1);     /* colors */
     CHECK(count(" 10   vert clair") == 1);                      /* %2d correct dans colors */
-    CHECK(count("PhoenOS 0.0.8") == 1);                         /* version */
+    CHECK(count("PhoenOS 0.0.9") == 1);                         /* version */
     CHECK(count("Sujets du manuel") == 1 && count(" ls  - liste\n cat  - affiche\n") == 1);   /* man seul */
     CHECK(count("ls  - liste\n  Syntaxe : ls [-l]\n  Option -l\n") == 1 && count("Syntaxe : cat [-n]") == 0);   /* man ls : uniquement sa section */
     CHECK(count("man: pas de manuel pour 'nope'") == 1);
     CHECK(count("usage : man [commande]") == 1);
     CHECK(count("    1  hello\n    2  more\n    3  hello\n    4  more\n") == 1);
-    CHECK(count("usage : cat [-n] <fichier>...") == 1);
+    CHECK(count("usage : cat [-n] [fichier...]") == 1);
     CHECK(count("4 dossier(s)\n") == 1 && count("tree -d") == 1);
     CHECK(scroll_total == 12 && scroll_resets > 100);           /* +12 +12 -12 ; toute autre touche ramene en bas */
     CHECK(count("\napres-defilement\n") == 1);
@@ -173,7 +175,7 @@ static void verify(void)
     CHECK(count("\nhello\nmore\n") == 2);                      /* cat apres > puis >> (et cat de g.txt) */
     CHECK(count("mkdir: /a: existe deja") == 1);
     CHECK(count("cat: nofile: introuvable") == 1);
-    CHECK(count("-       11  f.txt") == 1 && count("d        -  b/") == 1);   /* ls -l */
+    CHECK(count("-       11  2026-10-05 07:31  f.txt") == 1 && count("d        -  2026-10-05 07:31  b/") == 1);   /* ls -l */
     CHECK(count("\n> x\n") == 1);                              /* echo ">" x : pas une redirection */
     CHECK(count("Redirection invalide") == 1);
     CHECK(count("redirection: /nodir/z: introuvable") == 1);
@@ -183,13 +185,35 @@ static void verify(void)
     CHECK(count("cat g.txt \n") == 1);                          /* Tab complete g<Tab> en g.txt */
     CHECK(count("00000000  68 65 6c 6c 6f") == 1 && count("... 6 octet(s) de plus") == 1);   /* hexdump */
     CHECK(count("3 dossier(s), 3 fichier(s)") == 1);            /* tree / */
-    CHECK(count("Redirection : commande") == 3);                /* help, puis cat h.txt (help redirige) */
+    CHECK(count("Redirection : cmd") == 3);                /* help, puis cat h.txt (help redirige) */
     CHECK(count("Commandes (Tab complete") == 3);               /* help redirige + cat : sortie bien capturee */
     CHECK(count("PANIQUE") == 0);
 
     /* après `dmesg` : tout le journal rejoué une seconde fois */
     CHECK(count_end("Commandes (Tab complete") == 6);
-    CHECK(count_end("\ndeux\n") == 4);
+    CHECK(count_end("\ndeux\n") == 9);
+    /* ---- 0.0.9 ---- */
+    CHECK(count_end("lundi 5 octobre 2026, 07:31:12") == 1);
+    CHECK(count_end("\n1791185472\n") == 1);
+    CHECK(count_end("usage : date [-s]") == 1);
+    CHECK(count_end("      5       5      22 \n") == 1);              /* cat | wc : 5 lignes, 5 mots, 25 octets */
+    CHECK(count_end("\n      5 /t.txt\n") == 1);                    /* wc -l */
+    
+    CHECK(count_end("\nun\ndeux\n") == 1);                         /* head -2 */
+    CHECK(count_end("\nDeux\nun\n") == 1);                          /* tail -2 */
+    CHECK(count_end("usage : head [-N] [fichier]") == 1);
+    CHECK(count_end("2:deux\n4:Deux\n") == 1);   /* grep -n sans -i : seule la ligne 2 */
+    CHECK(count_end("\nDeux\n") >= 2);                              /* grep -i : deux et Deux */
+    CHECK(count_end("/t.txt:un\n/t.txt:un\n/t.txt:un\n/t.txt:un\n") == 1);
+    CHECK(count_end("usage : grep [-inv] <motif> [fichier...]") == 1);
+    CHECK(count_end("Pas d'entree : donnez un fichier") == 1);
+    CHECK(count_end("Commande manquante autour du tube |.") == 2);
+    CHECK(count_end("\na | b\n") == 1);
+    CHECK(count_end("    1      1  a\n") == 1);
+    CHECK(count_end("cat: /nofile: introuvable") == 1);
+    CHECK(count_end("Trop de tubes (maximum 4 commandes reliees).") == 1);
+    CHECK(count_end("sorted.txt") >= 2);
+
     CHECK(count_end("Redemarrage...") == 1);
     CHECK(count_end("Sauvegarde des fichiers sur le disque... ok (generation 3)") == 1);
     {                                                           /* la sauvegarde automatique est bien sur le « disque » */
@@ -221,7 +245,10 @@ int test_main(void)
     M.e[0] = (struct multiboot_mmap_entry){ 20, (u32)fake_ram, 0, sizeof fake_ram, 0, MB_MMAP_AVAILABLE };
     pmm_init(&M.mbi);
     kheap_init();
+    fs_set_clock(fake_clock);
     fs_init();
+    fake_cmos[0] = 0x12; fake_cmos[2] = 0x31; fake_cmos[4] = 0x07; fake_cmos[7] = 0x05;
+    fake_cmos[8] = 0x10; fake_cmos[9] = 0x26; fake_cmos[0x32] = 0x20; fake_cmos[0x0B] = 0x02;
     ata_init();
     persist_init();
     {
@@ -253,7 +280,7 @@ int test_main(void)
     type("echo zzz"); key(21); type("echo yes\n");              /* Ctrl+U */
     type("echo dr"); key(KEY_UP); key(KEY_DOWN); type("aft\n"); /* brouillon conserve : "echo draft" */
     type("s\t"); key(3);                                        /* Tab ambigu : liste sleep, shutdown */
-    type("echo 1 2 3 4 5 6 7 8 9\n");
+    type("echo 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17\n");
     type("echo \"abc\n");
     type("echo caf"); key(0x82); type("\n");
     key(KEY_LEFT); key(KEY_HOME); key(KEY_DEL); key(KEY_END);   /* touches ignorees sans effet */
@@ -315,6 +342,41 @@ int test_main(void)
     type("echo derniere > /final.txt\n");                       /* modification non enregistree : reboot la sauvegarde */
     snapshot_at = nkeys;
     type("dmesg\n");
+    /* ---- 0.0.9 : date, tubes, outils texte ---- */
+    type("date\n");
+    type("date -s\n");
+    type("date -x\n");
+    type("printf\n");
+    type("echo un > /t.txt\n");
+    type("echo deux >> /t.txt\n");
+    type("echo trois >> /t.txt\n");
+    type("echo Deux >> /t.txt\n");
+    type("echo un >> /t.txt\n");
+    type("cat /t.txt | wc\n");                                   /* 5 lignes, 5 mots, 26 octets */
+    type("wc -l /t.txt\n");
+    type("wc -w -c /t.txt /t.txt\n");
+    type("head -2 /t.txt\n");
+    type("tail -2 /t.txt\n");
+    type("tail -99 /t.txt | head -1\n");
+    type("head -x /t.txt\n");
+    type("grep -n eu /t.txt\n");
+    type("grep -i deux /t.txt\n");
+    type("grep -v un /t.txt\n");
+    type("grep un /t.txt /t.txt\n");
+    type("grep\n");
+    type("cat /t.txt | sort\n");
+    type("cat /t.txt | sort -r | head -1\n");
+    type("sort -u /t.txt | wc -l\n");
+    type("cat /t.txt | grep -v un | sort > /sorted.txt\n");
+    type("cat /sorted.txt\n");
+    type("wc\n");                                               /* pas d'entree */
+    type("echo | | wc\n");
+    type("echo a |\n");
+    type("echo a \"|\" b\n");                                    /* | entre guillemets : texte */
+    type("echo a | cat -n | cat -n\n");
+    type("cat /nofile | wc -l\n");                               /* l'erreur s'affiche, la suite continue */
+    type("ls -l / | grep sorted\n");
+    type("echo 1 | echo 2 | echo 3 | echo 4 | echo 5\n");
     type("reboot\n");
 #elif MODE == 1
     expect = "Panique demandee"; type("crash panic\n");

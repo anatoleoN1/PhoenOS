@@ -6,6 +6,7 @@
  * Ajouter une commande : écrire `static err_t cmd_xxx(int argc, char **argv)`
  * puis l'inscrire dans la table `commands` plus bas.
  */
+#include "rtc.h"
 #include "shell.h"
 #include "cmdline.h"
 #include "version.h"
@@ -26,7 +27,8 @@
 #include "io.h"
 
 #define LINE_MAX 256
-#define MAX_ARGS 8
+#define MAX_ARGS 16
+#define MAX_STAGES 4                     /* commandes reliees par des tubes */
 #define SCROLL_STEP 12                   /* lignes par appui sur PageHaut / PageBas */
 #define CAPTURE_MAX (128u * 1024)       /* sortie maximale d'une commande redirigée */
 
@@ -44,6 +46,11 @@ static struct history hist;
 
 /* Vrai pendant une redirection : cat copie alors les octets tels quels. */
 static int raw_output;
+
+/* Entree standard : la sortie de la commande precedente d'un tube (sinon absente). */
+static const u8 *stdin_buf;
+static u32 stdin_len;
+static int has_stdin;
 
 /* Prototypes des commandes (la table qui les référence est juste en dessous). */
 static err_t cmd_help(int argc, char **argv);
@@ -79,6 +86,12 @@ static err_t cmd_disks(int argc, char **argv);
 static err_t cmd_format(int argc, char **argv);
 static err_t cmd_save(int argc, char **argv);
 static err_t cmd_load(int argc, char **argv);
+static err_t cmd_date(int argc, char **argv);
+static err_t cmd_head(int argc, char **argv);
+static err_t cmd_tail(int argc, char **argv);
+static err_t cmd_wc(int argc, char **argv);
+static err_t cmd_grep(int argc, char **argv);
+static err_t cmd_sort(int argc, char **argv);
 
 /* ------------------------------------------------------------------ */
 /* Table des commandes (ordre = ordre d'affichage de `help`)           */
@@ -97,6 +110,7 @@ static const struct command commands[] = {
     { G_SYS, "uptime",   "",             "Temps depuis le demarrage",                      cmd_uptime   },
     { G_SYS, "mem",      "",             "Etat de la memoire physique et du tas",          cmd_mem      },
     { G_SYS, "memtest",  "[Kio]",        "Teste le tas : ecrit et relit des motifs",       cmd_memtest  },
+    { G_SYS, "date",     "[-s]",         "Date et heure (-s : secondes depuis 1970)",      cmd_date     },
     { G_SYS, "sleep",    "<ms>",         "Attend un nombre de millisecondes",              cmd_sleep    },
     { G_SYS, "colors",   "",             "Affiche les 16 couleurs du mode texte",          cmd_colors   },
     { G_SYS, "dmesg",    "",             "Rejoue tout le journal du noyau",                cmd_dmesg    },
@@ -105,8 +119,8 @@ static const struct command commands[] = {
     { G_SYS, "reboot",   "",             "Redemarre la machine",                           cmd_reboot   },
     { G_SYS, "shutdown", "",             "Eteint la machine (QEMU, VirtualBox)",           cmd_shutdown },
     { G_SYS, "halt",     "",             "Arrete le processeur",                           cmd_halt     },
-    { G_FS,  "ls",       "[-l] [chemin]", "Liste un dossier (-l : type et taille)",        cmd_ls       },
-    { G_FS,  "cat",      "[-n] <fichier>...", "Affiche des fichiers (-n : numerote les lignes)",                 cmd_cat      },
+    { G_FS,  "ls",       "[-l] [chemin]", "Liste un dossier (-l : type, taille, date)",        cmd_ls       },
+    { G_FS,  "cat",      "[-n] [fichier...]", "Affiche des fichiers ou l'entree (-n : numerote)",                 cmd_cat      },
     { G_FS,  "cd",       "[dossier]",    "Change de dossier (sans argument : /)",          cmd_cd       },
     { G_FS,  "pwd",      "",             "Affiche le dossier courant",                     cmd_pwd      },
     { G_FS,  "mkdir",    "[-p] <dossier>...", "Cree des dossiers (-p : avec les parents)", cmd_mkdir    },
@@ -123,6 +137,11 @@ static const struct command commands[] = {
     { G_DISK, "save",    "",             "Enregistre les fichiers sur le disque",          cmd_save     },
     { G_DISK, "load",    "",             "Relit la sauvegarde du disque",                  cmd_load     },
     { G_TXT, "echo",     "[-n] [texte...]", "Affiche son texte (\"entre guillemets\" permis)", cmd_echo },
+    { G_TXT, "head",     "[-N] [fichier]", "Affiche les N premieres lignes (10 par defaut)", cmd_head },
+    { G_TXT, "tail",     "[-N] [fichier]", "Affiche les N dernieres lignes (10 par defaut)", cmd_tail },
+    { G_TXT, "wc",       "[-lwc] [fichier...]", "Compte lignes, mots et octets",           cmd_wc       },
+    { G_TXT, "grep",     "[-inv] <motif> [fichier...]", "Garde les lignes contenant le motif (-i casse, -n numeros, -v inverse)", cmd_grep },
+    { G_TXT, "sort",     "[-ru] [fichier]", "Trie les lignes (-r : inverse, -u : sans doublons)", cmd_sort },
 };
 
 #define COMMAND_COUNT ((int)(sizeof(commands) / sizeof(commands[0])))
@@ -227,7 +246,7 @@ static err_t cmd_help(int argc, char **argv)
         color(VGA_LIGHT_GREY);
         kprintf("\n");
     }
-    kprintf("Redirection : commande > fichier   ou   commande >> fichier (ajoute)\n");
+    kprintf("Redirection : cmd > fichier  ou  cmd >> fichier (ajoute).  Tube : cmd | cmd  (espaces obligatoires)\n");
     kprintf("Tapez man <commande> pour le manuel, help <commande> pour un rappel.\n");
     return E_OK;
 }
@@ -475,6 +494,14 @@ static void print_entry_long(const struct fs_node *n)
         kprintf("d %8s  ", "-");
     else
         kprintf("- %8u  ", n->size);
+    if (n->mtime) {
+        struct rtc_time t;
+
+        rtc_from_unix(n->mtime, &t);
+        kprintf("%04u-%02u-%02u %02u:%02u  ", t.year, t.month, t.day, t.hour, t.min);
+    } else {
+        kprintf("%16s  ", "-");
+    }
     print_entry_name(n);
     kprintf("\n");
 }
@@ -528,40 +555,61 @@ static err_t cmd_ls(int argc, char **argv)
     return E_OK;
 }
 
+/* Copie des octets vers la sortie ; a l'ecran les octets de controle deviennent '.'. */
+static void put_bytes(const u8 *d, u32 n)
+{
+    for (u32 k = 0; k < n; k++) {
+        u8 c = d[k];
+
+        if (!raw_output && c != '\n' && c != '\t' && (c < 32 || c == 127))
+            c = '.';
+        kprintf("%c", c);
+    }
+}
+
 static err_t cmd_cat(int argc, char **argv)
 {
     err_t result = E_OK;
     u32 flags, line = 1;
     int first, at_start = 1;
 
-    if (parse_flags(argc, argv, "n", &flags, &first) != E_OK || first >= argc)
-        return usage("cat [-n] <fichier>...");
+    if (parse_flags(argc, argv, "n", &flags, &first) != E_OK || (first >= argc && !has_stdin))
+        return usage("cat [-n] [fichier...]   (sans fichier : lit l'entree d'un tube)");
 
-    for (int i = first; i < argc; i++) {
-        struct fs_node *n;
-        err_t e = fs_lookup(argv[i], &n);
+    for (int i = first; i < argc || (i == first && first >= argc); i++) {
+        const u8 *data;
+        u32 size;
 
-        if (e == E_OK && n->type != FS_FILE)
-            e = E_ISDIR;
-        if (e != E_OK) {
-            result = fail_path("cat", argv[i], e);
-            continue;
+        if (first >= argc) {
+            data = stdin_buf;
+            size = stdin_len;
+        } else {
+            struct fs_node *n;
+            err_t e = fs_lookup(argv[i], &n);
+
+            if (e == E_OK && n->type != FS_FILE)
+                e = E_ISDIR;
+            if (e != E_OK) {
+                result = fail_path("cat", argv[i], e);
+                continue;
+            }
+            data = n->data;
+            size = n->size;
         }
-        for (u32 k = 0; k < n->size; k++) {
-            u8 c = n->data[k];
+        for (u32 k = 0; k < size; k++) {
+            u8 c = data[k];
 
             if ((flags & 1) && at_start)
                 kprintf("%5u  ", line++);
             at_start = (c == '\n');
-            /* À l'écran, les octets de contrôle deviennent '.' ; redirigé, copie fidèle. */
-            if (!raw_output && c != '\n' && c != '\t' && (c < 32 || c == 127))
-                c = '.';
-            kprintf("%c", c);
+            put_bytes(&c, 1);
         }
-        if (!raw_output && n->size && n->data[n->size - 1] != '\n') {
+        if (!raw_output && size && data[size - 1] != '\n') {
             kprintf("\n");
             at_start = 1;
         }
+        if (first >= argc)
+            break;
     }
     return result;
 }
@@ -881,6 +929,340 @@ static err_t cmd_load(int argc, char **argv)
  * man : lit /docs/manuel.txt (fourni par l'initrd). Le fichier est découpé en sections ;
  * une section commence par une ligne "== nom" et dure jusqu'à la ligne "== " suivante.
  */
+/* ------------------------------------------------------------------ */
+/* Date et outils texte                                                */
+/* ------------------------------------------------------------------ */
+
+static err_t cmd_date(int argc, char **argv)
+{
+    struct rtc_time t;
+    u32 flags;
+    int first;
+    err_t e;
+
+    if (parse_flags(argc, argv, "s", &flags, &first) != E_OK || first != argc)
+        return usage("date [-s]");
+    e = rtc_read(&t);
+    if (e != E_OK)
+        return fail_msg("Horloge materielle illisible (pile vide ou machine sans horloge).");
+    if (flags & 1) {
+        kprintf("%u\n", rtc_to_unix(&t));
+        return E_OK;
+    }
+    kprintf("%s %u %s %u, %02u:%02u:%02u\n", rtc_day_name(t.wday), t.day, rtc_month_name(t.month), t.year,
+            t.hour, t.min, t.sec);
+    return E_OK;
+}
+
+/* Source d'une commande texte : un fichier, ou l'entree standard si path == NULL. */
+static err_t text_source(const char *cmd, const char *path, const u8 **data, u32 *size)
+{
+    struct fs_node *n;
+    err_t e;
+
+    if (!path) {
+        if (!has_stdin)
+            return fail_msg("Pas d'entree : donnez un fichier ou utilisez un tube (cmd | ...).");
+        *data = stdin_buf;
+        *size = stdin_len;
+        return E_OK;
+    }
+    e = fs_lookup(path, &n);
+    if (e == E_OK && n->type != FS_FILE)
+        e = E_ISDIR;
+    if (e != E_OK)
+        return fail_path(cmd, path, e);
+    *data = n->data;
+    *size = n->size;
+    return E_OK;
+}
+
+/* Ligne suivante : [*start, *start + *len) sans le '\n'. Renvoie 0 a la fin. */
+static int next_line(const u8 *d, u32 size, u32 *pos, u32 *start, u32 *len)
+{
+    u32 p = *pos;
+
+    if (p >= size)
+        return 0;
+    *start = p;
+    while (p < size && d[p] != '\n')
+        p++;
+    *len = p - *start;
+    *pos = p < size ? p + 1 : p;
+    return 1;
+}
+
+static void put_line(const u8 *d, u32 len)
+{
+    put_bytes(d, len);
+    kprintf("\n");
+}
+
+/* -N en premier argument (head, tail). */
+static err_t parse_count(const char *usage_text, int argc, char **argv, u32 *count, const char **file)
+{
+    int i = 1;
+
+    *count = 10;
+    *file = NULL;
+    if (i < argc && argv[i][0] == '-' && argv[i][1]) {
+        u32 v = 0;
+
+        for (const char *c = argv[i] + 1; *c; c++) {
+            if (*c < '0' || *c > '9' || v > 99999999u)
+                goto bad;
+            v = v * 10 + (u32)(*c - '0');
+        }
+        *count = v;
+        i++;
+    }
+    if (argc - i > 1)
+        goto bad;
+    if (i < argc)
+        *file = argv[i];
+    return E_OK;
+bad:
+    return usage(usage_text);
+}
+
+static err_t cmd_head(int argc, char **argv)
+{
+    const u8 *d;
+    const char *file;
+    u32 size, count, pos = 0, st, len;
+    err_t e = parse_count("head [-N] [fichier]", argc, argv, &count, &file);
+
+    if (e != E_OK)
+        return e;
+    e = text_source("head", file, &d, &size);
+    if (e != E_OK)
+        return e;
+    while (count-- && next_line(d, size, &pos, &st, &len))
+        put_line(d + st, len);
+    return E_OK;
+}
+
+static err_t cmd_tail(int argc, char **argv)
+{
+    const u8 *d;
+    const char *file;
+    u32 size, count, total = 0, pos = 0, st, len, skip, idx = 0;
+    err_t e = parse_count("tail [-N] [fichier]", argc, argv, &count, &file);
+
+    if (e != E_OK)
+        return e;
+    e = text_source("tail", file, &d, &size);
+    if (e != E_OK)
+        return e;
+    while (next_line(d, size, &pos, &st, &len))
+        total++;
+    skip = total > count ? total - count : 0;
+    pos = 0;
+    while (next_line(d, size, &pos, &st, &len))
+        if (idx++ >= skip)
+            put_line(d + st, len);
+    return E_OK;
+}
+
+static int is_space(u8 c)
+{
+    return c == ' ' || c == '\t' || c == '\n' || c == '\r';
+}
+
+static err_t cmd_wc(int argc, char **argv)
+{
+    u32 flags, tl = 0, tw = 0, tc = 0;
+    int first, files;
+    err_t result = E_OK;
+
+    if (parse_flags(argc, argv, "lwc", &flags, &first) != E_OK)
+        return usage("wc [-lwc] [fichier...]");
+    if (!flags)
+        flags = 7;
+    files = argc - first;
+    for (int i = first; i < argc || (i == first && files == 0); i++) {
+        const u8 *d;
+        u32 size, l = 0, w = 0, in_word = 0;
+        err_t e = text_source("wc", files ? argv[i] : NULL, &d, &size);
+
+        if (e != E_OK) {
+            result = e;
+            if (!files)
+                break;
+            continue;
+        }
+        for (u32 k = 0; k < size; k++) {
+            if (d[k] == '\n')
+                l++;
+            if (is_space(d[k])) {
+                in_word = 0;
+            } else if (!in_word) {
+                in_word = 1;
+                w++;
+            }
+        }
+        if (flags & 1) kprintf("%7u ", l);
+        if (flags & 2) kprintf("%7u ", w);
+        if (flags & 4) kprintf("%7u ", size);
+        if (files)
+            kprintf("%s", argv[i]);
+        kprintf("\n");
+        tl += l; tw += w; tc += size;
+        if (!files)
+            break;
+    }
+    if (files > 1) {
+        if (flags & 1) kprintf("%7u ", tl);
+        if (flags & 2) kprintf("%7u ", tw);
+        if (flags & 4) kprintf("%7u ", tc);
+        kprintf("total\n");
+    }
+    return result == E_OK ? E_OK : E_REPORTED;
+}
+
+static u8 lower(u8 c)
+{
+    return (c >= 'A' && c <= 'Z') ? (u8)(c + 32) : c;
+}
+
+static int line_contains(const u8 *l, u32 ll, const char *pat, u32 pl, int icase)
+{
+    if (pl > ll)
+        return 0;
+    for (u32 i = 0; i + pl <= ll; i++) {
+        u32 k = 0;
+
+        while (k < pl && (icase ? lower(l[i + k]) == lower((u8)pat[k]) : l[i + k] == (u8)pat[k]))
+            k++;
+        if (k == pl)
+            return 1;
+    }
+    return 0;
+}
+
+static err_t cmd_grep(int argc, char **argv)
+{
+    u32 flags;
+    int first, files;
+    err_t result = E_OK;
+    const char *pat;
+    u32 pl;
+
+    if (parse_flags(argc, argv, "inv", &flags, &first) != E_OK || first >= argc)
+        return usage("grep [-inv] <motif> [fichier...]");
+    pat = argv[first++];
+    pl = (u32)strlen(pat);
+    files = argc - first;
+    for (int i = first; i < argc || (i == first && files == 0); i++) {
+        const u8 *d;
+        u32 size, pos = 0, st, len, no = 0;
+        err_t e = text_source("grep", files ? argv[i] : NULL, &d, &size);
+
+        if (e != E_OK) {
+            result = e;
+            if (!files)
+                break;
+            continue;
+        }
+        while (next_line(d, size, &pos, &st, &len)) {
+            int hit = line_contains(d + st, len, pat, pl, (flags & 1) != 0);
+
+            no++;
+            if (hit == ((flags & 4) != 0))
+                continue;
+            if (files > 1)
+                kprintf("%s:", argv[i]);
+            if (flags & 2)
+                kprintf("%u:", no);
+            put_line(d + st, len);
+        }
+        if (!files)
+            break;
+    }
+    return result == E_OK ? E_OK : E_REPORTED;
+}
+
+#define SORT_MAX_LINES 16384
+
+struct sline {
+    const u8 *p;
+    u32 n;
+};
+
+static int sline_cmp(const struct sline *a, const struct sline *b)
+{
+    u32 m = a->n < b->n ? a->n : b->n;
+    int r = memcmp(a->p, b->p, m);
+
+    if (r)
+        return r;
+    return a->n < b->n ? -1 : (a->n > b->n ? 1 : 0);
+}
+
+/* Tri fusion stable (pas de recursion : la pile du noyau est petite). */
+static void sort_lines(struct sline *a, struct sline *tmp, u32 n, int reverse)
+{
+    for (u32 w = 1; w < n; w *= 2) {
+        for (u32 lo = 0; lo < n; lo += 2 * w) {
+            u32 mid = lo + w < n ? lo + w : n;
+            u32 hi = lo + 2 * w < n ? lo + 2 * w : n;
+            u32 i = lo, j = mid, k = lo;
+
+            while (i < mid && j < hi) {
+                int c = sline_cmp(&a[j], &a[i]);
+
+                /* on prend a[j] seulement s'il est strictement avant a[i] (stabilite) */
+                if (reverse ? c > 0 : c < 0)
+                    tmp[k++] = a[j++];
+                else
+                    tmp[k++] = a[i++];
+            }
+            while (i < mid)
+                tmp[k++] = a[i++];
+            while (j < hi)
+                tmp[k++] = a[j++];
+        }
+        memcpy(a, tmp, n * sizeof(*a));
+    }
+}
+
+static err_t cmd_sort(int argc, char **argv)
+{
+    const u8 *d;
+    u32 flags, size, pos = 0, st, len, n = 0;
+    int first;
+    struct sline *lines, *tmp;
+    err_t e;
+
+    if (parse_flags(argc, argv, "ru", &flags, &first) != E_OK || argc - first > 1)
+        return usage("sort [-ru] [fichier]");
+    e = text_source("sort", first < argc ? argv[first] : NULL, &d, &size);
+    if (e != E_OK)
+        return e;
+
+    lines = kmalloc(2 * SORT_MAX_LINES * sizeof(*lines));
+    if (!lines)
+        return E_NOMEM;
+    tmp = lines + SORT_MAX_LINES;
+    while (next_line(d, size, &pos, &st, &len)) {
+        if (n == SORT_MAX_LINES) {
+            kfree(lines);
+            return fail_msg("sort: trop de lignes (maximum 16384).");
+        }
+        lines[n].p = d + st;
+        lines[n].n = len;
+        n++;
+    }
+    sort_lines(lines, tmp, n, (flags & 1) != 0);
+    for (u32 i = 0; i < n; i++) {
+        if ((flags & 2) && i && sline_cmp(&lines[i], &lines[i - 1]) == 0)
+            continue;
+        put_line(lines[i].p, lines[i].n);
+    }
+    kfree(lines);
+    return E_OK;
+}
+
 #define MANUAL_PATH "/docs/manuel.txt"
 
 static int is_section_line(const u8 *p, u32 left)
@@ -1026,19 +1408,37 @@ static int is_redirect_token(const char *s)
     return strcmp(s, ">") == 0 || strcmp(s, ">>") == 0;
 }
 
+/* Execute une commande ; si cap != NULL, sa sortie est capturee (redirection ou tube). */
+static void run_stage(int argc, char **argv, struct capture *cap)
+{
+    if (cap) {
+        memset(cap, 0, sizeof(*cap));
+        raw_output = 1;
+        kprintf_redirect(capture_sink, cap);
+    }
+    run_command(argc, argv);
+    if (cap) {
+        kprintf_redirect(NULL, NULL);
+        raw_output = 0;
+    }
+    color(VGA_LIGHT_GREY);
+}
+
 static void execute(char *line)
 {
     char *argv[MAX_ARGS + 1];
     u8 quoted[MAX_ARGS + 1];
     int argc = cmdline_split_ex(line, argv, MAX_ARGS, quoted);
+    int starts[MAX_STAGES], counts[MAX_STAGES], stages = 0, s = 0;
     const char *target = NULL;
     int append = 0;
     struct fs_node *node = NULL;
     struct capture cap;
+    char *held = NULL;                          /* sortie du tube precedent (a liberer) */
     err_t e;
 
     if (argc < 0) {
-        fail_msg(argc == E_2BIG ? "Trop d'arguments (maximum 8)." : "Guillemet non ferme.");
+        fail_msg(argc == E_2BIG ? "Trop d'arguments (maximum 16)." : "Guillemet non ferme.");
         return;
     }
     if (argc == 0)
@@ -1062,37 +1462,82 @@ static void execute(char *line)
         }
     }
 
-    if (!target) {
-        run_command(argc, argv);
-        color(VGA_LIGHT_GREY);
-        return;
+    /* Tubes : "|" seul, sans guillemets, separe les commandes. */
+    for (int i = 0; i <= argc; i++) {
+        if (i == argc || (!quoted[i] && strcmp(argv[i], "|") == 0)) {
+            if (i == s) {
+                fail_msg("Commande manquante autour du tube |.");
+                return;
+            }
+            if (stages == MAX_STAGES) {
+                fail_msg("Trop de tubes (maximum 4 commandes reliees).");
+                return;
+            }
+            starts[stages] = s;
+            counts[stages] = i - s;
+            stages++;
+            s = i + 1;
+        }
     }
 
-    /* Le fichier est créé AVANT la commande : erreur claire si le chemin est faux. */
-    e = fs_create(target, &node);
-    if (e != E_OK) {
-        fail_path("redirection", target, e);
-        return;
-    }
-
-    memset(&cap, 0, sizeof(cap));
-    raw_output = 1;
-    kprintf_redirect(capture_sink, &cap);
-    run_command(argc, argv);
-    kprintf_redirect(NULL, NULL);
-    raw_output = 0;
-    color(VGA_LIGHT_GREY);
-
-    if (cap.nomem) {
-        fail_msg("Memoire insuffisante : sortie perdue.");
-    } else {
-        e = append ? fs_append(node, cap.buf, cap.len) : fs_write(node, cap.buf, cap.len);
-        if (e != E_OK)
+    if (target) {
+        /* Le fichier est cree AVANT les commandes : erreur claire si le chemin est faux. */
+        e = fs_create(target, &node);
+        if (e != E_OK) {
             fail_path("redirection", target, e);
-        else if (cap.overflow)
-            fail_msg("Sortie tronquee a 128 Kio.");
+            return;
+        }
     }
-    kfree(cap.buf);
+
+    for (int st = 0; st < stages; st++) {
+        int last = (st == stages - 1);
+        char *out = NULL;
+        u32 out_len = 0;
+        int nomem = 0, overflow = 0;
+
+        argv[starts[st] + counts[st]] = NULL;
+        if (last && !target) {
+            run_stage(counts[st], argv + starts[st], NULL);
+        } else {
+            run_stage(counts[st], argv + starts[st], &cap);
+            out = cap.buf;
+            out_len = cap.len;
+            nomem = cap.nomem;
+            overflow = cap.overflow;
+        }
+        kfree(held);                            /* l'entree de cette commande n'est plus utile */
+        held = NULL;
+        has_stdin = 0;
+        stdin_buf = NULL;
+        stdin_len = 0;
+
+        if (last) {
+            if (target) {
+                if (nomem) {
+                    fail_msg("Memoire insuffisante : sortie perdue.");
+                } else {
+                    e = append ? fs_append(node, out, out_len) : fs_write(node, out, out_len);
+                    if (e != E_OK)
+                        fail_path("redirection", target, e);
+                    else if (overflow)
+                        fail_msg("Sortie tronquee a 128 Kio.");
+                }
+                kfree(out);
+            }
+        } else {
+            if (nomem) {
+                fail_msg("Memoire insuffisante : tube interrompu.");
+                kfree(out);
+                return;
+            }
+            if (overflow)
+                fail_msg("Sortie intermediaire tronquee a 128 Kio.");
+            held = out;
+            stdin_buf = (const u8 *)out;
+            stdin_len = out_len;
+            has_stdin = 1;
+        }
+    }
 }
 
 /* ------------------------------------------------------------------ */

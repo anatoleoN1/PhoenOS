@@ -16,6 +16,9 @@ void test_panic(const char *fmt, ...) { out("  PANIQUE INATTENDUE : "); out(fmt)
 
 static struct { struct multiboot_info mbi; struct multiboot_mmap_entry e[1]; } M;
 
+static u32 fake_now = 1000;
+static u32 clock(void) { return fake_now; }
+
 static int is(const char *path, int type)
 {
     struct fs_node *n;
@@ -50,8 +53,10 @@ int test_main(void)
     M.e[0] = (struct multiboot_mmap_entry){ 20, (u32)fake_ram, 0, sizeof fake_ram, 0, MB_MMAP_AVAILABLE };
     pmm_init(&M.mbi);
     kheap_init();
+    fs_set_clock(clock);
     fs_init();
     fs_init();                                                  /* idempotent */
+    CHECK(fs_root()->mtime == 1000);
 
     CHECK(fs_root() == fs_cwd() && cwd_is("/"));
     fs_get_stats(&st);
@@ -195,6 +200,30 @@ int test_main(void)
     CHECK(fs_path_of(n, path, sizeof path) == E_OK && !strcmp(path, "/aa/bb"));
     CHECK(fs_path_of(n, path, 4) == E_NAMETOOLONG);
     CHECK(fs_path_of(fs_root(), path, 2) == E_OK && !strcmp(path, "/"));
+
+    /* ---- dates de modification ---- */
+    fs_init();
+    fake_now = 5000;
+    CHECK(fs_mkdir("/d") == E_OK && fs_lookup("/d", &n) == E_OK && n->mtime == 5000 && fs_root()->mtime == 5000);
+    fake_now = 6000;
+    CHECK(fs_create("/d/f", &f) == E_OK && f->mtime == 6000 && n->mtime == 6000);    /* le dossier est daté aussi */
+    fake_now = 7000;
+    CHECK(fs_write(f, "abc", 3) == E_OK && f->mtime == 7000 && n->mtime == 6000);
+    fake_now = 8000;
+    CHECK(fs_append(f, "d", 1) == E_OK && f->mtime == 8000);
+    fake_now = 8500;
+    CHECK(fs_append(f, "", 0) == E_OK && f->mtime == 8000);                         /* rien ajouté : pas de nouvelle date */
+    fake_now = 9000;
+    CHECK(fs_copy("/d/f", "/d/g") == E_OK && fs_lookup("/d/g", &n) == E_OK && n->mtime == 9000);
+    fake_now = 9500;
+    CHECK(fs_remove("/d/g", 0) == E_OK && fs_lookup("/d", &n) == E_OK && n->mtime == 9500);
+    fs_set_mtime(f, 1234);
+    CHECK(f->mtime == 1234);
+    fs_set_mtime(NULL, 5);                                                          /* sans effet, sans plantage */
+    fs_set_clock(NULL);                                                             /* sans horloge : tout est daté 0 */
+    fs_init();
+    CHECK(fs_mkdir("/z") == E_OK && fs_lookup("/z", &n) == E_OK && n->mtime == 0);
+    fs_set_clock(clock);
 
     out("  systeme de fichiers verifie : chemins, ecriture, copie, deplacement, suppression, limites\n");
     return 0;

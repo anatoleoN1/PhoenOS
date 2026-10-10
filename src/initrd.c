@@ -14,6 +14,7 @@
 /* Positions dans l'en-tête */
 #define H_NAME     0      /* 100 octets */
 #define H_SIZE     124    /* 12 octets, octal */
+#define H_MTIME    136    /* 12 octets, octal : date de modification */
 #define H_CHKSUM   148    /* 8 octets, octal */
 #define H_TYPE     156
 #define H_MAGIC    257    /* "ustar" */
@@ -122,7 +123,7 @@ static int fatal(err_t e)
     return e == E_NOMEM;
 }
 
-err_t initrd_load(const u8 *data, u32 size, struct initrd_stats *st)
+static err_t load_inner(const u8 *data, u32 size, struct initrd_stats *st)
 {
     u32 off = 0;
     struct initrd_stats local;
@@ -135,7 +136,7 @@ err_t initrd_load(const u8 *data, u32 size, struct initrd_stats *st)
         const u8 *h = data + off;
         char raw[FS_PATH_MAX * 2], clean[FS_PATH_MAX];
         usize n;
-        u32 fsize, padded;
+        u32 fsize, padded, mtime;
         u8 type;
         err_t e;
 
@@ -149,6 +150,8 @@ err_t initrd_load(const u8 *data, u32 size, struct initrd_stats *st)
         if (parse_octal(h + H_SIZE, 12, &fsize) != E_OK)
             fsize = 0xFFFFFFFFu;
         type = h[H_TYPE];
+        if (parse_octal(h + H_MTIME, 12, &mtime) != E_OK)
+            mtime = 0;                          /* date illisible : inconnue */
 
         /* Le contenu doit tenir dans l'archive */
         if (fsize > size - off - TAR_BLOCK)
@@ -171,7 +174,11 @@ err_t initrd_load(const u8 *data, u32 size, struct initrd_stats *st)
                 if (n && strcmp(raw, "./") != 0 && strcmp(raw, ".") != 0)
                     st->skipped++;              /* chemin dangereux ou invalide ; "./" seul est normal */
             } else if (type == '5') {
+                struct fs_node *dn;
+
                 e = fs_mkdir_p(clean);
+                if (e == E_OK && fs_lookup(clean, &dn) == E_OK)
+                    fs_set_mtime(dn, mtime);
                 if (e == E_OK)
                     st->dirs++;
                 else if (fatal(e))
@@ -197,6 +204,7 @@ err_t initrd_load(const u8 *data, u32 size, struct initrd_stats *st)
                 if (e == E_OK)
                     e = fs_write(node, h + TAR_BLOCK, fsize);
                 if (e == E_OK) {
+                    fs_set_mtime(node, mtime);
                     st->files++;
                     st->bytes += fsize;
                 } else if (fatal(e)) {
@@ -212,4 +220,15 @@ err_t initrd_load(const u8 *data, u32 size, struct initrd_stats *st)
         off += TAR_BLOCK + padded;
     }
     return E_OK;                                /* fin sans marqueur : tolérée */
+}
+
+/* Pendant le chargement, les dates viennent de l'archive : on coupe l'horloge pour que
+ * l'ajout d'un fichier ne redate pas son dossier parent. */
+err_t initrd_load(const u8 *data, u32 size, struct initrd_stats *st)
+{
+    u32 (*old)(void) = fs_set_clock(NULL);
+    err_t e = load_inner(data, size, st);
+
+    fs_set_clock(old);
+    return e;
 }

@@ -21,6 +21,8 @@ extern u8 test_scancode;
 static u8 fake_disk[FAKE_MAX_SECTORS * 512];
 static u32 fake_disk_sectors = 32768;           /* 16 Mio */
 static int fake_no_hardware;
+static u8 fake_cmos[128];                           /* horloge CMOS simulee (ports 0x70/0x71) */
+static u8 fake_cmos_index;
 static int fake_dead;                           /* après la coupure : plus rien n'est écrit, les écritures échouent */
 static long fake_dead_after_writes = -1;        /* -1 : jamais */
 static int fake_fail_reads, fake_fail_writes;
@@ -121,6 +123,8 @@ u32 test_port_in(u16 port, int size)
 
     if (port == 0x60)
         return test_scancode;
+    if (port == 0x71)
+        return fake_cmos[fake_cmos_index & 0x7F];
     if (port >= 0x1F0 && port <= 0x1F7) { ch = 0; reg = port - 0x1F0; }
     else if (port == 0x3F6)              { ch = 0; reg = 8; }
     else if (port >= 0x170 && port <= 0x177) { ch = 1; reg = port - 0x170; }
@@ -159,6 +163,7 @@ void test_port_out(u16 port, u32 v, int size)
     int ch, reg;
 
     (void)size;
+    if (port == 0x70) { fake_cmos_index = (u8)v; return; }
     if (port >= 0x1F0 && port <= 0x1F7) { ch = 0; reg = port - 0x1F0; }
     else if (port >= 0x170 && port <= 0x177) { ch = 1; reg = port - 0x170; }
     else return;

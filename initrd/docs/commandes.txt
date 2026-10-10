@@ -1,3 +1,4 @@
 Fichiers : ls [-l] cat cd pwd mkdir [-p] touch rm [-r] rmdir cp mv tree df hexdump
-Redirection : commande > fichier   |   commande >> fichier
+Texte : echo head tail wc grep sort      Systeme : date ...
+Redirection : commande > fichier   |   commande >> fichier   |   Tube : cmd | cmd
 Tab complete les commandes et les chemins.

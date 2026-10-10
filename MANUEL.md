@@ -1,4 +1,4 @@
-# Manuel de PhoenOS 0.0.8
+# Manuel de PhoenOS 0.0.9
 
 > Généré à partir de `initrd/docs/manuel.txt` (lisible dans PhoenOS avec `man`).
 
@@ -25,6 +25,7 @@ affiche la ligne "usage". Pas d'options longues (--exemple).
 - [`uptime`](#uptime) — temps depuis le demarrage
 - [`mem`](#mem) — etat de la memoire
 - [`memtest`](#memtest) — teste le tas
+- [`date`](#date) — date et heure de la machine
 - [`sleep`](#sleep) — attend
 - [`colors`](#colors) — les 16 couleurs du mode texte
 - [`dmesg`](#dmesg) — journal du noyau
@@ -51,6 +52,11 @@ affiche la ligne "usage". Pas d'options longues (--exemple).
 - [`save`](#save) — enregistre les fichiers sur le disque
 - [`load`](#load) — relit la sauvegarde du disque
 - [`echo`](#echo) — affiche du texte
+- [`head`](#head) — premieres lignes
+- [`tail`](#tail) — dernieres lignes
+- [`wc`](#wc) — compte lignes, mots et octets
+- [`grep`](#grep) — garde les lignes qui contiennent un motif
+- [`sort`](#sort) — trie les lignes
 
 ## general
 
@@ -72,19 +78,25 @@ Console serie (sans fenetre)
   Dans ce mode le defilement de l'ecran est celui de votre terminal (molette, Maj+PageHaut).
 Guillemets
   "a  b" regroupe plusieurs mots en un seul argument : echo "a   b" c
-  Maximum 8 arguments par commande.
+  Maximum 16 arguments par ligne (tubes compris).
 Redirection
   commande > fichier     ecrit la sortie dans le fichier (cree ou remplace)
   commande >> fichier    ajoute la sortie a la fin du fichier
   Le ">" doit etre l'avant-dernier mot de la ligne ; entre guillemets il reste du texte.
   Les messages d'erreur restent a l'ecran et ne vont jamais dans le fichier.
-  Pas de tubes (|) ni de redirection d'entree (<) pour l'instant.
+Tubes
+  cmd1 | cmd2 | cmd3     la sortie de chaque commande devient l'entree de la suivante
+  Le "|" doit etre un mot a part, entoure d'espaces ("a|b" est un seul mot) ; entre
+  guillemets il reste du texte. 4 commandes reliees au plus. Chaque sortie intermediaire
+  est gardee en memoire (128 Kio au plus). Les erreurs restent a l'ecran.
+  Lisent un tube : cat, head, tail, wc, grep, sort. Exemple : ls -l / | grep docs | wc
+  Pas de redirection d'entree (<). Le ">" ne s'ecrit qu'en fin de ligne : a | b > f
 Chemins
   /a/b est absolu ; a/b est relatif au dossier courant (affiche dans le prompt).
   "." = ici, ".." = dossier parent. "~" n'existe pas : "cd" seul ramene a la racine /.
   Noms : 31 caracteres maximum ; chemins : 255 ; majuscules et minuscules comptent :
   "A" et "a" sont deux noms differents.
-Differences avec Unix : pas de droits, de dates ni de proprietaires ; pas de fichiers
+Differences avec Unix : pas de droits ni de proprietaires (les dates existent, voir "date") ; pas de fichiers
   caches ; pas de jokers (*, ?) ; tout est en memoire (voir "fichiers").
 ```
 
@@ -97,6 +109,8 @@ Differences avec Unix : pas de droits, de dates ni de proprietaires ; pas de fic
   fichiers. Les fichiers vivent en memoire : sans disque, ils sont PERDUS a l'extinction.
   Avec un disque PhoenOS (voir "stockage"), ils sont enregistres puis relus au demarrage.
   Limites : fichiers 1 Mio, 4096 elements, 32 niveaux de dossiers.
+  Chaque fichier et dossier garde sa date de modification (ls -l), enregistree aussi dans
+  la sauvegarde disque. Heure locale lue sur l'horloge de la machine, sans fuseaux horaires.
 ```
 
 ## stockage
@@ -186,6 +200,20 @@ Differences avec Unix : pas de droits, de dates ni de proprietaires ; pas de fic
   Specifique a PhoenOS (pas d'equivalent direct sous Unix).
 ```
 
+## date
+
+*date et heure de la machine*
+
+```
+  Syntaxe : date [-s]
+  Options :
+    -s   affiche les secondes ecoulees depuis le 1er janvier 1970 au lieu de la date
+  Lit l'horloge materielle (CMOS). Heure locale telle que reglee dans la machine ;
+  sous QEMU, "make run" utilise l'heure de votre ordinateur. On ne peut pas la regler.
+  Si l'horloge est illisible, un message l'indique et les fichiers n'ont pas de date.
+  Exemple : date  ->  lundi 5 octobre 2026, 07:31:12
+```
+
 ## sleep
 
 *attend*
@@ -272,7 +300,8 @@ Differences avec Unix : pas de droits, de dates ni de proprietaires ; pas de fic
 ```
   Syntaxe : ls [-l] [chemin]
   Options :
-    -l   une ligne par element : type (d dossier, - fichier), taille en octets, nom
+    -l   une ligne par element : type (d dossier, - fichier), taille en octets,
+         date de modification (AAAA-MM-JJ HH:MM, "-" si inconnue), nom
   Les dossiers s'affichent en cyan avec un "/" final, tries par ordre alphabetique.
   Sans chemin : le dossier courant. Sur un fichier : affiche ce fichier.
   Differences : pas de -a ni -h ; la taille de -l est toujours en octets.
@@ -284,11 +313,11 @@ Differences avec Unix : pas de droits, de dates ni de proprietaires ; pas de fic
 *affiche des fichiers*
 
 ```
-  Syntaxe : cat [-n] <fichier>...
+  Syntaxe : cat [-n] [fichier...]
   Options :
     -n   numerote les lignes (compteur continu sur tous les fichiers)
   A l'ecran, les octets de controle sont remplaces par "." ; vers un fichier (cat a > b),
-  la copie est fidele. Il faut au moins un fichier (pas de lecture du clavier).
+  la copie est fidele. Sans fichier, cat copie l'entree d'un tube (ls | cat -n) ; jamais le clavier.
   Exemples : cat /etc/motd    cat -n /README.txt    cat a b > ab
 ```
 
@@ -468,4 +497,67 @@ Differences avec Unix : pas de droits, de dates ni de proprietaires ; pas de fic
     -n   pas de retour a la ligne final
   Pas d'interpretation de \n ni de $variables. Se combine avec la redirection :
   echo salut > a.txt    echo suite >> a.txt
+```
+
+## head
+
+*premieres lignes*
+
+```
+  Syntaxe : head [-N] [fichier]
+  Affiche les N premieres lignes (10 par defaut). N s'ecrit collee au tiret : head -3 a.txt.
+  Sans fichier, lit l'entree d'un tube. Difference : une seule source, pas de -n ni -c.
+  Exemples : head -5 /README.txt    cat a | head -2
+```
+
+## tail
+
+*dernieres lignes*
+
+```
+  Syntaxe : tail [-N] [fichier]
+  Affiche les N dernieres lignes (10 par defaut). Sans fichier, lit l'entree d'un tube.
+  Difference : pas de -f ; N s'ecrit collee au tiret : tail -3 a.txt.
+  Exemple : dmesg | tail -5
+```
+
+## wc
+
+*compte lignes, mots et octets*
+
+```
+  Syntaxe : wc [-lwc] [fichier...]
+  Options :
+    -l   nombre de lignes     -w   nombre de mots     -c   nombre d'octets
+  Sans option : les trois. Plusieurs fichiers : une ligne par fichier puis "total".
+  Sans fichier, lit l'entree d'un tube. Exemple : ls / | wc -l
+```
+
+## grep
+
+*garde les lignes qui contiennent un motif*
+
+```
+  Syntaxe : grep [-inv] <motif> [fichier...]
+  Options :
+    -i   ignore majuscules et minuscules (lettres non accentuees)
+    -n   prefixe chaque ligne par son numero ("3:ligne")
+    -v   inverse : garde les lignes qui NE contiennent PAS le motif
+  Le motif est un texte simple, PAS une expression reguliere. Avec plusieurs fichiers, chaque
+  ligne est precedee du nom du fichier. Sans fichier, lit l'entree d'un tube. Le code de
+  retour ne distingue pas "aucune ligne trouvee".
+  Exemples : grep -in erreur log.txt    ls -l / | grep docs
+```
+
+## sort
+
+*trie les lignes*
+
+```
+  Syntaxe : sort [-ru] [fichier]
+  Options :
+    -r   ordre inverse     -u   supprime les lignes identiques (apres tri)
+  Tri octet par octet : les majuscules passent avant les minuscules. 16384 lignes au
+  maximum. Sans fichier, lit l'entree d'un tube. Difference : pas de -n ni -k.
+  Exemple : cat noms.txt | sort -u > propres.txt
 ```

@@ -31,6 +31,8 @@ static int file_is(const char *path, const char *text)
 
     return fs_lookup(path, &n) == E_OK && n->type == FS_FILE && n->size == strlen(text) && !memcmp(n->data, text, n->size);
 }
+static u32 fake_now = 1700000000;
+static u32 clock(void) { return fake_now; }
 static int exists(const char *path) { struct fs_node *n; return fs_lookup(path, &n) == E_OK; }
 
 static void put(const char *path, const char *text)
@@ -157,6 +159,7 @@ int test_main(void)
     CHECK(persist_load(&st) == E_OK && st.files == 0);                             /* sauvegarde vide chargeable */
 
     /* ---- sauvegarde et rechargement ---- */
+    fs_set_clock(clock);
     put("/a.txt", "alpha");
     CHECK(fs_mkdir_p("/dir/sub") == E_OK);
     put("/dir/sub/b.txt", "bravo\nligne2\n");
@@ -183,6 +186,8 @@ int test_main(void)
     { struct fs_node *n; CHECK(fs_lookup("/dir/grand.txt", &n) == E_OK && n->size == 2999 && n->data[0] == 'a' && n->data[27] == 'b'); }
     persist_mark_clean();
     CHECK(!persist_dirty());
+    { struct fs_node *n; CHECK(fs_lookup("/a.txt", &n) == E_OK && n->mtime == 1700000000u);       /* dates conservees */
+      CHECK(fs_lookup("/dir", &n) == E_OK && n->mtime == 1700000000u); }
 
     /* ---- l'image est un vrai tar lisible par GNU tar ---- */
     dumplen = 0;

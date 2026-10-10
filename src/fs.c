@@ -10,6 +10,9 @@
 static struct fs_node *root;
 static struct fs_node *cwd;
 static u32 node_count;
+static u32 (*clock_fn)(void);
+static u32 now(void);
+static void touch(struct fs_node *n);
 static u32 version;                     /* +1 à chaque modification (voir fs_version) */
 
 /* ------------------------------------------------------------------ */
@@ -73,6 +76,7 @@ static void link_child(struct fs_node *dir, struct fs_node *n)
     struct fs_node **pp = &dir->child;
 
     version++;
+    touch(dir);
     while (*pp && strcmp((*pp)->name, n->name) < 0)
         pp = &(*pp)->next;
     n->next = *pp;
@@ -85,6 +89,7 @@ static void unlink_child(struct fs_node *n)
     struct fs_node **pp = &n->parent->child;
 
     version++;
+    touch(n->parent);
 
     while (*pp && *pp != n)
         pp = &(*pp)->next;
@@ -182,6 +187,7 @@ static err_t new_node(struct fs_node *parent, const char *name, enum fs_type typ
     memcpy(n->name, name, strlen(name) + 1);
     n->type  = (u8)type;
     n->depth = (u8)(parent->depth + 1);
+    n->mtime = now();
     link_child(parent, n);
     node_count++;
     *out = n;
@@ -201,6 +207,32 @@ static void free_subtree(struct fs_node *n)
     kfree(n->data);
     kfree(n);
     node_count--;
+}
+
+static u32 now(void)
+{
+    return clock_fn ? clock_fn() : 0;
+}
+
+/* Redate un noeud existant ; sans horloge on ne touche a rien (chargement d'archive). */
+static void touch(struct fs_node *n)
+{
+    if (clock_fn)
+        n->mtime = clock_fn();
+}
+
+u32 (*fs_set_clock(u32 (*clock)(void)))(void)
+{
+    u32 (*old)(void) = clock_fn;
+
+    clock_fn = clock;
+    return old;
+}
+
+void fs_set_mtime(struct fs_node *n, u32 mtime)
+{
+    if (n)
+        n->mtime = mtime;
 }
 
 u32 fs_version(void)
@@ -226,6 +258,7 @@ void fs_init(void)
     node_count = 0;
     if (root) {
         root->type = FS_DIR;
+        root->mtime = now();
         node_count = 1;
     }
 }
@@ -351,6 +384,7 @@ err_t fs_write(struct fs_node *file, const void *data, u32 len)
     file->data = buf;
     file->size = len;
     file->cap  = len;
+    touch(file);
     version++;
     return E_OK;
 }
@@ -386,6 +420,7 @@ err_t fs_append(struct fs_node *file, const void *data, u32 len)
         memmove(file->data + file->size, data, len);
     }
     file->size += len;
+    touch(file);
     version++;
     return E_OK;
 }

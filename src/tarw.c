@@ -77,7 +77,7 @@ static err_t emit_header(struct writer *w, const char *path, const struct fs_nod
     put_octal(h + 108, 8, 0);                           /* uid */
     put_octal(h + 116, 8, 0);                           /* gid */
     put_octal(h + 124, 12, is_dir ? 0 : n->size);       /* taille */
-    put_octal(h + 136, 12, 0);                          /* date : inconnue pour l'instant */
+    put_octal(h + 136, 12, n->mtime);                   /* date de modification (secondes depuis 1970) */
     memset(h + 148, ' ', 8);                            /* somme de contrôle : espaces pendant le calcul */
     h[156] = is_dir ? '5' : '0';
     memcpy(h + 257, "ustar", 6);                        /* "ustar" + NUL */
