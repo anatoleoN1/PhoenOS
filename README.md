@@ -1,7 +1,8 @@
 # PhoenOS
 
 Système d'exploitation x86 écrit en C : léger, efficace, gratuit.
-Version actuelle : **0.0.6** (système de fichiers en RAM, initrd chargé par GRUB, redirection `>` / `>>`).
+Version actuelle : **0.0.7** (manuel intégré `man`, `MANUEL.md`, options `cat -n` et `tree -d`, correctifs).
+Le détail de chaque commande et de ses options est dans **[MANUEL.md](MANUEL.md)** (et dans PhoenOS : `man`).
 
 ## Prérequis (Debian / Ubuntu, machine x86_64 ou WSL sous Windows)
 
@@ -29,7 +30,7 @@ make clean
 Pour tester sur une vraie machine : écrire `PhoenOS.iso` sur une clé USB
 (`sudo dd if=PhoenOS.iso of=/dev/sdX bs=4M status=progress`, en vérifiant bien `sdX`).
 
-## Ce qu'on doit voir au démarrage (v0.0.6)
+## Ce qu'on doit voir au démarrage (v0.0.7)
 
 Des lignes `[ OK ]` pour : VGA + port série, Multiboot, GDT, IDT/PIC/timer/clavier,
 exceptions (point d'arrêt traité), **mémoire physique, tas du noyau et leurs auto-tests**,
@@ -73,7 +74,15 @@ Limites connues : un débordement de pile est détecté après coup (canari test
 timer) mais peut provoquer une triple faute avant ; la protection complète demande un TSS dédié
 pour la double faute (prévu plus tard).
 
-## Fichiers et initrd (nouveau en 0.0.6)
+## Manuel (nouveau en 0.0.7)
+
+`man` liste les sujets, `man ls` affiche la page de `ls`. Le texte vient de `initrd/docs/manuel.txt`
+(une section par commande, commençant par `== nom - résumé`). `MANUEL.md` en est la version lisible
+hors de PhoenOS. `make test` vérifie que chaque commande du shell a sa page, et inversement.
+Les commandes de PhoenOS ne sont pas celles de Linux : chaque page dit ce qui diffère.
+**Ajouter une commande = ajouter sa page au manuel** (le test échoue sinon).
+
+## Fichiers et initrd (0.0.6)
 
 Le noyau a un **système de fichiers en RAM** (dossiers, fichiers, chemins absolus ou relatifs,
 `.` et `..`). Au démarrage, GRUB charge `initrd.tar` (le contenu du dossier `initrd/`, empaqueté par
@@ -180,6 +189,7 @@ Pas encore de pagination : le noyau accède directement à la mémoire physique 
 | `src/io.h`           | `inb`/`outb`, `cli`/`sti`/`hlt`, sections critiques     |
 | `linker.ld`          | Placement du noyau en mémoire (1 Mio)                   |
 | `iso/boot/grub/`     | Configuration GRUB de l'ISO                             |
+| `MANUEL.md`          | Manuel des commandes (copie de `initrd/docs/manuel.txt`) |
 | `initrd/`            | Fichiers présents dans PhoenOS dès le démarrage         |
 
 ## Vision : où va PhoenOS ?

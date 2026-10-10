@@ -120,6 +120,8 @@ static err_t walk(const char *path, struct fs_node **out, char *leaf)
         if (r == 0) {
             if (leaf)
                 return E_INVAL;
+            if (path[strlen(path) - 1] == '/' && cur->type != FS_DIR)
+                return E_NOTDIR;                /* "fichier/" n'est pas valide */
             *out = cur;
             return E_OK;
         }

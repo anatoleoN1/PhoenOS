@@ -62,6 +62,17 @@ run shell-crash-assert  100 -DMODE=2 $SH
 run shell-crash-double-free 100 -DMODE=3 $SH
 run shell-crash-tas     100 -DMODE=4 $SH
 
+# Le manuel doit documenter chaque commande du shell (et inversement)
+printf '== manuel\n'
+cmds=$(sed -n 's/^    { G_[A-Z]*, *"\([a-z]*\)".*/\1/p' "$ROOT/src/shell.c" | tr '\n' ' ')
+for c in $cmds; do
+    grep -q "^== $c " "$ROOT/initrd/docs/manuel.txt" || { echo "  commande sans page de manuel : $c"; FAILED=1; }
+done
+for c in $(sed -n 's/^== \([a-z]*\) .*/\1/p' "$ROOT/initrd/docs/manuel.txt"); do
+    case " $cmds general fichiers " in *" $c "*) ;; *) echo "  page de manuel sans commande : $c"; FAILED=1;; esac
+done
+echo "  manuel verifie : $(echo $cmds | wc -w) commandes documentees"
+
 echo
 if [ "$FAILED" -eq 0 ]; then echo "TOUS LES TESTS PASSENT"; else echo "DES TESTS ONT ECHOUE"; fi
 exit $FAILED

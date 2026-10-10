@@ -71,6 +71,7 @@ static err_t cmd_mv(int argc, char **argv);
 static err_t cmd_tree(int argc, char **argv);
 static err_t cmd_df(int argc, char **argv);
 static err_t cmd_hexdump(int argc, char **argv);
+static err_t cmd_man(int argc, char **argv);
 
 /* ------------------------------------------------------------------ */
 /* Table des commandes (ordre = ordre d'affichage de `help`)           */
@@ -82,6 +83,7 @@ static err_t cmd_hexdump(int argc, char **argv);
 
 static const struct command commands[] = {
     { G_SYS, "help",     "[commande]",   "Liste les commandes, ou detaille l'une d'elles",  cmd_help     },
+    { G_SYS, "man",      "[commande]",   "Manuel : detail, options et exemples",           cmd_man      },
     { G_SYS, "clear",    "",             "Efface l'ecran (Ctrl+L aussi)",                  cmd_clear    },
     { G_SYS, "version",  "",             "Version et date de compilation",                 cmd_version  },
     { G_SYS, "uptime",   "",             "Temps depuis le demarrage",                      cmd_uptime   },
@@ -96,7 +98,7 @@ static const struct command commands[] = {
     { G_SYS, "shutdown", "",             "Eteint la machine (QEMU, VirtualBox)",           cmd_shutdown },
     { G_SYS, "halt",     "",             "Arrete le processeur",                           cmd_halt     },
     { G_FS,  "ls",       "[-l] [chemin]", "Liste un dossier (-l : type et taille)",        cmd_ls       },
-    { G_FS,  "cat",      "<fichier>...", "Affiche le contenu de fichiers",                 cmd_cat      },
+    { G_FS,  "cat",      "[-n] <fichier>...", "Affiche des fichiers (-n : numerote les lignes)",                 cmd_cat      },
     { G_FS,  "cd",       "[dossier]",    "Change de dossier (sans argument : /)",          cmd_cd       },
     { G_FS,  "pwd",      "",             "Affiche le dossier courant",                     cmd_pwd      },
     { G_FS,  "mkdir",    "[-p] <dossier>...", "Cree des dossiers (-p : avec les parents)", cmd_mkdir    },
@@ -105,7 +107,7 @@ static const struct command commands[] = {
     { G_FS,  "rmdir",    "<dossier>...", "Supprime des dossiers vides",                    cmd_rmdir    },
     { G_FS,  "cp",       "<source> <destination>", "Copie un fichier",                     cmd_cp       },
     { G_FS,  "mv",       "<source> <destination>", "Deplace ou renomme",                   cmd_mv       },
-    { G_FS,  "tree",     "[dossier]",    "Affiche l'arborescence",                         cmd_tree     },
+    { G_FS,  "tree",     "[-d] [dossier]", "Affiche l'arborescence (-d : dossiers seuls)",                         cmd_tree     },
     { G_FS,  "df",       "",             "Occupation du systeme de fichiers",              cmd_df       },
     { G_FS,  "hexdump",  "<fichier> [octets]", "Affiche un fichier en hexadecimal",        cmd_hexdump  },
     { G_TXT, "echo",     "[-n] [texte...]", "Affiche son texte (\"entre guillemets\" permis)", cmd_echo },
@@ -214,7 +216,7 @@ static err_t cmd_help(int argc, char **argv)
         kprintf("\n");
     }
     kprintf("Redirection : commande > fichier   ou   commande >> fichier (ajoute)\n");
-    kprintf("Tapez help <commande> pour le detail.\n");
+    kprintf("Tapez man <commande> pour le manuel, help <commande> pour un rappel.\n");
     return E_OK;
 }
 
@@ -498,11 +500,13 @@ static err_t cmd_ls(int argc, char **argv)
 static err_t cmd_cat(int argc, char **argv)
 {
     err_t result = E_OK;
+    u32 flags, line = 1;
+    int first, at_start = 1;
 
-    if (argc < 2)
-        return usage("cat <fichier>...");
+    if (parse_flags(argc, argv, "n", &flags, &first) != E_OK || first >= argc)
+        return usage("cat [-n] <fichier>...");
 
-    for (int i = 1; i < argc; i++) {
+    for (int i = first; i < argc; i++) {
         struct fs_node *n;
         err_t e = fs_lookup(argv[i], &n);
 
@@ -515,13 +519,18 @@ static err_t cmd_cat(int argc, char **argv)
         for (u32 k = 0; k < n->size; k++) {
             u8 c = n->data[k];
 
+            if ((flags & 1) && at_start)
+                kprintf("%5u  ", line++);
+            at_start = (c == '\n');
             /* À l'écran, les octets de contrôle deviennent '.' ; redirigé, copie fidèle. */
             if (!raw_output && c != '\n' && c != '\t' && (c < 32 || c == 127))
                 c = '.';
             kprintf("%c", c);
         }
-        if (!raw_output && n->size && n->data[n->size - 1] != '\n')
+        if (!raw_output && n->size && n->data[n->size - 1] != '\n') {
             kprintf("\n");
+            at_start = 1;
+        }
     }
     return result;
 }
@@ -638,9 +647,11 @@ static err_t cmd_mv(int argc, char **argv)
     return e == E_OK ? E_OK : fail_path("mv", e == E_NOENT || e == E_BUSY ? argv[1] : argv[2], e);
 }
 
-static void tree_print(const struct fs_node *dir, int level, u32 *dirs, u32 *files)
+static void tree_print(const struct fs_node *dir, int level, int dirs_only, u32 *dirs, u32 *files)
 {
     for (const struct fs_node *c = dir->child; c; c = c->next) {
+        if (dirs_only && c->type != FS_DIR)
+            continue;
         for (int i = 0; i < level; i++)
             kprintf("    ");
         kprintf("+-- ");
@@ -648,7 +659,7 @@ static void tree_print(const struct fs_node *dir, int level, u32 *dirs, u32 *fil
         kprintf("\n");
         if (c->type == FS_DIR) {
             (*dirs)++;
-            tree_print(c, level + 1, dirs, files);
+            tree_print(c, level + 1, dirs_only, dirs, files);
         } else {
             (*files)++;
         }
@@ -658,12 +669,15 @@ static void tree_print(const struct fs_node *dir, int level, u32 *dirs, u32 *fil
 static err_t cmd_tree(int argc, char **argv)
 {
     struct fs_node *n;
-    const char *target = argc >= 2 ? argv[1] : ".";
-    u32 dirs = 0, files = 0;
+    const char *target = ".";
+    u32 dirs = 0, files = 0, flags;
+    int first;
     err_t e;
 
-    if (argc > 2)
-        return usage("tree [dossier]");
+    if (parse_flags(argc, argv, "d", &flags, &first) != E_OK || argc - first > 1)
+        return usage("tree [-d] [dossier]");
+    if (first < argc)
+        target = argv[first];
     e = fs_lookup(target, &n);
     if (e == E_OK && n->type != FS_DIR)
         e = E_NOTDIR;
@@ -673,8 +687,11 @@ static err_t cmd_tree(int argc, char **argv)
     color(VGA_LIGHT_CYAN);
     kprintf("%s\n", n == fs_root() ? "/" : target);
     color(VGA_LIGHT_GREY);
-    tree_print(n, 0, &dirs, &files);
-    kprintf("%u dossier(s), %u fichier(s)\n", dirs, files);
+    tree_print(n, 0, (int)(flags & 1), &dirs, &files);
+    if (flags & 1)
+        kprintf("%u dossier(s)\n", dirs);
+    else
+        kprintf("%u dossier(s), %u fichier(s)\n", dirs, files);
     return E_OK;
 }
 
@@ -727,6 +744,90 @@ static err_t cmd_hexdump(int argc, char **argv)
     }
     if (count < n->size)
         kprintf("... %u octet(s) de plus\n", n->size - count);
+    return E_OK;
+}
+
+/*
+ * man : lit /docs/manuel.txt (fourni par l'initrd). Le fichier est découpé en sections ;
+ * une section commence par une ligne "== nom" et dure jusqu'à la ligne "== " suivante.
+ */
+#define MANUAL_PATH "/docs/manuel.txt"
+
+static int is_section_line(const u8 *p, u32 left)
+{
+    return left >= 3 && p[0] == '=' && p[1] == '=' && p[2] == ' ';
+}
+
+static err_t cmd_man(int argc, char **argv)
+{
+    struct fs_node *n;
+    const u8 *d;
+    u32 size, pos = 0;
+    int found = 0, printing = 0;
+    err_t e;
+
+    if (argc > 2)
+        return usage("man [commande]");
+    e = fs_lookup(MANUAL_PATH, &n);
+    if (e != E_OK || n->type != FS_FILE)
+        return fail_path("man", MANUAL_PATH, e != E_OK ? e : E_ISDIR);
+    d = n->data;
+    size = n->size;
+
+    if (argc == 1)
+        kprintf("Sujets du manuel (man <sujet>) :\n");
+
+    while (pos < size) {
+        u32 end = pos;
+
+        while (end < size && d[end] != '\n')
+            end++;
+
+        if (is_section_line(d + pos, size - pos)) {
+            u32 ns = pos + 3, ne = ns;
+
+            while (ne < end && d[ne] != ' ' && d[ne] != '\r')
+                ne++;
+            if (argc == 1) {
+                kprintf(" ");
+                for (u32 i = ns; i < ne; i++)
+                    kprintf("%c", d[i]);
+                if (ne < end) {
+                    kprintf("  ");
+                    while (ne < end && d[ne] == ' ')
+                        ne++;
+                    for (u32 i = ne; i < end; i++)
+                        kprintf("%c", d[i]);
+                }
+                kprintf("\n");
+            } else {
+                if (printing)
+                    break;                      /* section suivante : fin */
+                printing = (strlen(argv[1]) == ne - ns && memcmp(d + ns, argv[1], ne - ns) == 0);
+                if (printing) {
+                    found = 1;
+                    color(VGA_YELLOW);
+                    for (u32 i = ns; i < end; i++)
+                        kprintf("%c", d[i]);
+                    kprintf("\n");
+                    color(VGA_LIGHT_GREY);
+                }
+            }
+        } else if (printing) {
+            for (u32 i = pos; i < end; i++)
+                if (d[i] != '\r')
+                    kprintf("%c", d[i]);
+            kprintf("\n");
+        }
+        pos = end + 1;
+    }
+
+    if (argc == 2 && !found) {
+        color(VGA_LIGHT_RED);
+        keprintf("man: pas de manuel pour '%s' (essayez man)\n", argv[1]);
+        color(VGA_LIGHT_GREY);
+        return E_REPORTED;
+    }
     return E_OK;
 }
 

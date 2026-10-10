@@ -67,6 +67,7 @@ int test_main(void)
     CHECK(fs_create("/a/f.txt/z", &n) == E_NOTDIR);
     CHECK(fs_lookup("/a/f.txt/z", &n) == E_NOTDIR);
     CHECK(fs_lookup("/nope", &n) == E_NOENT);
+    CHECK(fs_lookup("/a/f.txt/", &n) == E_NOTDIR);               /* "fichier/" invalide */
     CHECK(fs_mkdir("") != E_OK);
     CHECK(fs_mkdir("/a/0123456789012345678901234567890123") == E_NAMETOOLONG);   /* 34 caractères */
 

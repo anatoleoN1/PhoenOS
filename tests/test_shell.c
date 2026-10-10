@@ -137,7 +137,14 @@ static void verify(void)
     CHECK(count("  1  sleep 250") == 0 || count("  1  ") >= 1); /* history : numerotation */
     CHECK(count("gris clair") == 1 && count("blanc") == 1);     /* colors */
     CHECK(count(" 10   vert clair") == 1);                      /* %2d correct dans colors */
-    CHECK(count("PhoenOS 0.0.6") == 1);                         /* version */
+    CHECK(count("PhoenOS 0.0.7") == 1);                         /* version */
+    CHECK(count("Sujets du manuel") == 1 && count(" ls  - liste\n cat  - affiche\n") == 1);   /* man seul */
+    CHECK(count("ls  - liste\n  Syntaxe : ls [-l]\n  Option -l\n") == 1 && count("Syntaxe : cat [-n]") == 0);   /* man ls : uniquement sa section */
+    CHECK(count("man: pas de manuel pour 'nope'") == 1);
+    CHECK(count("usage : man [commande]") == 1);
+    CHECK(count("    1  hello\n    2  more\n    3  hello\n    4  more\n") == 1);
+    CHECK(count("usage : cat [-n] <fichier>...") == 1);
+    CHECK(count("4 dossier(s)\n") == 1 && count("tree -d") == 1);
     CHECK(count("PANIQUE") == 0);
 
     /* ---- fichiers ---- */
@@ -155,7 +162,7 @@ static void verify(void)
     CHECK(count("b/  f.txt  g.txt  ") == 1);                    /* ls apres cp */
     CHECK(count("cat g.txt \n") == 1);                          /* Tab complete g<Tab> en g.txt */
     CHECK(count("00000000  68 65 6c 6c 6f") == 1 && count("... 6 octet(s) de plus") == 1);   /* hexdump */
-    CHECK(count("2 dossier(s), 2 fichier(s)") == 1);            /* tree / */
+    CHECK(count("3 dossier(s), 3 fichier(s)") == 1);            /* tree / */
     CHECK(count("Redirection : commande") == 3);                /* help, puis cat h.txt (help redirige) */
     CHECK(count("Commandes (Tab complete") == 3);               /* help redirige + cat : sortie bien capturee */
     CHECK(count("PANIQUE") == 0);
@@ -187,6 +194,14 @@ int test_main(void)
     pmm_init(&M.mbi);
     kheap_init();
     fs_init();
+    {
+        static const char man[] = "INTRO\n\n== ls  - liste\n  Syntaxe : ls [-l]\n  Option -l\n\n== cat  - affiche\n  Syntaxe : cat [-n]\n";
+        struct fs_node *f;
+
+        fs_mkdir("/docs");
+        fs_create("/docs/manuel.txt", &f);
+        fs_write(f, man, sizeof man - 1);
+    }
 
 #if MODE == 0
     type("help\n");
@@ -244,6 +259,14 @@ int test_main(void)
     type("tree /\n");
     type("help > h.txt\n");
     type("cat h.txt\n");
+    type("man\n");
+    type("man ls\n");
+    type("man nope\n");
+    type("man a b\n");
+    type("cat -n /a/f.txt /a/g.txt\n");
+    type("cat -x f\n");
+    type("mkdir /t1\n");
+    type("tree -d /\n");
     snapshot_at = nkeys;
     type("dmesg\n");
     type("reboot\n");

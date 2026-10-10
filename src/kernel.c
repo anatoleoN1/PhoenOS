@@ -215,12 +215,12 @@ void kernel_main(u32 magic, const struct multiboot_info *mbi)
     kprintf("       Tas du noyau : %u Kio\n", kheap_size() / 1024);
     status(1, "Tas du noyau initialise (kmalloc / kfree)");
 
+    status(selftest_pmm(),  "Auto-test memoire physique");
+    status(selftest_heap(), "Auto-test du tas (decoupe et fusion des blocs)");
+
     fs_init();
     status(1, "Systeme de fichiers en RAM initialise");
     load_initrd(mbi);
-
-    status(selftest_pmm(),  "Auto-test memoire physique");
-    status(selftest_heap(), "Auto-test du tas (decoupe et fusion des blocs)");
 
     /* --- Timer : 300 ms d'attente doivent faire avancer le compteur d'environ 30 ticks --- */
     {

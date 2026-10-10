@@ -41,7 +41,7 @@ OBJ     := $(patsubst src/%.c,build/%.o,$(SRC_C)) \
            $(patsubst src/%.S,build/%.o,$(SRC_S))
 
 KERNEL  := build/phoenos.bin
-ISO     := phoenos-0.0.6.iso
+ISO     := phoenos-0.0.7.iso
 TESTS   := test-div0 test-gp test-panic test-assert test-doublefree test-heapcorrupt
 
 .PHONY: all iso run serial debug check symbol test clean $(TESTS)
