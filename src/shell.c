@@ -95,6 +95,8 @@ static err_t cmd_tail(int argc, char **argv);
 static err_t cmd_wc(int argc, char **argv);
 static err_t cmd_grep(int argc, char **argv);
 static err_t cmd_sort(int argc, char **argv);
+static err_t cmd_more(int argc, char **argv);
+static void erase_line(usize len);
 
 /* ------------------------------------------------------------------ */
 /* Table des commandes (ordre = ordre d'affichage de `help`)           */
@@ -145,6 +147,7 @@ static const struct command commands[] = {
     { G_TXT, "tail",     "[-N] [fichier]", "Affiche les N dernieres lignes (10 par defaut)", cmd_tail },
     { G_TXT, "wc",       "[-lwc] [fichier...]", "Compte lignes, mots et octets",           cmd_wc       },
     { G_TXT, "grep",     "[-inv] <motif> [fichier...]", "Garde les lignes contenant le motif (-i casse, -n numeros, -v inverse)", cmd_grep },
+    { G_TXT, "more",     "[fichier]",    "Lit un texte page par page (Espace, Entree, q)", cmd_more },
     { G_TXT, "sort",     "[-ru] [fichier]", "Trie les lignes (-r : inverse, -u : sans doublons)", cmd_sort },
 };
 
@@ -1278,6 +1281,44 @@ static err_t cmd_sort(int argc, char **argv)
     return E_OK;
 }
 
+#define MORE_ROWS 23                    /* lignes d'ecran par page (25 moins l'invite et la ligne de commande) */
+
+static err_t cmd_more(int argc, char **argv)
+{
+    static const char prompt_text[] = "-- Suite : Espace = page, Entree = ligne, q = quitter --";
+    const u8 *d;
+    u32 size, pos = 0, st, len, rows = 0;
+    err_t e;
+
+    if (argc > 2)
+        return usage("more [fichier]");
+    e = text_source("more", argc == 2 ? argv[1] : NULL, &d, &size);
+    if (e != E_OK)
+        return e;
+
+    while (next_line(d, size, &pos, &st, &len)) {
+        u32 need = len ? (len + 79) / 80 : 1;           /* lignes d'ecran occupees (retour automatique) */
+
+        if (!raw_output && rows && rows + need > MORE_ROWS) {
+            int k;
+
+            color(VGA_YELLOW);
+            kprintf("%s", prompt_text);
+            color(VGA_LIGHT_GREY);
+            do {
+                k = keyboard_getc();
+            } while (k != ' ' && k != '\n' && k != 'q' && k != 'Q' && k != 3);
+            erase_line(sizeof(prompt_text) - 1);
+            if (k == 'q' || k == 'Q' || k == 3)
+                return E_OK;
+            rows = (k == '\n') ? MORE_ROWS - need : 0;    /* Entree : une ligne de plus seulement */
+        }
+        put_line(d + st, len);
+        rows += need;
+    }
+    return E_OK;
+}
+
 #define MANUAL_PATH "/docs/manuel.txt"
 
 static int is_section_line(const u8 *p, u32 left)
@@ -1814,11 +1855,11 @@ static void read_line(char *line, usize *len_out)
     for (;;) {
         int key = keyboard_getc();
 
-        if (key == KEY_PGUP) {                  /* lecture de l'historique de l'écran */
+        if (key == KEY_PGUP || key == 2) {      /* page precedente : PageHaut, Ctrl+B (voir man general) */
             vga_scroll_view(SCROLL_STEP);
             continue;
         }
-        if (key == KEY_PGDN) {
+        if (key == KEY_PGDN || key == 6) {      /* page suivante : PageBas, Ctrl+F */
             vga_scroll_view(-SCROLL_STEP);
             continue;
         }

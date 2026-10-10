@@ -1,4 +1,4 @@
-# Manuel de PhoenOS 0.2.0
+# Manuel de PhoenOS 0.3.0
 
 > Généré à partir de `initrd/docs/manuel.txt` (lisible dans PhoenOS avec `man`).
 
@@ -11,60 +11,8 @@ Les commandes de PhoenOS ressemblent a celles d'Unix mais ne sont PAS identiques
 chaque page indique ce qui differe. Les options se placent juste apres le nom de la
 commande, une lettre par option, et se combinent (-rp = -r -p). Une option inconnue
 affiche la ligne "usage". Pas d'options longues (--exemple).
-```
 
-## Sommaire
-
-- [`general`](#general) — ligne de commande, touches, redirection
-- [`fichiers`](#fichiers) — le systeme de fichiers en RAM
-- [`stockage`](#stockage) — disque et sauvegarde
-- [`programmes`](#programmes) — programmes utilisateur (mode protege, ring 3)
-- [`help`](#help) — rappel rapide d'une commande
-- [`man`](#man) — ce manuel
-- [`clear`](#clear) — efface l'ecran
-- [`version`](#version) — version et date de compilation
-- [`uptime`](#uptime) — temps depuis le demarrage
-- [`mem`](#mem) — etat de la memoire
-- [`memtest`](#memtest) — teste le tas
-- [`date`](#date) — date et heure de la machine
-- [`run`](#run) — lance un programme utilisateur
-- [`sleep`](#sleep) — attend
-- [`colors`](#colors) — les 16 couleurs du mode texte
-- [`dmesg`](#dmesg) — journal du noyau
-- [`history`](#history) — commandes precedentes
-- [`crash`](#crash) — provoque une erreur (pour voir l'ecran d'erreur)
-- [`reboot`](#reboot) — redemarre
-- [`shutdown`](#shutdown) — eteint la machine
-- [`halt`](#halt) — arrete le processeur
-- [`ls`](#ls) — liste un dossier
-- [`cat`](#cat) — affiche des fichiers
-- [`cd`](#cd) — change de dossier
-- [`pwd`](#pwd) — dossier courant
-- [`mkdir`](#mkdir) — cree des dossiers
-- [`touch`](#touch) — cree des fichiers vides
-- [`rm`](#rm) — supprime
-- [`rmdir`](#rmdir) — supprime des dossiers vides
-- [`cp`](#cp) — copie un fichier
-- [`mv`](#mv) — deplace ou renomme
-- [`tree`](#tree) — arborescence
-- [`df`](#df) — occupation du systeme de fichiers
-- [`hexdump`](#hexdump) — affiche un fichier en hexadecimal
-- [`disks`](#disks) — disques et etat du stockage
-- [`format`](#format) — prepare le disque pour PhoenOS
-- [`save`](#save) — enregistre les fichiers sur le disque
-- [`load`](#load) — relit la sauvegarde du disque
-- [`echo`](#echo) — affiche du texte
-- [`head`](#head) — premieres lignes
-- [`tail`](#tail) — dernieres lignes
-- [`wc`](#wc) — compte lignes, mots et octets
-- [`grep`](#grep) — garde les lignes qui contiennent un motif
-- [`sort`](#sort) — trie les lignes
-
-## general
-
-*ligne de commande, touches, redirection*
-
-```
+== general  - ligne de commande, touches, redirection
 Saisie
   Fleches haut/bas   historique (16 commandes) ; la saisie en cours est conservee
   Tab                complete une commande (1er mot) ou un chemin (mots suivants)
@@ -72,6 +20,9 @@ Saisie
   Ctrl+L             efface l'ecran, garde la ligne
   PageHaut/PageBas   remontent / redescendent dans l'historique de l'ecran (500 lignes,
                      12 par appui) ; toute autre touche, ou toute sortie, ramene en bas
+  Sans ces touches (Chromebook...) : Ctrl+Haut / Ctrl+Bas, Alt+Haut / Alt+Bas,
+                     ou Ctrl+B (remonte) / Ctrl+F (descend) font la meme chose
+  Texte long : man ls | more   (lit page par page : Espace, Entree, q)
 Console serie (sans fenetre)
   Avec "make serial" (ou "-serial stdio" sous QEMU), le terminal ou tourne QEMU sert de
   clavier ET d'ecran : tout ce que PhoenOS affiche y est recopie, et les touches tapees dans
@@ -100,26 +51,16 @@ Chemins
   "A" et "a" sont deux noms differents.
 Differences avec Unix : pas de droits ni de proprietaires (les dates existent, voir "date") ; pas de fichiers
   caches ; pas de jokers (*, ?) ; tout est en memoire (voir "fichiers").
-```
 
-## fichiers
-
-*le systeme de fichiers en RAM*
-
-```
+== fichiers  - le systeme de fichiers en RAM
   Au demarrage, GRUB charge l'initrd (dossier initrd/ du projet) dans le systeme de
   fichiers. Les fichiers vivent en memoire : sans disque, ils sont PERDUS a l'extinction.
   Avec un disque PhoenOS (voir "stockage"), ils sont enregistres puis relus au demarrage.
   Limites : fichiers 1 Mio, 4096 elements, 32 niveaux de dossiers.
   Chaque fichier et dossier garde sa date de modification (ls -l), enregistree aussi dans
   la sauvegarde disque. Heure locale lue sur l'horloge de la machine, sans fuseaux horaires.
-```
 
-## stockage
-
-*disque et sauvegarde*
-
-```
+== stockage  - disque et sauvegarde
   PhoenOS peut garder vos fichiers sur un disque ATA/IDE (QEMU : disk.img, cree par
   "make run" ; VirtualBox : ajouter un disque IDE).
   Mise en route, une seule fois : tapez  disks  puis  format oui.
@@ -135,13 +76,8 @@ Differences avec Unix : pas de droits ni de proprietaires (les dates existent, v
   controle (CRC32) ; si la plus recente est abimee, la precedente est utilisee.
   Limites : 8 Mio de fichiers au plus (tar), disques jusqu'a 128 Gio, un seul disque,
   pas de partitions (le disque entier est reserve a PhoenOS).
-```
 
-## programmes
-
-*programmes utilisateur (mode protege, ring 3)*
-
-```
+== programmes  - programmes utilisateur (mode protege, ring 3)
   Depuis la 0.1.0, PhoenOS lance de vrais programmes, separes du noyau. Ce sont des fichiers
   ELF 32 bits statiques (dossier user/ du projet, compiles par "make iso") places dans /bin.
   Taper le nom d'un programme le lance : hello a b    primes 100    ls /bin
@@ -154,6 +90,7 @@ Differences avec Unix : pas de droits ni de proprietaires (les dates existent, v
     compte   lignes et octets de fichiers (compte /etc/motd)
     heure    heure machine (secondes depuis 1970), duree depuis le demarrage, pause
     faute    provoque une erreur (gp | div | ud | io | kern | nul) : le noyau arrete le programme
+    calc     calculatrice (calc 2+3*4, ou sans argument : mode interactif ; man calc)
   Ce que le noyau garantit : un programme n'a le droit ni de couper les interruptions, ni
   d'acceder aux ports, ni d'executer une instruction privilegiee ; en cas de faute il est
   arrete avec un message (adresse, exception) et vous revenez au shell. Ctrl+C arrete un
@@ -171,82 +108,42 @@ Differences avec Unix : pas de droits ni de proprietaires (les dates existent, v
   Ecrire un programme : user/phoenos.h (mini-bibliotheque), user/hello.c (exemple) ; tout
   fichier user/nom.c devient /bin/nom. Code de sortie : main renvoie un entier (0 = succes) ;
   un code non nul est signale par le shell.
-```
 
-## help
-
-*rappel rapide d'une commande*
-
-```
+== help  - rappel rapide d'une commande
   Syntaxe : help [commande]
   Sans argument : liste toutes les commandes par groupe. Avec un nom : sa syntaxe en
   une ligne. Pour les details et exemples : man.
-```
 
-## man
-
-*ce manuel*
-
-```
+== man  - ce manuel
   Syntaxe : man [sujet]
   Sans argument : liste des sujets. Avec un sujet : sa page.
   Lit /docs/manuel.txt : si vous le modifiez (cat, echo >>), man suit.
-```
 
-## clear
-
-*efface l'ecran*
-
-```
+== clear  - efface l'ecran
   Syntaxe : clear        (Ctrl+L fait pareil sans perdre la ligne en cours)
-```
 
-## version
-
-*version et date de compilation*
-
-```
+== version  - version et date de compilation
   Syntaxe : version
-```
 
-## uptime
-
-*temps depuis le demarrage*
-
-```
+== uptime  - temps depuis le demarrage
   Syntaxe : uptime
   Affiche heures, minutes, secondes et le nombre de ticks (100 par seconde).
-```
 
-## mem
-
-*etat de la memoire*
-
-```
+== mem  - etat de la memoire
   Syntaxe : mem
   Memoire physique detectee / libre, etat de la pagination (memoire mappee, taille des tables),
   taille du tas du noyau, blocs utilises et libres.
   Pagination : toute la RAM (1 Gio au plus) est visible du noyau seul ; la page 0 est absente
   (un pointeur nul fait une faute au lieu de passer) ; le code et les constantes du noyau sont
   en lecture seule ; seule la zone des programmes est accessible en mode utilisateur.
-```
 
-## memtest
-
-*teste le tas*
-
-```
+== memtest  - teste le tas
   Syntaxe : memtest [Kio]
   Alloue un bloc (64 Kio par defaut, de 1 a 4096), y ecrit 4 motifs (00, FF, AA, 55), les
   relit, verifie l'integrite du tas et mesure le temps. Exemple : memtest 1024
   Specifique a PhoenOS (pas d'equivalent direct sous Unix).
-```
 
-## date
-
-*date et heure de la machine*
-
-```
+== date  - date et heure de la machine
   Syntaxe : date [-s]
   Options :
     -s   affiche les secondes ecoulees depuis le 1er janvier 1970 au lieu de la date
@@ -254,105 +151,55 @@ Differences avec Unix : pas de droits ni de proprietaires (les dates existent, v
   sous QEMU, "make run" utilise l'heure de votre ordinateur. On ne peut pas la regler.
   Si l'horloge est illisible, un message l'indique et les fichiers n'ont pas de date.
   Exemple : date  ->  lundi 5 octobre 2026, 07:31:12
-```
 
-## run
-
-*lance un programme utilisateur*
-
-```
+== run  - lance un programme utilisateur
   Syntaxe : run <programme> [arguments...]
   Lance le fichier ELF indique (nom seul : cherche dans /bin). Equivalent de taper le nom d'un
   programme de /bin, mais fonctionne aussi pour un chemin quelconque : run /home/prog a b.
   Message d'erreur "pas un programme PhoenOS valide" si le fichier n'est pas un ELF 32 bits statique.
   Voir "man programmes".  Exemple : run hello monde
-```
 
-## sleep
-
-*attend*
-
-```
+== sleep  - attend
   Syntaxe : sleep <ms>
   Difference : l'argument est en MILLISECONDES (pas en secondes). Maximum 60000.
   Exemple : sleep 1500
-```
 
-## colors
-
-*les 16 couleurs du mode texte*
-
-```
+== colors  - les 16 couleurs du mode texte
   Syntaxe : colors
-```
 
-## dmesg
-
-*journal du noyau*
-
-```
+== dmesg  - journal du noyau
   Syntaxe : dmesg
   Rejoue tout ce que le noyau a ecrit depuis le demarrage (les 8 derniers Kio).
   La sortie ne peut pas etre redirigee vers un fichier pour l'instant.
-```
 
-## history
-
-*commandes precedentes*
-
-```
+== history  - commandes precedentes
   Syntaxe : history
   Les 16 dernieres, de la plus ancienne a la plus recente. Utilisez les fleches pour les rappeler.
-```
 
-## crash
-
-*provoque une erreur (pour voir l'ecran d'erreur)*
-
-```
+== crash  - provoque une erreur (pour voir l'ecran d'erreur)
   Syntaxe : crash <type>
   Types : div0 (division par zero), gp (faute de protection), ud (instruction invalide),
           null (ecriture a l'adresse 0), ro (ecriture dans le code du noyau, en lecture seule),
           panic, assert, doublefree (double liberation memoire), heap (tas corrompu)
   L'ecran d'erreur orange (ou violet selon la compilation) s'affiche ; redemarrez ensuite.
   Specifique a PhoenOS, pour tester la robustesse du noyau.
-```
 
-## reboot
-
-*redemarre*
-
-```
+== reboot  - redemarre
   Syntaxe : reboot
   Enregistre d'abord les fichiers modifies si un disque PhoenOS est pret (message
   "Sauvegarde des fichiers sur le disque... ok").
   Sous "make run" (QEMU lance avec -no-reboot) cela quitte QEMU au lieu de redemarrer.
-```
 
-## shutdown
-
-*eteint la machine*
-
-```
+== shutdown  - eteint la machine
   Syntaxe : shutdown
   Enregistre d'abord les fichiers modifies si un disque PhoenOS est pret.
   Fonctionne sous QEMU et VirtualBox. Sur un vrai PC : arret du processeur seulement.
-```
 
-## halt
-
-*arrete le processeur*
-
-```
+== halt  - arrete le processeur
   Syntaxe : halt
   Enregistre d'abord les fichiers modifies si un disque PhoenOS est pret.
-```
 
-## ls
-
-*liste un dossier*
-
-```
+== ls  - liste un dossier
   Syntaxe : ls [-l] [chemin]
   Options :
     -l   une ligne par element : type (d dossier, - fichier), taille en octets,
@@ -361,156 +208,86 @@ Differences avec Unix : pas de droits ni de proprietaires (les dates existent, v
   Sans chemin : le dossier courant. Sur un fichier : affiche ce fichier.
   Differences : pas de -a ni -h ; la taille de -l est toujours en octets.
   Exemples : ls    ls -l /docs    ls etc
-```
 
-## cat
-
-*affiche des fichiers*
-
-```
+== cat  - affiche des fichiers
   Syntaxe : cat [-n] [fichier...]
   Options :
     -n   numerote les lignes (compteur continu sur tous les fichiers)
   A l'ecran, les octets de controle sont remplaces par "." ; vers un fichier (cat a > b),
   la copie est fidele. Sans fichier, cat copie l'entree d'un tube (ls | cat -n) ; jamais le clavier.
   Exemples : cat /etc/motd    cat -n /README.txt    cat a b > ab
-```
 
-## cd
-
-*change de dossier*
-
-```
+== cd  - change de dossier
   Syntaxe : cd [dossier]
   Sans argument : retourne a la racine / (et non a un "dossier personnel").
   Exemples : cd /docs    cd ..    cd
-```
 
-## pwd
-
-*dossier courant*
-
-```
+== pwd  - dossier courant
   Syntaxe : pwd
-```
 
-## mkdir
-
-*cree des dossiers*
-
-```
+== mkdir  - cree des dossiers
   Syntaxe : mkdir [-p] <dossier>...
   Options :
     -p   cree aussi les dossiers parents manquants ; pas d'erreur si le dossier existe
   Exemples : mkdir projets    mkdir -p a/b/c
-```
 
-## touch
-
-*cree des fichiers vides*
-
-```
+== touch  - cree des fichiers vides
   Syntaxe : touch <fichier>...
   Difference : ne fait que creer (pas de dates a mettre a jour) ; un fichier existant
   n'est pas modifie.
-```
 
-## rm
-
-*supprime*
-
-```
+== rm  - supprime
   Syntaxe : rm [-r] <chemin>...
   Options :
     -r   supprime aussi les dossiers, avec tout leur contenu
   Sans -r, un dossier donne l'erreur "est un dossier". Refus pour la racine et pour tout
   dossier qui contient le dossier courant ("ressource occupee"). Pas de -f ni -i : aucune
   confirmation, aucune corbeille. Exemples : rm a.txt    rm -r projets
-```
 
-## rmdir
-
-*supprime des dossiers vides*
-
-```
+== rmdir  - supprime des dossiers vides
   Syntaxe : rmdir <dossier>...
   Erreur "dossier non vide" sinon (utilisez rm -r).
-```
 
-## cp
-
-*copie un fichier*
-
-```
+== cp  - copie un fichier
   Syntaxe : cp <source> <destination>
   Si la destination est un dossier, le fichier y est copie sous le meme nom ; si c'est
   un fichier existant, il est remplace. Differences : fichiers seulement (pas de dossiers,
   pas de -r) ; copier un fichier sur lui-meme est refuse.
   Exemples : cp /hello.txt .    cp a.txt b.txt
-```
 
-## mv
-
-*deplace ou renomme*
-
-```
+== mv  - deplace ou renomme
   Syntaxe : mv <source> <destination>
   Destination = dossier existant : on y deplace. Sinon : renommage. Une destination qui
   existe deja donne "existe deja" (rien n'est ecrase, contrairement a Unix).
   Marche aussi pour les dossiers (jamais dans eux-memes).
-```
 
-## tree
-
-*arborescence*
-
-```
+== tree  - arborescence
   Syntaxe : tree [-d] [dossier]
   Options :
     -d   affiche les dossiers seulement
   Termine par le nombre de dossiers et de fichiers. Specifique : decoupage plus simple
   que l'outil Unix du meme nom.
-```
 
-## df
-
-*occupation du systeme de fichiers*
-
-```
+== df  - occupation du systeme de fichiers
   Syntaxe : df
   Nombre de fichiers, de dossiers, octets de contenu et limites, puis l'etat du disque
   (aucun / non formate / pret, avec "modifications non enregistrees" le cas echeant).
-```
 
-## hexdump
-
-*affiche un fichier en hexadecimal*
-
-```
+== hexdump  - affiche un fichier en hexadecimal
   Syntaxe : hexdump <fichier> [octets]
   Affiche les 256 premiers octets par defaut (ou le nombre demande) : decalage, 16 octets
   en hexadecimal, puis le texte entre | |. Difference : pas d'options ; le nombre
   d'octets est un argument.
   Exemples : hexdump hello.txt    hexdump hello.txt 1000
-```
 
-## disks
-
-*disques et etat du stockage*
-
-```
+== disks  - disques et etat du stockage
   Syntaxe : disks
   Liste les peripheriques ATA trouves (canal, maitre/esclave, nom, taille en Mio) ; les
   lecteurs de CD sont indiques "non utilisable". Termine par l'etat du stockage PhoenOS :
   aucun disque / non formate / pret (generation, taille, modifications en attente).
   Voir aussi : stockage.
-```
 
-## format
-
-*prepare le disque pour PhoenOS*
-
-```
+== format  - prepare le disque pour PhoenOS
   Syntaxe : format oui
   Ecrit une sauvegarde vide dans les deux emplacements du disque. A faire une fois par
   disque neuf. Le mot "oui" est obligatoire (protection contre une faute de frappe).
@@ -518,81 +295,46 @@ Differences avec Unix : pas de droits ni de proprietaires (les dates existent, v
   Si le premier secteur du disque contient deja autre chose que du PhoenFS, la commande
   refuse : "format oui oui" force l'effacement. Difference avec Unix : pas de choix de
   systeme de fichiers ni de partition ; le disque entier est utilise.
-```
 
-## save
-
-*enregistre les fichiers sur le disque*
-
-```
+== save  - enregistre les fichiers sur le disque
   Syntaxe : save
   Ecrit tout le systeme de fichiers dans l'emplacement le plus ancien du disque, puis le
   valide. Erreur si le disque n'est pas pret, ou si les fichiers depassent 8 Mio.
   Pas d'equivalent direct sous Unix (sync ecrit des caches, pas une sauvegarde complete).
-```
 
-## load
-
-*relit la sauvegarde du disque*
-
-```
+== load  - relit la sauvegarde du disque
   Syntaxe : load
   Relit la derniere sauvegarde valide PAR-DESSUS les fichiers actuels : les fichiers de meme
   nom sont remplaces, les autres restent (rien n'est supprime). Utile pour annuler des
   modifications non enregistrees d'un fichier (cat, puis load).
-```
 
-## echo
-
-*affiche du texte*
-
-```
+== echo  - affiche du texte
   Syntaxe : echo [-n] [texte...]
   Options :
     -n   pas de retour a la ligne final
   Pas d'interpretation de \n ni de $variables. Se combine avec la redirection :
   echo salut > a.txt    echo suite >> a.txt
-```
 
-## head
-
-*premieres lignes*
-
-```
+== head  - premieres lignes
   Syntaxe : head [-N] [fichier]
   Affiche les N premieres lignes (10 par defaut). N s'ecrit collee au tiret : head -3 a.txt.
   Sans fichier, lit l'entree d'un tube. Difference : une seule source, pas de -n ni -c.
   Exemples : head -5 /README.txt    cat a | head -2
-```
 
-## tail
-
-*dernieres lignes*
-
-```
+== tail  - dernieres lignes
   Syntaxe : tail [-N] [fichier]
   Affiche les N dernieres lignes (10 par defaut). Sans fichier, lit l'entree d'un tube.
   Difference : pas de -f ; N s'ecrit collee au tiret : tail -3 a.txt.
   Exemple : dmesg | tail -5
-```
 
-## wc
-
-*compte lignes, mots et octets*
-
-```
+== wc  - compte lignes, mots et octets
   Syntaxe : wc [-lwc] [fichier...]
   Options :
     -l   nombre de lignes     -w   nombre de mots     -c   nombre d'octets
   Sans option : les trois. Plusieurs fichiers : une ligne par fichier puis "total".
   Sans fichier, lit l'entree d'un tube. Exemple : ls / | wc -l
-```
 
-## grep
-
-*garde les lignes qui contiennent un motif*
-
-```
+== grep  - garde les lignes qui contiennent un motif
   Syntaxe : grep [-inv] <motif> [fichier...]
   Options :
     -i   ignore majuscules et minuscules (lettres non accentuees)
@@ -602,17 +344,57 @@ Differences avec Unix : pas de droits ni de proprietaires (les dates existent, v
   ligne est precedee du nom du fichier. Sans fichier, lit l'entree d'un tube. Le code de
   retour ne distingue pas "aucune ligne trouvee".
   Exemples : grep -in erreur log.txt    ls -l / | grep docs
-```
 
-## sort
-
-*trie les lignes*
-
-```
+== sort  - trie les lignes
   Syntaxe : sort [-ru] [fichier]
   Options :
     -r   ordre inverse     -u   supprime les lignes identiques (apres tri)
   Tri octet par octet : les majuscules passent avant les minuscules. 16384 lignes au
   maximum. Sans fichier, lit l'entree d'un tube. Difference : pas de -n ni -k.
   Exemple : cat noms.txt | sort -u > propres.txt
+
+== more  - lit un texte page par page
+  Syntaxe : more [fichier]      ou      commande | more
+  Affiche 23 lignes puis s'arrete avec l'invite "-- Suite --".
+    Espace    page suivante          Entree   une ligne de plus
+    q ou Ctrl+C   quitte
+  Sans fichier, lit l'entree du tube. Exemple : man general | more
+  Si la sortie est redirigee (> fichier) ou suivie d'une autre commande, more affiche tout.
+
+== calc  - calculatrice (programme utilisateur)
+  Syntaxe : calc <expression>     ou     calc   (mode interactif : une expression par ligne)
+  Operateurs : + - * / % ^ (puissance entiere), parentheses, moins unaire.
+  Fonctions : sqrt(x) abs(x).  Constantes : pi, ans (dernier resultat).
+  Nombres decimaux avec "." ou ",", 4 decimales, valeurs jusqu'a 100 000 000 000.
+  Calcul a virgule fixe (pas de flottants). Division par zero : message d'erreur.
+  Exemples : calc 2+3*4 (14)   calc "(1+2)^3" (27)   calc sqrt(2)   echo 10/4 | calc
+  En mode interactif : q (ou quit, exit, Ctrl+C) pour sortir.  Voir "man programmes".
+
+== faute  - provoque une erreur dans un programme (pour tester la protection)
+  Syntaxe : faute <type>   (types : gp | div | ud | io | kern | nul)
+  Types : gp (instruction privilegiee), div (division par zero), ud (instruction invalide),
+          io (acces a un port), kern (ecriture dans la memoire du noyau), nul (adresse 0).
+  Le noyau arrete uniquement le programme, affiche la cause et l'adresse, puis vous revenez
+  au shell : rien d'autre n'est touche. Sans argument : message d'usage.
+  Exemple : faute kern   puis   mem   (le noyau est intact)
+
+== hello  - programme d'exemple
+  Syntaxe : hello [mots...]
+  Affiche ses arguments et son numero de processus. Voir "man programmes".
+
+== primes  - nombres premiers
+  Syntaxe : primes [N]
+  Affiche les nombres premiers jusqu'a N. Exemple : primes 100   primes 50 > p.txt
+
+== saisie  - demande un nom
+  Syntaxe : saisie
+  Lit une ligne (clavier ou tube) et dit bonjour. Exemple : echo Zoe | saisie
+
+== compte  - lignes et octets de fichiers
+  Syntaxe : compte <fichier...>
+  Exemple : compte /etc/motd
+
+== heure  - heure machine
+  Syntaxe : heure
+  Affiche l'heure machine (secondes depuis 1970), la duree depuis le demarrage, puis fait une pause de 200 ms.
 ```

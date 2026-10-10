@@ -1,4 +1,4 @@
-MANUEL DE PHOENOS 0.2.0
+MANUEL DE PHOENOS 0.3.0
 =======================
 Tapez  man            pour la liste des sujets,
        man <sujet>    pour lire un sujet (exemple : man ls).
@@ -17,6 +17,9 @@ Saisie
   Ctrl+L             efface l'ecran, garde la ligne
   PageHaut/PageBas   remontent / redescendent dans l'historique de l'ecran (500 lignes,
                      12 par appui) ; toute autre touche, ou toute sortie, ramene en bas
+  Sans ces touches (Chromebook...) : Ctrl+Haut / Ctrl+Bas, Alt+Haut / Alt+Bas,
+                     ou Ctrl+B (remonte) / Ctrl+F (descend) font la meme chose
+  Texte long : man ls | more   (lit page par page : Espace, Entree, q)
 Console serie (sans fenetre)
   Avec "make serial" (ou "-serial stdio" sous QEMU), le terminal ou tourne QEMU sert de
   clavier ET d'ecran : tout ce que PhoenOS affiche y est recopie, et les touches tapees dans
@@ -84,6 +87,7 @@ Differences avec Unix : pas de droits ni de proprietaires (les dates existent, v
     compte   lignes et octets de fichiers (compte /etc/motd)
     heure    heure machine (secondes depuis 1970), duree depuis le demarrage, pause
     faute    provoque une erreur (gp | div | ud | io | kern | nul) : le noyau arrete le programme
+    calc     calculatrice (calc 2+3*4, ou sans argument : mode interactif ; man calc)
   Ce que le noyau garantit : un programme n'a le droit ni de couper les interruptions, ni
   d'acceder aux ports, ni d'executer une instruction privilegiee ; en cas de faute il est
   arrete avec un message (adresse, exception) et vous revenez au shell. Ctrl+C arrete un
@@ -345,3 +349,48 @@ Differences avec Unix : pas de droits ni de proprietaires (les dates existent, v
   Tri octet par octet : les majuscules passent avant les minuscules. 16384 lignes au
   maximum. Sans fichier, lit l'entree d'un tube. Difference : pas de -n ni -k.
   Exemple : cat noms.txt | sort -u > propres.txt
+
+== more  - lit un texte page par page
+  Syntaxe : more [fichier]      ou      commande | more
+  Affiche 23 lignes puis s'arrete avec l'invite "-- Suite --".
+    Espace    page suivante          Entree   une ligne de plus
+    q ou Ctrl+C   quitte
+  Sans fichier, lit l'entree du tube. Exemple : man general | more
+  Si la sortie est redirigee (> fichier) ou suivie d'une autre commande, more affiche tout.
+
+== calc  - calculatrice (programme utilisateur)
+  Syntaxe : calc <expression>     ou     calc   (mode interactif : une expression par ligne)
+  Operateurs : + - * / % ^ (puissance entiere), parentheses, moins unaire.
+  Fonctions : sqrt(x) abs(x).  Constantes : pi, ans (dernier resultat).
+  Nombres decimaux avec "." ou ",", 4 decimales, valeurs jusqu'a 100 000 000 000.
+  Calcul a virgule fixe (pas de flottants). Division par zero : message d'erreur.
+  Exemples : calc 2+3*4 (14)   calc "(1+2)^3" (27)   calc sqrt(2)   echo 10/4 | calc
+  En mode interactif : q (ou quit, exit, Ctrl+C) pour sortir.  Voir "man programmes".
+
+== faute  - provoque une erreur dans un programme (pour tester la protection)
+  Syntaxe : faute <type>   (types : gp | div | ud | io | kern | nul)
+  Types : gp (instruction privilegiee), div (division par zero), ud (instruction invalide),
+          io (acces a un port), kern (ecriture dans la memoire du noyau), nul (adresse 0).
+  Le noyau arrete uniquement le programme, affiche la cause et l'adresse, puis vous revenez
+  au shell : rien d'autre n'est touche. Sans argument : message d'usage.
+  Exemple : faute kern   puis   mem   (le noyau est intact)
+
+== hello  - programme d'exemple
+  Syntaxe : hello [mots...]
+  Affiche ses arguments et son numero de processus. Voir "man programmes".
+
+== primes  - nombres premiers
+  Syntaxe : primes [N]
+  Affiche les nombres premiers jusqu'a N. Exemple : primes 100   primes 50 > p.txt
+
+== saisie  - demande un nom
+  Syntaxe : saisie
+  Lit une ligne (clavier ou tube) et dit bonjour. Exemple : echo Zoe | saisie
+
+== compte  - lignes et octets de fichiers
+  Syntaxe : compte <fichier...>
+  Exemple : compte /etc/motd
+
+== heure  - heure machine
+  Syntaxe : heure
+  Affiche l'heure machine (secondes depuis 1970), la duree depuis le demarrage, puis fait une pause de 200 ms.

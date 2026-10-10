@@ -94,6 +94,13 @@ int test_main(void)
     CHECK(tap_ext(0x47) == KEY_HOME && tap_ext(0x4F) == KEY_END && tap_ext(0x53) == KEY_DEL);
     CHECK(tap_ext(0x1C) == '\n' && tap_ext(0x35) == '/');       /* pavé numérique */
     CHECK(tap_ext(0x49) == KEY_PGUP && tap_ext(0x51) == KEY_PGDN);   /* Page haut / bas */
+    sc(0x1D);                                                   /* Ctrl enfonce */
+    CHECK(tap_ext(0x48) == KEY_PGUP && tap_ext(0x50) == KEY_PGDN);   /* Ctrl+haut / bas */
+    sc(0x9D);
+    sc(0x38);                                                   /* Alt enfonce */
+    CHECK(tap_ext(0x48) == KEY_PGUP && tap_ext(0x50) == KEY_PGDN);
+    sc(0xB8);
+    CHECK(tap_ext(0x48) == KEY_UP && tap_ext(0x50) == KEY_DOWN);     /* relaches : fleches normales */
 
     /* faux Maj envoyé avant ImprEcran (E0 2A) : ne doit pas bloquer la Maj */
     sc(0xE0); sc(0x2A);
@@ -134,6 +141,13 @@ int test_main(void)
             { "\x1b[3~",         { KEY_DEL, -1 } },
             { "\x1bOA\x1bOD",    { KEY_UP, KEY_LEFT, -1 } },          /* mode application */
             { "\x1b[1;5C",       { KEY_RIGHT, -1 } },                 /* avec modificateur : touche de base */
+            { "\x1b[1;5A\x1b[1;5B", { KEY_PGUP, KEY_PGDN, -1 } },      /* Ctrl+haut / bas : defilement */
+            { "\x1b[1;3A\x1b[1;3B", { KEY_PGUP, KEY_PGDN, -1 } },      /* Alt+haut / bas */
+            { "\x1b[1;2A\x1b[1;2B", { KEY_PGUP, KEY_PGDN, -1 } },      /* Maj+haut / bas */
+            { "\x1b[A\x1b[1;5A\x1b[B", { KEY_UP, KEY_PGUP, KEY_DOWN, -1 } },   /* le modificateur ne "colle" pas */
+            { "\x1b[5;5~\x1b[6;2~", { KEY_PGUP, KEY_PGDN, -1 } },      /* PageHaut avec modificateur */
+            { "\x1b[3;5~",       { KEY_DEL, -1 } },
+            { "\x02\x06",        { 2, 6, -1 } },                      /* Ctrl+B / Ctrl+F : le shell les traduit */
             { "\x1bx",           { 'x', -1 } },                       /* ESC isole : ignore */
             { "\xc3\xa9\xc3\xa8\xc3\xa0\xc3\xa7", { 0x82, 0x8A, 0x85, 0x87, -1 } },   /* é è à ç */
             { "\xc3\x01z",       { 'z', -1 } },                       /* UTF-8 inconnu : ignore sans bloquer */

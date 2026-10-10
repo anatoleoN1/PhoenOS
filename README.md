@@ -1,7 +1,7 @@
 # PhoenOS
 
 Système d'exploitation x86 écrit en C : léger, efficace, gratuit.
-Version actuelle : **0.2.0** (pagination : le noyau est protégé, les programmes sont isolés).
+Version actuelle : **0.3.0** (calculatrice `calc`, commande `more`, défilement sans PageHaut/PageBas).
 Le détail de chaque commande et de ses options est dans **[MANUEL.md](MANUEL.md)** (et dans PhoenOS : `man`).
 
 ## Prérequis (Debian / Ubuntu, machine x86_64 ou WSL sous Windows)
@@ -30,7 +30,7 @@ make clean
 Pour tester sur une vraie machine : écrire `phoenos-0.1.0.iso` sur une clé USB
 (`sudo dd if=phoenos-0.1.0.iso of=/dev/sdX bs=4M status=progress`, en vérifiant bien `sdX`).
 
-## Ce qu'on doit voir au démarrage (v0.2.0)
+## Ce qu'on doit voir au démarrage (v0.3.0)
 
 Des lignes `[ OK ]` pour : VGA + port série, Multiboot, GDT, IDT/PIC/timer/clavier,
 exceptions (point d'arrêt traité), **mémoire physique, tas du noyau et leurs auto-tests**,
@@ -73,6 +73,14 @@ QEMU s'arrête au lieu de redémarrer, et `qemu.log` contient la dernière excep
 Limites connues : un débordement de pile est détecté après coup (canari testé à chaque tick du
 timer) mais peut provoquer une triple faute avant ; la protection complète demande un TSS dédié
 pour la double faute (prévu plus tard).
+
+## Nouveautés de la 0.3.0
+
+- **`calc`** : première vraie application (programme utilisateur). `calc 2+3*4`, `calc sqrt(2)`, ou `calc`
+  seul pour le mode interactif ; opérateurs `+ - * / % ^`, parenthèses, `pi`, `ans`, virgule fixe (pas de flottants).
+- **`more`** : lecture page par page (`man general | more`, Espace = page, Entrée = ligne, `q` = quitter).
+- **Défilement sans PageHaut/PageBas** (Chromebook) : Ctrl+↑/↓, Alt+↑/↓, Maj+↑/↓ (console série) ou Ctrl+B / Ctrl+F.
+- Pages de manuel pour `more`, `calc`, `faute`, `hello`, `primes`, `saisie`, `compte`, `heure`.
 
 ## Pagination (nouveau en 0.2.0)
 
@@ -280,6 +288,7 @@ Chaque étape produit une ISO fonctionnelle.
 8. [x] Horloge, dates, tubes et outils texte (0.0.9)
 9. [x] Appels système, ELF et programmes utilisateur en ring 3 (0.1.0)
 10. [x] Pagination : noyau protégé, programmes isolés (0.2.0)
+10b. [x] Calculatrice, `more`, défilement au clavier réduit (0.3.0)
 11. [ ] Un espace d'adresses par programme, multitâche
 12. [ ] Mode graphique (framebuffer) et interface soignée
 13. [ ] Passage en x86_64

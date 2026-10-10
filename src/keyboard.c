@@ -120,14 +120,13 @@ static void keyboard_irq(struct regs *r)
         break;
     }
 
-    (void)alt;
     if (release)
         return;
 
     if (ext) {                                  /* bloc de navigation (touches préfixées E0) */
         switch (sc) {
-        case 0x48: buffer_push(KEY_UP);    break;
-        case 0x50: buffer_push(KEY_DOWN);  break;
+        case 0x48: buffer_push((ctrl || alt) ? KEY_PGUP : KEY_UP);   break;   /* Ctrl/Alt+haut : page precedente */
+        case 0x50: buffer_push((ctrl || alt) ? KEY_PGDN : KEY_DOWN); break;
         case 0x4B: buffer_push(KEY_LEFT);  break;
         case 0x4D: buffer_push(KEY_RIGHT); break;
         case 0x47: buffer_push(KEY_HOME);  break;
@@ -168,20 +167,24 @@ static void keyboard_irq(struct regs *r)
  * Suppr, PageHaut, PageBas (séquences ESC [ ... et ESC O ...), lettres accentuées UTF-8 (é è à ç...).
  */
 enum { S_NORMAL, S_ESC, S_CSI, S_SS3, S_UTF8 };
-static int s_state, s_param, s_after_cr;
+static int s_state, s_param, s_first, s_semi, s_after_cr;
 static u8 s_lead;
 
 static void serial_csi_final(u8 f)
 {
+    int number = s_semi ? s_first : s_param;    /* "5~" ou "5;2~" : le numero de touche */
+    int mod    = s_semi ? s_param : 0;          /* "1;5A" : 2 = Maj, 3 = Alt, 5 = Ctrl... */
+
     switch (f) {
-    case 'A': buffer_push(KEY_UP);    break;
-    case 'B': buffer_push(KEY_DOWN);  break;
+    /* Maj/Alt/Ctrl + fleche haut/bas = page precedente/suivante (claviers sans PageHaut/PageBas) */
+    case 'A': buffer_push(mod >= 2 ? KEY_PGUP : KEY_UP);    break;
+    case 'B': buffer_push(mod >= 2 ? KEY_PGDN : KEY_DOWN);  break;
     case 'C': buffer_push(KEY_RIGHT); break;
     case 'D': buffer_push(KEY_LEFT);  break;
     case 'H': buffer_push(KEY_HOME);  break;
     case 'F': buffer_push(KEY_END);   break;
     case '~':
-        switch (s_param) {
+        switch (number) {
         case 1: case 7: buffer_push(KEY_HOME); break;
         case 3:         buffer_push(KEY_DEL);  break;
         case 4: case 8: buffer_push(KEY_END);  break;
@@ -218,13 +221,13 @@ void keyboard_feed_serial(u8 b)
     s_after_cr = 0;
     switch (s_state) {
     case S_ESC:
-        if (b == '[') { s_state = S_CSI; s_param = 0; return; }
-        if (b == 'O') { s_state = S_SS3; return; }
+        if (b == '[') { s_state = S_CSI; s_param = s_first = s_semi = 0; return; }
+        if (b == 'O') { s_state = S_SS3; s_param = s_first = s_semi = 0; return; }
         s_state = S_NORMAL;                     /* ESC isolé suivi d'autre chose : on ignore l'ESC et on traite l'octet */
         break;
     case S_CSI:
         if (b >= '0' && b <= '9') { s_param = s_param * 10 + (b - '0'); if (s_param > 99) s_param = 99; return; }
-        if (b == ';') { s_param = 0; return; }
+        if (b == ';') { s_first = s_param; s_param = 0; s_semi = 1; return; }
         s_state = S_NORMAL;
         serial_csi_final(b);
         return;

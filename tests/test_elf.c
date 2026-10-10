@@ -54,7 +54,7 @@ static int try_hostile(u32 va, u32 fs, u32 ms, u32 off, u32 entry, u32 size_over
 
 int test_main(void)
 {
-    static const char *const progs[] = { "hello", "primes", "saisie", "compte", "faute", "heure" };
+    static const char *const progs[] = { "hello", "primes", "saisie", "compte", "faute", "heure", "calc" };
     u32 entry = 0, sz;
 
     /* ---- vrais programmes ---- */
@@ -132,6 +132,6 @@ int test_main(void)
       img[18] = 62; CHECK(elf_load(img, sz, mem, LO, HI, &e) == E_NOEXEC); img[18] = 3;          /* x86-64 */
       CHECK(elf_load(img, sz, mem, LO, HI, &e) == E_OK); }
 
-    out("  chargeur ELF verifie : 6 vrais programmes, 13 fichiers hostiles, en-tetes corrompus\n");
+    out("  chargeur ELF verifie : 7 vrais programmes (dont des ELF a deux segments), 13 fichiers hostiles, en-tetes corrompus\n");
     return 0;
 }

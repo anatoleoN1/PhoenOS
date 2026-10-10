@@ -173,7 +173,7 @@ static void verify(void)
     CHECK(count("  1  sleep 250") == 0 || count("  1  ") >= 1); /* history : numerotation */
     CHECK(count("gris clair") == 1 && count("blanc") == 1);     /* colors */
     CHECK(count(" 10   vert clair") == 1);                      /* %2d correct dans colors */
-    CHECK(count("PhoenOS 0.2.0") == 1);                         /* version */
+    CHECK(count("PhoenOS 0.3.0") == 1);                         /* version */
     CHECK(count("Sujets du manuel") == 1 && count(" ls  - liste\n cat  - affiche\n") == 1);   /* man seul */
     CHECK(count("ls  - liste\n  Syntaxe : ls [-l]\n  Option -l\n") == 1 && count("Syntaxe : cat [-n]") == 0);   /* man ls : uniquement sa section */
     CHECK(count("man: pas de manuel pour 'nope'") == 1);
@@ -181,7 +181,7 @@ static void verify(void)
     CHECK(count("    1  hello\n    2  more\n    3  hello\n    4  more\n") == 1);
     CHECK(count("usage : cat [-n] [fichier...]") == 1);
     CHECK(count("5 dossier(s)\n") == 1 && count("tree -d") == 1);
-    CHECK(scroll_total == 12 && scroll_resets > 100);           /* +12 +12 -12 ; toute autre touche ramene en bas */
+    CHECK(scroll_total == 36 && scroll_resets > 100);           /* +12 +12 -12 ; toute autre touche ramene en bas */
     CHECK(count("\napres-defilement\n") == 1);
     CHECK(count("FAKE DISK 9000  16 Mio") == 2);
     CHECK(count("Lecteur ATAPI (CD/DVD) (non utilisable)") == 2);
@@ -212,7 +212,7 @@ static void verify(void)
     CHECK(count("b/  f.txt  g.txt  ") == 1);                    /* ls apres cp */
     CHECK(count("cat g.txt \n") == 1);                          /* Tab complete g<Tab> en g.txt */
     CHECK(count("00000000  68 65 6c 6c 6f") == 1 && count("... 6 octet(s) de plus") == 1);   /* hexdump */
-    CHECK(count("4 dossier(s), 6 fichier(s)") == 1);            /* tree / */
+    CHECK(count("4 dossier(s), 7 fichier(s)") == 1);            /* tree / */
     CHECK(count("Redirection : cmd") == 3);                /* help, puis cat h.txt (help redirige) */
     CHECK(count("Commandes (Tab complete") == 3);               /* help redirige + cat : sortie bien capturee */
     CHECK(count("PANIQUE") == 0);
@@ -234,7 +234,7 @@ static void verify(void)
     CHECK(count_end("\nDeux\n") >= 2);                              /* grep -i : deux et Deux */
     CHECK(count_end("/t.txt:un\n/t.txt:un\n/t.txt:un\n/t.txt:un\n") == 1);
     CHECK(count_end("usage : grep [-inv] <motif> [fichier...]") == 1);
-    CHECK(count_end("Pas d'entree : donnez un fichier") == 1);
+    CHECK(count_end("Pas d'entree : donnez un fichier") == 3);
     CHECK(count_end("Commande manquante autour du tube |.") == 2);
     CHECK(count_end("\na | b\n") == 1);
     CHECK(count_end("    1      1  a\n") == 1);
@@ -250,6 +250,12 @@ static void verify(void)
     CHECK(count_end("<hello argc=1 hello in=salut\n>\n") == 1);                  /* tube vers un programme */
     CHECK(count_end("<hello argc=2 hello zzz>\n") == 1);                         /* redirige puis cat */
     CHECK(count_end("run: /bin: est un dossier") == 1);
+    CHECK(count_end("\nL23\n") == 3 && count_end("\nL46\n") == 2 && count_end("\nL60\n") == 1);   /* 2 pages, tube complet, puis stop */
+    CHECK(count_end("\nL47\n") == 1 && count_end("\nL25\n") == 3);
+    CHECK(count_end("-- Suite") == 0);                                   /* l'invite est effacee apres chaque touche */
+    CHECK(count_end("usage : more [fichier]") == 1 && count_end("more: /nofile: introuvable") == 1);
+    CHECK(count_end("\nL1\n") >= 1);                                /* more fichier > fichier : copie sans invite */
+    CHECK(count_end("apres-more\n") >= 1 && count_end("apres-more2\n") >= 1 && count_end("apres-more3\n") >= 1);
     CHECK(count_end("Redemarrage...") == 1);
     CHECK(count_end("Sauvegarde des fichiers sur le disque... ok (generation 3)") == 1);
     {                                                           /* la sauvegarde automatique est bien sur le « disque » */
@@ -291,6 +297,15 @@ int test_main(void)
         static const char man[] = "INTRO\n\n== ls  - liste\n  Syntaxe : ls [-l]\n  Option -l\n\n== cat  - affiche\n  Syntaxe : cat [-n]\n";
         struct fs_node *f;
 
+        {   /* 60 lignes : L01..L60 */
+            char big[60 * 4 + 1];
+
+            for (int i = 0; i < 60; i++) {
+                big[i * 4] = 'L'; big[i * 4 + 1] = (char)('0' + (i + 1) / 10); big[i * 4 + 2] = (char)('0' + (i + 1) % 10);
+                big[i * 4 + 3] = '\n';
+            }
+            fs_create("/long.txt", &f); fs_write(f, big, 60 * 4);
+        }
         fs_mkdir("/bin");
         fs_create("/bin/hello", &f); fs_write(f, "FAKEELF", 7);
         fs_create("/bin/bad", &f); fs_write(f, "FAKEELF", 7);
@@ -365,6 +380,7 @@ int test_main(void)
     type("mkdir /t1\n");
     type("tree -d /\n");
     key(KEY_PGUP); key(KEY_PGUP); key(KEY_PGDN);                /* defilement : ne modifie pas la ligne */
+    key(2); key(2);                                             /* Ctrl+B = PageHaut : +24 */
     type("echo apres-defilement\n");
     type("disks\n");
     type("save\n");                                             /* disque non formate */
@@ -429,6 +445,19 @@ int test_main(void)
     type("hello zzz > /o.txt\n");
     type("cat /o.txt\n");
     type("run /bin\n");
+    /* ---- 0.3.0 : more (pagination du texte) ---- */
+    type("more /long.txt\n"); type(" "); type("q");                   /* une page de plus, puis quitter */
+    type("echo apres-more\n");
+    type("cat /long.txt | more\n"); type(" "); type(" ");             /* le texte se termine sans nouvelle invite */
+    type("echo apres-more2\n");
+    type("more /long.txt\n"); type("\n"); type("\n"); type("q");      /* Entree : une ligne a la fois */
+    type("echo apres-more3\n");
+    type("more > /m.txt\n");
+    type("echo L1 > /m1.txt\n");
+    type("more /m1.txt > /m2.txt\n"); type("cat /m2.txt\n");
+    type("more /nofile\n");
+    type("more a b\n");
+    type("more\n");
     type("reboot\n");
 #elif MODE == 1
     expect = "Panique demandee"; type("crash panic\n");

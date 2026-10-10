@@ -46,8 +46,8 @@ err_t elf_load(const u8 *img, u32 size, u8 *mem, u32 lo, u32 hi, u32 *entry)
         struct elf_phdr p;
 
         memcpy(&p, img + h.phoff + i * sizeof(p), sizeof(p));
-        if (p.type != PT_LOAD)
-            continue;
+        if (p.type != PT_LOAD || p.memsz == 0)
+            continue;                                           /* segment vide (ld en ajoute parfois un) */
         if (p.filesz > p.memsz)
             return E_NOEXEC;
         if (p.vaddr < lo || p.vaddr - lo > hi - lo || p.memsz > hi - lo - (p.vaddr - lo))

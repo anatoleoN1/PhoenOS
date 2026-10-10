@@ -78,6 +78,33 @@ ucheck "saisie vide" "rien recu" "$("$U/saisie" < /dev/null)"
 ucheck "compte" "2 ligne(s), 13 octet(s)" "$("$U/compte" "$B/user/data.txt")"
 ucheck "compte absent" "impossible d'ouvrir" "$("$U/compte" /nofile 2>&1)"
 ucheck "heure" "time()" "$("$U/heure")"
+calc() { "$U/calc" "$@" 2>&1; }
+for t in "2+3*4=14" "(2+3)*4=20" "10/4=2.5" "2^10=1024" "7%3=1" "-7%3=-1" "-3+5=2" "sqrt(2)=1.4142" "1/3=0.3333" "pi*2=6.2832" \
+         "2^-2=0.25" "abs(-4.5)=4.5" "1,5*2=3" "2*3^2=18" "-2^2=-4" "10-2-3=5" "100/3/2=16.6666" "0.1+0.2=0.3" "sqrt(1000000)=1000" \
+         "99999999999+1=100000000000" "123456.789*1000=123456789" "-0.5*-4=2" "0.00005=0" "2^64=" "1+2*3-4/2=5" "((((7))))=7"; do
+    e=${t%%=*}; want=${t#*=}
+    got=$(calc "$e")
+    [ "$want" = "" ] && continue
+    [ "$got" = "$want" ] || { echo "  ECHEC (calc '$e') : attendu '$want', obtenu '$got'"; UFAIL=1; }
+done
+ucheck "calc div0" "division par zero" "$(calc 1/0)"
+ucheck "calc div0 mod" "division par zero" "$(calc 5%0)"
+ucheck "calc sqrt neg" "racine carree d'un nombre negatif" "$(calc 'sqrt(-1)')"
+ucheck "calc grand" "resultat trop grand" "$(calc 1000000*1000000)"
+ucheck "calc grand puissance" "resultat trop grand" "$(calc 10^20)"
+ucheck "calc exposant" "exposant trop grand" "$(calc 2^100)"
+ucheck "calc exposant frac" "l'exposant doit etre un entier" "$(calc 2^0.5)"
+ucheck "calc incomplet" "expression incomplete" "$(calc '2+')"
+ucheck "calc paren" "parenthese fermante attendue" "$(calc '(1+2')"
+ucheck "calc paren2" "parenthese ouvrante manquante" "$(calc '1+2)')"
+ucheck "calc inconnu" "expression non comprise" "$(calc '3 x')"
+ucheck "calc vide" "expression incomplete" "$(calc ' ')"
+ucheck "calc args" "7" "$(calc 3 + 4)"
+"$U/calc" 1/0 >/dev/null 2>&1; [ $? -eq 1 ] || { echo "  ECHEC (code de sortie de calc)"; UFAIL=1; }
+ucheck "calc interactif" "  = 6" "$(printf '1+1\nans*3\nq\n' | "$U/calc")"
+ucheck "calc interactif erreur" "erreur : division par zero" "$(printf '1/0\nq\n' | "$U/calc")"
+ucheck "calc interactif apres erreur" "  = 4" "$(printf '1/0\n2+2\nq\n' | "$U/calc")"
+ucheck "calc fin de fichier" "calc>" "$(printf '5' | "$U/calc")"
 "$U/faute" gp >/dev/null 2>&1;  [ $? -eq 139 ] || { echo "  ECHEC (faute gp : arret attendu par instruction privilegiee)"; UFAIL=1; }
 "$U/faute" div >/dev/null 2>&1; [ $? -eq 136 ] || { echo "  ECHEC (faute div)"; UFAIL=1; }
 "$U/faute" ud >/dev/null 2>&1;  [ $? -eq 132 ] || { echo "  ECHEC (faute ud)"; UFAIL=1; }
@@ -85,7 +112,7 @@ ucheck "heure" "time()" "$("$U/heure")"
 "$U/faute" kern >/dev/null 2>&1; [ $? -eq 139 ] || { echo "  ECHEC (faute kern)"; UFAIL=1; }
 "$U/faute" nul >/dev/null 2>&1;  [ $? -eq 139 ] || { echo "  ECHEC (faute nul)"; UFAIL=1; }
 "$U/primes" 999999 >/dev/null 2>&1; [ $? -eq 1 ] || { echo "  ECHEC (code de sortie de primes)"; UFAIL=1; }
-if [ $UFAIL -eq 0 ]; then echo "  6 programmes compiles et executes (arguments, entree, fichiers, fautes) => OK"; else echo "  => ECHEC"; FAILED=1; fi
+if [ $UFAIL -eq 0 ]; then echo "  7 programmes compiles et executes (arguments, entree, fichiers, fautes) => OK"; else echo "  => ECHEC"; FAILED=1; fi
 
 # Les ELF reels, pour le chargeur
 run elf 0 test_elf.c elf.c string.c
@@ -121,13 +148,14 @@ run shell-crash-tas     100 -DMODE=4 $SH
 # Le manuel doit documenter chaque commande du shell (et inversement)
 printf '== manuel\n'
 cmds=$(sed -n 's/^    { G_[A-Z]*, *"\([a-z]*\)".*/\1/p' "$ROOT/src/shell.c" | tr '\n' ' ')
-for c in $cmds; do
-    grep -q "^== $c " "$ROOT/initrd/docs/manuel.txt" || { echo "  commande sans page de manuel : $c"; FAILED=1; }
+progs=$(for f in "$ROOT"/user/*.c; do n=$(basename "$f" .c); [ "$n" = crt0 ] || printf '%s ' "$n"; done)
+for c in $cmds $progs; do
+    grep -q "^== $c " "$ROOT/initrd/docs/manuel.txt" || { echo "  commande ou programme sans page de manuel : $c"; FAILED=1; }
 done
 for c in $(sed -n 's/^== \([a-z]*\) .*/\1/p' "$ROOT/initrd/docs/manuel.txt"); do
-    case " $cmds general fichiers stockage programmes " in *" $c "*) ;; *) echo "  page de manuel sans commande : $c"; FAILED=1;; esac
+    case " $cmds $progs general fichiers stockage programmes " in *" $c "*) ;; *) echo "  page de manuel sans commande : $c"; FAILED=1;; esac
 done
-echo "  manuel verifie : $(echo $cmds | wc -w) commandes documentees"
+echo "  manuel verifie : $(echo $cmds | wc -w) commandes et $(echo $progs | wc -w) programmes documentes"
 
 echo
 if [ "$FAILED" -eq 0 ]; then echo "TOUS LES TESTS PASSENT"; else echo "DES TESTS ONT ECHOUE"; fi
