@@ -18,6 +18,14 @@
 #define CTRL_C       3
 #define CTRL_D       4
 
+/* Options d'open (memes valeurs que Linux i386) */
+#define O_ACCMODE 3
+#define O_WRONLY  1
+#define O_RDWR    2
+#define O_CREAT   0x40
+#define O_TRUNC   0x200
+#define O_APPEND  0x400
+
 static u32 next_pid = 1;
 
 void user_proc_reset(struct uproc *p, const char *name)
@@ -134,6 +142,8 @@ static i32 sys_read(struct uproc *p, u32 fd, u32 buf, u32 n)
     if (fd >= USER_FIRST_FD && fd < USER_FIRST_FD + USER_MAX_FDS && p->fd[fd - USER_FIRST_FD].node) {
         struct user_fd *f = &p->fd[fd - USER_FIRST_FD];
 
+        if (!f->readable)
+            return E_INVAL;
         avail = f->pos < f->node->size ? f->node->size - f->pos : 0;
         take = n < avail ? n : avail;
         memcpy((void *)buf, f->node->data + f->pos, take);
@@ -145,24 +155,75 @@ static i32 sys_read(struct uproc *p, u32 fd, u32 buf, u32 n)
 
 static i32 sys_write(struct uproc *p, u32 fd, u32 buf, u32 n)
 {
-    if (fd != 1 && fd != 2)
-        return E_INVAL;                                         /* pas d'ecriture de fichier pour l'instant */
     if (n > WRITE_MAX)
         n = WRITE_MAX;
-    if (!user_range(p, buf, n))
-        return E_FAULT;
-    out_bytes((const u8 *)buf, n, fd == 2);
-    return (i32)n;
+    if (fd == 1 || fd == 2) {
+        if (!user_range(p, buf, n))
+            return E_FAULT;
+        out_bytes((const u8 *)buf, n, fd == 2);
+        return (i32)n;
+    }
+    if (fd >= USER_FIRST_FD && fd < USER_FIRST_FD + USER_MAX_FDS && p->fd[fd - USER_FIRST_FD].node) {
+        struct user_fd *f = &p->fd[fd - USER_FIRST_FD];
+        err_t e;
+
+        if (!f->writable)
+            return E_INVAL;
+        if (!user_range(p, buf, n))
+            return E_FAULT;
+        e = fs_append(f->node, (const void *)buf, n);           /* toujours en fin de fichier */
+        if (e != E_OK)
+            return e;
+        f->pos = f->node->size;
+        return (i32)n;
+    }
+    return E_INVAL;
 }
 
 static i32 sys_open(struct uproc *p, u32 path_addr, u32 flags)
 {
     char path[PATH_MAX_LEN];
     struct fs_node *node;
+    int slot = -1, write = (int)(flags & O_ACCMODE);
     err_t e;
 
-    if (flags != 0)
-        return E_INVAL;                                         /* lecture seule */
+    if (flags & ~(u32)(O_ACCMODE | O_CREAT | O_TRUNC | O_APPEND) || write == 3)
+        return E_INVAL;
+    if ((flags & (O_CREAT | O_TRUNC)) && !write)
+        return E_INVAL;                                         /* creer / vider demande l'ecriture */
+    if (user_string(p, path_addr, path, sizeof path) != 0)
+        return E_FAULT;
+    for (int i = 0; i < USER_MAX_FDS; i++) {
+        if (!p->fd[i].node) {
+            slot = i;
+            break;
+        }
+    }
+    if (slot < 0)
+        return E_NOMEM;
+    e = fs_lookup(path, &node);
+    if (e == E_NOENT && (flags & O_CREAT))
+        e = fs_create(path, &node);
+    if (e != E_OK)
+        return e;
+    if (node->type != FS_FILE)
+        return E_ISDIR;
+    if ((flags & O_TRUNC) && (e = fs_write(node, NULL, 0)) != E_OK)
+        return e;
+    p->fd[slot].node = node;
+    p->fd[slot].pos = (flags & O_APPEND) ? node->size : 0;
+    p->fd[slot].writable = write != 0;
+    p->fd[slot].readable = write != O_WRONLY;
+    return USER_FIRST_FD + slot;
+}
+
+/* Supprime un fichier (pas un dossier) ; les descripteurs ouverts dessus sont fermes. */
+static i32 sys_unlink(struct uproc *p, u32 path_addr)
+{
+    char path[PATH_MAX_LEN];
+    struct fs_node *node;
+    err_t e;
+
     if (user_string(p, path_addr, path, sizeof path) != 0)
         return E_FAULT;
     e = fs_lookup(path, &node);
@@ -171,13 +232,10 @@ static i32 sys_open(struct uproc *p, u32 path_addr, u32 flags)
     if (node->type != FS_FILE)
         return E_ISDIR;
     for (int i = 0; i < USER_MAX_FDS; i++) {
-        if (!p->fd[i].node) {
-            p->fd[i].node = node;
-            p->fd[i].pos = 0;
-            return USER_FIRST_FD + i;
-        }
+        if (p->fd[i].node == node)
+            p->fd[i].node = NULL;
     }
-    return E_NOMEM;
+    return fs_remove(path, 0);
 }
 
 static i32 sys_close(struct uproc *p, u32 fd)
@@ -204,6 +262,8 @@ i32 syscall_dispatch(struct uproc *p, u32 nr, u32 a, u32 b, u32 c)
         return sys_open(p, a, b);
     case SYS_CLOSE:
         return sys_close(p, a);
+    case SYS_UNLINK:
+        return sys_unlink(p, a);
     case SYS_TIME: {
         u32 t = rtc_now_unix();
 

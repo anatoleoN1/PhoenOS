@@ -27,8 +27,9 @@ enum {
     SYS_EXIT     = 1,    /* exit(code)                       */
     SYS_READ     = 3,    /* read(fd, tampon, taille)         */
     SYS_WRITE    = 4,    /* write(fd, tampon, taille)        */
-    SYS_OPEN     = 5,    /* open(chemin, 0)  lecture seule   */
+    SYS_OPEN     = 5,    /* open(chemin, options) : O_WRONLY 1, O_RDWR 2, O_CREAT 0x40, O_TRUNC 0x200, O_APPEND 0x400 */
     SYS_CLOSE    = 6,    /* close(fd)                        */
+    SYS_UNLINK   = 10,   /* unlink(chemin) : supprime un fichier */
     SYS_TIME     = 13,   /* time(&t) : secondes depuis 1970  */
     SYS_GETPID   = 20,   /* getpid()                         */
     SYS_SLEEP_MS = 200,  /* sleep_ms(ms)    propre a PhoenOS */
@@ -38,6 +39,8 @@ enum {
 struct user_fd {
     struct fs_node *node;               /* NULL = libre */
     u32 pos;
+    int writable;                       /* ouvert en ecriture (les ecritures vont en fin de fichier) */
+    int readable;
 };
 
 struct uproc {

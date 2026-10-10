@@ -1,4 +1,4 @@
-MANUEL DE PHOENOS 0.3.0
+MANUEL DE PHOENOS 0.4.0
 =======================
 Tapez  man            pour la liste des sujets,
        man <sujet>    pour lire un sujet (exemple : man ls).
@@ -88,6 +88,8 @@ Differences avec Unix : pas de droits ni de proprietaires (les dates existent, v
     heure    heure machine (secondes depuis 1970), duree depuis le demarrage, pause
     faute    provoque une erreur (gp | div | ud | io | kern | nul) : le noyau arrete le programme
     calc     calculatrice (calc 2+3*4, ou sans argument : mode interactif ; man calc)
+    copie    copie un fichier (copie a.txt b.txt)
+    notes    carnet de notes dans /notes.txt (notes acheter du pain ; notes ; notes -v)
   Ce que le noyau garantit : un programme n'a le droit ni de couper les interruptions, ni
   d'acceder aux ports, ni d'executer une instruction privilegiee ; en cas de faute il est
   arrete avec un message (adresse, exception) et vous revenez au shell. Ctrl+C arrete un
@@ -99,9 +101,12 @@ Differences avec Unix : pas de droits ni de proprietaires (les dates existent, v
   Limites actuelles : un seul programme a la fois ; 4 Mio de memoire par programme ;
   les programmes partagent encore le meme espace d'adresses (un espace par programme viendra
   avec le multitache).
+  Depuis la 0.4.0 un programme peut aussi CREER, ECRIRE et SUPPRIMER des fichiers (open avec
+  options, write, unlink). Les ecritures vont toujours en fin de fichier. Pour garder ces
+  fichiers apres un redemarrage : save (voir man stockage).
   Appels systeme (int 0x80 : numero dans eax, arguments dans ebx, ecx, edx, resultat dans eax ;
-  negatif = erreur) : exit 1, read 3, write 4, open 5 (lecture seule), close 6, time 13,
-  getpid 20, sleep_ms 200, uptime_ms 201. Les sept premiers ont les numeros de Linux i386.
+  negatif = erreur) : exit 1, read 3, write 4, open 5 (options O_WRONLY, O_RDWR, O_CREAT, O_TRUNC, O_APPEND), close 6, unlink 10, time 13,
+  getpid 20, sleep_ms 200, uptime_ms 201. Tous sauf les deux derniers ont les numeros de Linux i386.
   Ecrire un programme : user/phoenos.h (mini-bibliotheque), user/hello.c (exemple) ; tout
   fichier user/nom.c devient /bin/nom. Code de sortie : main renvoie un entier (0 = succes) ;
   un code non nul est signale par le shell.
@@ -394,3 +399,15 @@ Differences avec Unix : pas de droits ni de proprietaires (les dates existent, v
 == heure  - heure machine
   Syntaxe : heure
   Affiche l'heure machine (secondes depuis 1970), la duree depuis le demarrage, puis fait une pause de 200 ms.
+
+== copie  - copie un fichier (programme utilisateur)
+  Syntaxe : copie <source> <destination>
+  Copie le contenu et ECRASE la destination si elle existe. Refuse de copier un fichier sur
+  lui-meme. Le dossier de la destination doit exister. Exemple : copie /etc/motd /moi.txt
+  Difference avec la commande cp : copie est un programme (ring 3) qui utilise open/read/write.
+
+== notes  - carnet de notes (programme utilisateur)
+  Syntaxe : notes <texte...>     ajoute une ligne a /notes.txt
+            notes                affiche les notes, numerotees
+            notes -v             vide le carnet
+  Pour les garder apres un redemarrage : save.  Exemple : notes acheter du pain

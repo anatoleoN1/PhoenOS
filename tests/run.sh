@@ -78,6 +78,25 @@ ucheck "saisie vide" "rien recu" "$("$U/saisie" < /dev/null)"
 ucheck "compte" "2 ligne(s), 13 octet(s)" "$("$U/compte" "$B/user/data.txt")"
 ucheck "compte absent" "impossible d'ouvrir" "$("$U/compte" /nofile 2>&1)"
 ucheck "heure" "time()" "$("$U/heure")"
+
+# 0.4.0 : programmes qui ECRIVENT des fichiers (memes appels qu'une vraie machine Linux 32 bits)
+rm -f "$B/user/out.txt" /notes.txt
+ucheck "copie" "data.txt -> $B/user/out.txt : 13 octet(s)" "$("$U/copie" "$B/user/data.txt" "$B/user/out.txt")"
+ucheck "copie contenu" "bonjour" "$(cat "$B/user/out.txt")"
+ucheck "copie identique" "identiques" "$("$U/copie" "$B/user/out.txt" "$B/user/out.txt" 2>&1)"
+ucheck "copie contenu intact" "deux" "$(cat "$B/user/out.txt")"
+ucheck "copie ecrase" "13 octet(s)" "$(printf 'x' > "$B/user/out.txt"; "$U/copie" "$B/user/data.txt" "$B/user/out.txt")"
+ucheck "copie sans source" "impossible d'ouvrir" "$("$U/copie" /nofile "$B/user/out.txt" 2>&1)"
+ucheck "copie dossier absent" "impossible d'ecrire" "$("$U/copie" "$B/user/data.txt" /nodir/x 2>&1)"
+ucheck "copie usage" "usage" "$("$U/copie" a 2>&1)"
+ucheck "notes vide" "carnet est vide" "$("$U/notes")"
+ucheck "notes ajoute" "Note ajoutee" "$("$U/notes" premiere note)"
+"$U/notes" "deuxieme" "note" > /dev/null
+ucheck "notes liste 1" " 1  premiere note" "$("$U/notes")"
+ucheck "notes liste 2" " 2  deuxieme note" "$("$U/notes")"
+ucheck "notes vider" "Carnet vide" "$("$U/notes" -v)"
+ucheck "notes deja vide" "deja vide" "$("$U/notes" -v)"
+rm -f "$B/user/out.txt" /notes.txt
 calc() { "$U/calc" "$@" 2>&1; }
 for t in "2+3*4=14" "(2+3)*4=20" "10/4=2.5" "2^10=1024" "7%3=1" "-7%3=-1" "-3+5=2" "sqrt(2)=1.4142" "1/3=0.3333" "pi*2=6.2832" \
          "2^-2=0.25" "abs(-4.5)=4.5" "1,5*2=3" "2*3^2=18" "-2^2=-4" "10-2-3=5" "100/3/2=16.6666" "0.1+0.2=0.3" "sqrt(1000000)=1000" \

@@ -10,7 +10,7 @@
 typedef unsigned int  uint;
 typedef unsigned char uchar;
 
-enum { SYS_EXIT = 1, SYS_READ = 3, SYS_WRITE = 4, SYS_OPEN = 5, SYS_CLOSE = 6, SYS_TIME = 13,
+enum { SYS_EXIT = 1, SYS_READ = 3, SYS_WRITE = 4, SYS_OPEN = 5, SYS_CLOSE = 6, SYS_UNLINK = 10, SYS_TIME = 13,
        SYS_GETPID = 20, SYS_SLEEP_MS = 200, SYS_UPTIME = 201 };
 
 static inline int syscall3(int n, int a, int b, int c)
@@ -25,7 +25,11 @@ static inline void exit(int code) __attribute__((noreturn));
 static inline void exit(int code) { syscall3(SYS_EXIT, code, 0, 0); for (;;) ; }
 static inline int  write(int fd, const void *b, uint n) { return syscall3(SYS_WRITE, fd, (int)b, (int)n); }
 static inline int  read(int fd, void *b, uint n)        { return syscall3(SYS_READ, fd, (int)b, (int)n); }
+/* Options d'open (comme Linux) : ecrire = O_WRONLY ou O_RDWR ; les ecritures vont toujours en fin de fichier. */
+enum { O_RDONLY = 0, O_WRONLY = 1, O_RDWR = 2, O_CREAT = 0x40, O_TRUNC = 0x200, O_APPEND = 0x400 };
+static inline int  open_flags(const char *path, int flags) { return syscall3(SYS_OPEN, (int)path, flags, 0); }
 static inline int  open(const char *path)               { return syscall3(SYS_OPEN, (int)path, 0, 0); }
+static inline int  unlink(const char *path)             { return syscall3(SYS_UNLINK, (int)path, 0, 0); }
 static inline int  close(int fd)                        { return syscall3(SYS_CLOSE, fd, 0, 0); }
 static inline int  getpid(void)                         { return syscall3(SYS_GETPID, 0, 0, 0); }
 static inline uint time(void)                           { return (uint)syscall3(SYS_TIME, 0, 0, 0); }

@@ -40,6 +40,7 @@ static void type(const char *s) { while (*s) keys[nk++] = (u8)*s++; }
 
 static int shows(const char *sub) { usize n = strlen(sub); for (usize i = 0; i + n <= slen_; i++) if (!memcmp(screen + i, sub, n)) return 1; return 0; }
 
+enum { O_WRONLY = 1, O_RDWR = 2, O_CREAT = 0x40, O_TRUNC = 0x200, O_APPEND = 0x400 };
 static struct uproc P;
 #define A(x) ((u32)(umem + (x)))
 #define SYS(nr, a, b, c) syscall_dispatch(&P, (nr), (a), (b), (c))
@@ -70,6 +71,7 @@ int test_main(void)
     CHECK(SYS(SYS_WRITE, 1, A(0), 6) == 6 && shows("salut\n"));
     CHECK(SYS(SYS_WRITE, 2, A(0), 6) == 6);
     CHECK(SYS(SYS_WRITE, 5, A(0), 6) == E_INVAL);                          /* fd inconnu */
+    CHECK(SYS(SYS_WRITE, 0, A(0), 6) == E_INVAL);                          /* entree standard */
     CHECK(SYS(SYS_WRITE, 1, A(0), 0) == 0);
     CHECK(SYS(SYS_WRITE, 1, A(sizeof umem - 2), 6) == E_FAULT);             /* depasse la zone */
     CHECK(SYS(SYS_WRITE, 1, (u32)umem - 1, 2) == E_FAULT);                  /* commence avant */
@@ -86,7 +88,9 @@ int test_main(void)
     CHECK(SYS(SYS_OPEN, A(100), 0, 0) == 4);                                /* deuxieme descripteur */
     CHECK(SYS(SYS_OPEN, A(120), 0, 0) == E_NOENT);
     CHECK(SYS(SYS_OPEN, A(140), 0, 0) == E_ISDIR);
-    CHECK(SYS(SYS_OPEN, A(100), 1, 0) == E_INVAL);                          /* ecriture refusee */
+    CHECK(SYS(SYS_OPEN, A(100), 0x8000, 0) == E_INVAL);                     /* option inconnue */
+    CHECK(SYS(SYS_OPEN, A(100), 3, 0) == E_INVAL);                          /* mode d'acces invalide */
+    CHECK(SYS(SYS_OPEN, A(100), 0x40, 0) == E_INVAL);                       /* creer sans ecriture */
     CHECK(SYS(SYS_OPEN, 0, 0, 0) == E_FAULT);
     memset(umem + 200, 'x', 300);                                           /* chaine sans fin dans la zone */
     CHECK(SYS(SYS_OPEN, A(200), 0, 0) == E_FAULT);                          /* trop longue : refusee */
@@ -104,6 +108,56 @@ int test_main(void)
     for (int i = 0; i < 20; i++)
         SYS(SYS_OPEN, A(100), 0, 0);
     CHECK(SYS(SYS_OPEN, A(100), 0, 0) == E_NOMEM);                          /* table pleine */
+
+    /* ---- ecriture de fichiers (0.4.0) ---- */
+    for (int i = 3; i < 3 + USER_MAX_FDS; i++)
+        SYS(SYS_CLOSE, (u32)i, 0, 0);
+    strcpy((char *)umem + 1000, "/neuf.txt");
+    strcpy((char *)umem + 1020, "/d/sous.txt");
+    strcpy((char *)umem + 1040, "/rien/x.txt");
+    CHECK(SYS(SYS_OPEN, A(1000), O_WRONLY, 0) == E_NOENT);                  /* n'existe pas, pas de O_CREAT */
+    CHECK(SYS(SYS_OPEN, A(1040), O_WRONLY | O_CREAT, 0) == E_NOENT);        /* dossier parent absent */
+    CHECK(SYS(SYS_OPEN, A(1000), O_WRONLY | O_CREAT, 0) == 3);
+    memcpy(umem + 1100, "un\ndeux\n", 8);
+    CHECK(SYS(SYS_WRITE, 3, A(1100), 8) == 8);
+    CHECK(SYS(SYS_READ, 3, A(1200), 4) == E_INVAL);                         /* ouvert en ecriture seule */
+    CHECK(SYS(SYS_WRITE, 3, A(8190), 10) == E_FAULT);
+    CHECK(SYS(SYS_CLOSE, 3, 0, 0) == 0);
+    CHECK(fs_lookup("/neuf.txt", &f) == E_OK && f->size == 8 && !memcmp(f->data, "un\ndeux\n", 8));
+    CHECK(SYS(SYS_OPEN, A(1000), O_WRONLY | O_APPEND, 0) == 3);             /* ajoute a la suite */
+    CHECK(SYS(SYS_WRITE, 3, A(1100), 2) == 2 && f->size == 10 && !memcmp(f->data + 8, "un", 2));
+    CHECK(SYS(SYS_CLOSE, 3, 0, 0) == 0);
+    CHECK(SYS(SYS_OPEN, A(1000), O_RDWR | O_TRUNC, 0) == 3 && f->size == 0);   /* vide le fichier */
+    CHECK(SYS(SYS_WRITE, 3, A(1100), 3) == 3);
+    CHECK(SYS(SYS_READ, 3, A(1200), 10) == 0);                              /* lecture a la position courante */
+    CHECK(SYS(SYS_CLOSE, 3, 0, 0) == 0);
+    CHECK(SYS(SYS_OPEN, A(1000), 0, 0) == 3);
+    CHECK(SYS(SYS_WRITE, 3, A(1100), 1) == E_INVAL);                        /* lecture seule : ecriture refusee */
+    CHECK(SYS(SYS_READ, 3, A(1200), 10) == 3 && !memcmp(umem + 1200, "un\n", 3));
+    CHECK(SYS(SYS_OPEN, A(1000), O_WRONLY, 0) == 4);                        /* ouvert 2 fois : meme fichier */
+    CHECK(SYS(SYS_UNLINK, A(1000), 0, 0) == 0);                             /* ferme 3 et 4 */
+    CHECK(fs_lookup("/neuf.txt", &f) == E_NOENT);
+    CHECK(SYS(SYS_READ, 3, A(1200), 1) == E_INVAL && SYS(SYS_WRITE, 4, A(1100), 1) == E_INVAL);
+    CHECK(SYS(SYS_UNLINK, A(1000), 0, 0) == E_NOENT);
+    CHECK(SYS(SYS_UNLINK, A(140), 0, 0) == E_ISDIR);                        /* /d : un dossier */
+    CHECK(SYS(SYS_UNLINK, 0, 0, 0) == E_FAULT);
+    CHECK(SYS(SYS_OPEN, A(1020), O_WRONLY | O_CREAT, 0) == 3);              /* creation dans un sous-dossier */
+    CHECK(fs_lookup("/d/sous.txt", &f) == E_OK && f->type == FS_FILE);
+    CHECK(SYS(SYS_CLOSE, 3, 0, 0) == 0);
+    CHECK(SYS(SYS_OPEN, A(140), O_WRONLY, 0) == E_ISDIR);                   /* pas d'ecriture dans un dossier */
+    {
+        u32 big = 0;
+
+        CHECK(SYS(SYS_OPEN, A(1020), O_WRONLY | O_APPEND, 0) == 3);
+        while (big < (1u << 20) && SYS(SYS_WRITE, 3, A(0), 4096) == 4096)
+            big += 4096;
+        i32 r = SYS(SYS_WRITE, 3, A(0), 4096);
+
+        CHECK(big > 0 && (r == E_FBIG || r == E_NOMEM));                    /* refus propre quand c'est plein */
+        CHECK(fs_lookup("/d/sous.txt", &f) == E_OK && f->size == big);      /* rien d'ecrit a moitie */
+        SYS(SYS_CLOSE, 3, 0, 0);
+        fs_remove("/d/sous.txt", 0);
+    }
 
     /* ---- entree standard : tube ---- */
     P.in = (const u8 *)"tube\nsuite";
@@ -145,6 +199,6 @@ int test_main(void)
     CHECK(!P.exit_requested);
     CHECK(SYS(SYS_EXIT, 0x1234, 0, 0) == 0 && P.exit_requested && P.exit_code == 0x34);
 
-    out("  appels systeme verifies : write/read/open/close, pointeurs hostiles, clavier, tube, exit\n");
+    out("  appels systeme verifies : write/read/open/close/unlink, ecriture de fichiers, pointeurs hostiles, clavier, tube, exit\n");
     return 0;
 }

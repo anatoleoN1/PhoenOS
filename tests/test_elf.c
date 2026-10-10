@@ -132,6 +132,6 @@ int test_main(void)
       img[18] = 62; CHECK(elf_load(img, sz, mem, LO, HI, &e) == E_NOEXEC); img[18] = 3;          /* x86-64 */
       CHECK(elf_load(img, sz, mem, LO, HI, &e) == E_OK); }
 
-    out("  chargeur ELF verifie : 7 vrais programmes (dont des ELF a deux segments), 13 fichiers hostiles, en-tetes corrompus\n");
+    out("  chargeur ELF verifie : 9 vrais programmes (dont des ELF a deux segments), 13 fichiers hostiles, en-tetes corrompus\n");
     return 0;
 }
