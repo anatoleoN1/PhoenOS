@@ -82,11 +82,14 @@ ucheck "heure" "time()" "$("$U/heure")"
 "$U/faute" div >/dev/null 2>&1; [ $? -eq 136 ] || { echo "  ECHEC (faute div)"; UFAIL=1; }
 "$U/faute" ud >/dev/null 2>&1;  [ $? -eq 132 ] || { echo "  ECHEC (faute ud)"; UFAIL=1; }
 "$U/faute" io >/dev/null 2>&1;  [ $? -eq 139 ] || { echo "  ECHEC (faute io)"; UFAIL=1; }
+"$U/faute" kern >/dev/null 2>&1; [ $? -eq 139 ] || { echo "  ECHEC (faute kern)"; UFAIL=1; }
+"$U/faute" nul >/dev/null 2>&1;  [ $? -eq 139 ] || { echo "  ECHEC (faute nul)"; UFAIL=1; }
 "$U/primes" 999999 >/dev/null 2>&1; [ $? -eq 1 ] || { echo "  ECHEC (code de sortie de primes)"; UFAIL=1; }
 if [ $UFAIL -eq 0 ]; then echo "  6 programmes compiles et executes (arguments, entree, fichiers, fautes) => OK"; else echo "  => ECHEC"; FAILED=1; fi
 
 # Les ELF reels, pour le chargeur
 run elf 0 test_elf.c elf.c string.c
+run pagination 0 test_paging.c paging.c pmm.c string.c
 run appels-systeme 0 test_syscall.c syscall.c fs.c kprintf.c pmm.c kheap.c string.c rtc.c
 run ecran-defilement 0 -DVGA_TEST_MEMORY=test_vga test_vga.c vga.c string.c
 run kprintf             0   test_kprintf.c kprintf.c string.c

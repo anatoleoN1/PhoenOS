@@ -26,6 +26,12 @@ void pmm_free_frame(u32 addr);
  */
 err_t pmm_reserve_exact(u32 start, u32 end);
 
+/* Plus haute adresse physique geree (exclue). */
+u32  pmm_top(void);
+
+/* Retire de l'allocateur toutes les frames a partir de `addr` (le noyau ne les utilisera jamais). */
+void pmm_limit(u32 addr);
+
 u32  pmm_usable_frames(void);   /* frames signalées disponibles par le bootloader */
 u32  pmm_free_frames(void);     /* frames actuellement libres */
 

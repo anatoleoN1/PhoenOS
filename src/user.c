@@ -157,7 +157,9 @@ void user_fault(struct regs *r, const char *what)
         u32 cr2;
 
         __asm__ volatile ("movl %%cr2, %0" : "=r"(cr2));
-        keprintf("  adresse fautive : %#x\n", cr2);
+        keprintf("  adresse fautive : %#x (%s)\n", cr2,
+                 (r->err_code & 1) ? "acces interdit : memoire du noyau ou page protegee"
+                                   : "page absente");
     }
     vga_set_color(VGA_LIGHT_GREY, VGA_BLACK);
     p->exit_code = 128 + (int)r->int_no;

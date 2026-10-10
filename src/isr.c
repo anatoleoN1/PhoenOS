@@ -92,7 +92,8 @@ static void describe_cause(const struct regs *r)
         __asm__ volatile ("movl %%cr2, %0" : "=r"(cr2));
         kprintf("  Cause : %s a l'adresse %#x (%s)\n",
                 (e & 2) ? "ecriture" : "lecture", cr2,
-                (e & 1) ? "droits insuffisants" : "page absente");
+                (e & 1) ? "page protegee (ex. code du noyau en lecture seule)"
+                        : (cr2 < 0x1000 ? "page absente : pointeur nul" : "page absente"));
         break;
     }
     default:

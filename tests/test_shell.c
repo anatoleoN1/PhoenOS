@@ -97,6 +97,10 @@ err_t user_exec(const u8 *img, u32 size, const char *name, int argc, char **argv
     return E_OK;
 }
 
+int paging_enabled(void) { return 1; }
+u32 paging_mapped_top(void) { return 128u << 20; }
+u32 paging_table_bytes(void) { return 33u * 4096; }
+
 static const char *expect;
 void test_panic(const char *fmt, ...)
 {
@@ -153,6 +157,7 @@ static void verify(void)
     CHECK(last_sleep == 250);
     CHECK(count("Maximum : 60000 ms.") == 1);
     CHECK(count("1 h 2 min 5 s") == 1);
+    CHECK(count("Pagination       : active, 128 Mio mappes, tables de 132 Kio") == 1);
     CHECK(count("Tas du noyau") == 1 && count("Memoire physique") == 1);
     CHECK(count("8 Kio : 4 motifs ecrits et relus sans erreur") == 1);
     CHECK(count("Taille entre 1 et 4096 Kio.") == 1);
@@ -168,7 +173,7 @@ static void verify(void)
     CHECK(count("  1  sleep 250") == 0 || count("  1  ") >= 1); /* history : numerotation */
     CHECK(count("gris clair") == 1 && count("blanc") == 1);     /* colors */
     CHECK(count(" 10   vert clair") == 1);                      /* %2d correct dans colors */
-    CHECK(count("PhoenOS 0.1.0") == 1);                         /* version */
+    CHECK(count("PhoenOS 0.2.0") == 1);                         /* version */
     CHECK(count("Sujets du manuel") == 1 && count(" ls  - liste\n cat  - affiche\n") == 1);   /* man seul */
     CHECK(count("ls  - liste\n  Syntaxe : ls [-l]\n  Option -l\n") == 1 && count("Syntaxe : cat [-n]") == 0);   /* man ls : uniquement sa section */
     CHECK(count("man: pas de manuel pour 'nope'") == 1);

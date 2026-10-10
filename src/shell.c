@@ -8,6 +8,7 @@
  */
 #include "rtc.h"
 #include "user.h"
+#include "paging.h"
 #include "shell.h"
 #include "cmdline.h"
 #include "version.h"
@@ -288,6 +289,11 @@ static err_t cmd_mem(int argc, char **argv)
 
     kprintf("Memoire physique : %u Kio detectes, %u Kio libres\n",
             pmm_usable_frames() * 4, pmm_free_frames() * 4);
+    if (paging_enabled())
+        kprintf("Pagination       : active, %u Mio mappes, tables de %u Kio\n",
+                paging_mapped_top() >> 20, paging_table_bytes() / 1024);
+    else
+        kprintf("Pagination       : inactive\n");
     kprintf("Tas du noyau     : %u Kio au total\n", kheap_size() / 1024);
     kprintf("  utilise        : %u octets dans %u bloc(s)\n", st.used_bytes, st.used_blocks);
     kprintf("  libre          : %u octets dans %u bloc(s)\n", st.free_bytes, st.free_blocks);
@@ -397,10 +403,10 @@ static err_t cmd_memtest(int argc, char **argv)
 /* Provoque volontairement une erreur pour voir l'écran d'erreur. */
 static err_t cmd_crash(int argc, char **argv)
 {
-    static const char *const kinds = "div0 | gp | ud | panic | assert | doublefree | heap";
+    static const char *const kinds = "div0 | gp | ud | null | ro | panic | assert | doublefree | heap";
 
     if (argc != 2)
-        return usage("crash <div0|gp|ud|panic|assert|doublefree|heap>");
+        return usage("crash <div0|gp|ud|null|ro|panic|assert|doublefree|heap>");
 
     if (strcmp(argv[1], "div0") == 0) {
         volatile int zero = 0;
@@ -410,6 +416,12 @@ static err_t cmd_crash(int argc, char **argv)
         __asm__ volatile ("movw $0x99, %%ax\n\tmovw %%ax, %%ds" : : : "eax");
     } else if (strcmp(argv[1], "ud") == 0) {
         __asm__ volatile ("ud2");
+    } else if (strcmp(argv[1], "null") == 0) {
+        *(volatile u32 *)0 = 1;                 /* page 0 absente : faute de page */
+    } else if (strcmp(argv[1], "ro") == 0) {
+        extern char kernel_start[];
+
+        *(volatile u32 *)kernel_start = 0;      /* code du noyau en lecture seule : faute de page */
     } else if (strcmp(argv[1], "panic") == 0) {
         PANIC("Panique demandee depuis le shell");
     } else if (strcmp(argv[1], "assert") == 0) {

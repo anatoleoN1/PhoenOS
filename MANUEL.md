@@ -1,4 +1,4 @@
-# Manuel de PhoenOS 0.1.0
+# Manuel de PhoenOS 0.2.0
 
 > Généré à partir de `initrd/docs/manuel.txt` (lisible dans PhoenOS avec `man`).
 
@@ -153,15 +153,18 @@ Differences avec Unix : pas de droits ni de proprietaires (les dates existent, v
     saisie   demande un nom (clavier ou tube : echo Zoe | saisie) et dit bonjour
     compte   lignes et octets de fichiers (compte /etc/motd)
     heure    heure machine (secondes depuis 1970), duree depuis le demarrage, pause
-    faute    provoque une erreur (faute gp | div | ud | io) : le noyau arrete le programme
+    faute    provoque une erreur (gp | div | ud | io | kern | nul) : le noyau arrete le programme
   Ce que le noyau garantit : un programme n'a le droit ni de couper les interruptions, ni
   d'acceder aux ports, ni d'executer une instruction privilegiee ; en cas de faute il est
   arrete avec un message (adresse, exception) et vous revenez au shell. Ctrl+C arrete un
   programme qui attend une saisie. Les programmes marchent dans les tubes et les redirections :
   primes 50 > p.txt    echo Zoe | saisie.
-  Limites actuelles : un seul programme a la fois ; 4 Mio de memoire (adresses 4 Mio a 8 Mio) ;
-  pas encore de pagination, donc le programme n'est PAS isole de la memoire du noyau (un
-  programme malveillant pourrait l'ecraser) : n'executez que vos propres programmes.
+  Memoire : depuis la 0.2.0 la pagination est active. Un programme ne voit et ne modifie que
+  SA zone (4 Mio a 8 Mio) ; toucher le noyau, l'adresse 0 ou n'importe quelle autre adresse
+  l'arrete aussitot (essayez faute kern et faute nul) : le noyau et le shell restent intacts.
+  Limites actuelles : un seul programme a la fois ; 4 Mio de memoire par programme ;
+  les programmes partagent encore le meme espace d'adresses (un espace par programme viendra
+  avec le multitache).
   Appels systeme (int 0x80 : numero dans eax, arguments dans ebx, ecx, edx, resultat dans eax ;
   negatif = erreur) : exit 1, read 3, write 4, open 5 (lecture seule), close 6, time 13,
   getpid 20, sleep_ms 200, uptime_ms 201. Les sept premiers ont les numeros de Linux i386.
@@ -221,7 +224,11 @@ Differences avec Unix : pas de droits ni de proprietaires (les dates existent, v
 
 ```
   Syntaxe : mem
-  Memoire physique detectee / libre, taille du tas du noyau, blocs utilises et libres.
+  Memoire physique detectee / libre, etat de la pagination (memoire mappee, taille des tables),
+  taille du tas du noyau, blocs utilises et libres.
+  Pagination : toute la RAM (1 Gio au plus) est visible du noyau seul ; la page 0 est absente
+  (un pointeur nul fait une faute au lieu de passer) ; le code et les constantes du noyau sont
+  en lecture seule ; seule la zone des programmes est accessible en mode utilisateur.
 ```
 
 ## memtest
@@ -305,6 +312,7 @@ Differences avec Unix : pas de droits ni de proprietaires (les dates existent, v
 ```
   Syntaxe : crash <type>
   Types : div0 (division par zero), gp (faute de protection), ud (instruction invalide),
+          null (ecriture a l'adresse 0), ro (ecriture dans le code du noyau, en lecture seule),
           panic, assert, doublefree (double liberation memoire), heap (tas corrompu)
   L'ecran d'erreur orange (ou violet selon la compilation) s'affiche ; redemarrez ensuite.
   Specifique a PhoenOS, pour tester la robustesse du noyau.

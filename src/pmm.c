@@ -203,5 +203,20 @@ err_t pmm_reserve_exact(u32 start, u32 end)
     return E_OK;
 }
 
+u32 pmm_top(void)
+{
+    return frame_count >= MAX_FRAMES ? 0xFFFFF000u : frame_count * PMM_FRAME_SIZE;
+}
+
+void pmm_limit(u32 addr)
+{
+    for (u32 f = (addr + PMM_FRAME_SIZE - 1) >> 12; f < frame_count; f++) {
+        if (!bit_test(f)) {
+            bit_set(f);
+            free_count--;
+        }
+    }
+}
+
 u32 pmm_usable_frames(void) { return usable_count; }
 u32 pmm_free_frames(void)   { return free_count; }

@@ -15,7 +15,10 @@ SECTIONS
     .rodata BLOCK(4K) : ALIGN(4K)
     {
         *(.rodata*)
+        *(.eh_frame*)
     }
+
+    kernel_ro_end = ALIGN(4K);          /* fin du code et des constantes : lecture seule une fois paginee */
 
     .data BLOCK(4K) : ALIGN(4K)
     {

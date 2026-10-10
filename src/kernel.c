@@ -23,6 +23,7 @@
 #include "fs.h"
 #include "rtc.h"
 #include "user.h"
+#include "paging.h"
 #include "initrd.h"
 #include "ata.h"
 #include "persist.h"
@@ -258,6 +259,17 @@ void kernel_main(u32 magic, const struct multiboot_info *mbi)
 
     status(selftest_pmm(),  "Auto-test memoire physique");
     status(selftest_heap(), "Auto-test du tas (decoupe et fusion des blocs)");
+
+    {
+        err_t pe = paging_init();
+
+        status(pe == E_OK, "Pagination activee (noyau protege, programmes isoles)");
+        if (pe != E_OK)
+            klog(LOG_WARN, "pagination indisponible (%s) : memoire non protegee", err_str(pe));
+        else
+            kprintf("       Pagination : %u Mio mappes, tables de %u Kio, code du noyau en lecture seule\n",
+                    paging_mapped_top() >> 20, paging_table_bytes() / 1024);
+    }
 
     fs_set_clock(rtc_now_unix);                 /* dates des fichiers : horloge materielle (0 si illisible) */
     fs_init();

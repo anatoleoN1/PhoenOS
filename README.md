@@ -1,7 +1,7 @@
 # PhoenOS
 
 Système d'exploitation x86 écrit en C : léger, efficace, gratuit.
-Version actuelle : **0.1.0** (programmes utilisateur en ring 3 : appels système, chargeur ELF, dossier `user/`).
+Version actuelle : **0.2.0** (pagination : le noyau est protégé, les programmes sont isolés).
 Le détail de chaque commande et de ses options est dans **[MANUEL.md](MANUEL.md)** (et dans PhoenOS : `man`).
 
 ## Prérequis (Debian / Ubuntu, machine x86_64 ou WSL sous Windows)
@@ -30,7 +30,7 @@ make clean
 Pour tester sur une vraie machine : écrire `phoenos-0.1.0.iso` sur une clé USB
 (`sudo dd if=phoenos-0.1.0.iso of=/dev/sdX bs=4M status=progress`, en vérifiant bien `sdX`).
 
-## Ce qu'on doit voir au démarrage (v0.1.0)
+## Ce qu'on doit voir au démarrage (v0.2.0)
 
 Des lignes `[ OK ]` pour : VGA + port série, Multiboot, GDT, IDT/PIC/timer/clavier,
 exceptions (point d'arrêt traité), **mémoire physique, tas du noyau et leurs auto-tests**,
@@ -74,7 +74,20 @@ Limites connues : un débordement de pile est détecté après coup (canari test
 timer) mais peut provoquer une triple faute avant ; la protection complète demande un TSS dédié
 pour la double faute (prévu plus tard).
 
-## Programmes utilisateur (nouveau en 0.1.0)
+## Pagination (nouveau en 0.2.0)
+
+La pagination est maintenant active (`src/paging.c`, `src/paging_enable.c`) :
+- toute la RAM (1 Gio au plus) est mappée « à l'identique » mais **réservée au noyau** ;
+- la page 0 est absente : `crash null` montre un pointeur nul attrapé par une faute de page lisible ;
+- le code et les constantes du noyau sont **en lecture seule** : `crash ro` essaie d'y écrire ;
+- seule la zone des programmes (4 Mio à 8 Mio) est accessible au ring 3 : `faute kern` (écrire dans le noyau)
+  et `faute nul` (lire l'adresse 0) arrêtent le programme, le shell reste intact ;
+- la mémoire vidéo est mappée sans cache. `mem` affiche l'état de la pagination.
+La construction des tables est testée page par page (128 Mio). L'activation matérielle (CR3/CR0) ne peut pas l'être
+sans démarrer la machine : au boot, une ligne « Pagination activee » doit apparaître.
+Prochaine étape : un espace d'adresses par programme, puis le multitâche.
+
+## Programmes utilisateur (0.1.0)
 
 PhoenOS lance maintenant de vrais programmes, en **mode utilisateur (ring 3)**, séparés du noyau :
 - `ls /bin` liste les programmes ; taper `hello a b`, `primes 100`, `saisie`, `compte /etc/motd`, `heure`, `faute gp`.
@@ -84,8 +97,7 @@ PhoenOS lance maintenant de vrais programmes, en **mode utilisateur (ring 3)**, 
 - Technique : TSS + porte `int 0x80` (appels système, numéros de Linux pour exit/read/write/open/close/time/getpid),
   chargeur ELF32 défensif (`src/elf.c`), zone de 4 Mio à 8 Mio réservée avant le tas, instructions privilégiées/ports/fautes
   interceptés (`src/user.c`, `src/syscall.c`, `src/user_enter.S`).
-- **Limite honnête** : pas encore de pagination, donc un programme n'est pas isolé de la mémoire du noyau (il ne peut pas
-  planter le noyau par une faute, mais il pourrait l'écraser volontairement). La pagination est l'étape suivante.
+- Depuis la 0.2.0, la pagination isole la mémoire du noyau (voir plus haut).
 - Le fichier ISO s'appelle maintenant `phoenos-<version>.iso`.
 
 ## Horloge, tubes et outils texte (0.0.9)
@@ -199,7 +211,7 @@ if (!buf)                   // kmalloc renvoie NULL si le tas est plein : toujou
 kfree(buf);
 ```
 
-Pas encore de pagination : le noyau accède directement à la mémoire physique (prévu plus tard).
+La pagination (0.2.0) protège le noyau : voir plus haut.
 
 ## Structure
 
@@ -267,6 +279,7 @@ Chaque étape produit une ISO fonctionnelle.
 7. [x] Système de fichiers en RAM + initrd (0.0.6), disque ATA et sauvegarde (0.0.8)
 8. [x] Horloge, dates, tubes et outils texte (0.0.9)
 9. [x] Appels système, ELF et programmes utilisateur en ring 3 (0.1.0)
-10. [ ] Pagination (isolation mémoire des programmes), plusieurs programmes
-11. [ ] Mode graphique (framebuffer) et interface soignée
-12. [ ] Passage en x86_64
+10. [x] Pagination : noyau protégé, programmes isolés (0.2.0)
+11. [ ] Un espace d'adresses par programme, multitâche
+12. [ ] Mode graphique (framebuffer) et interface soignée
+13. [ ] Passage en x86_64
