@@ -37,6 +37,8 @@ isr\n:
     ISR_NOERR \n
     .endr
 
+    ISR_NOERR 128                   /* int 0x80 : appels systeme */
+
 isr_common:
     pusha
     cld

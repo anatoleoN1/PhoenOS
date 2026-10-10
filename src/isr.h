@@ -13,6 +13,7 @@ struct regs {
     u32 edi, esi, ebp, esp_pusha, ebx, edx, ecx, eax;  /* pusha */
     u32 int_no, err_code;                              /* stubs */
     u32 eip, cs, eflags;                               /* CPU   */
+    u32 useresp, ss;                                   /* CPU, seulement si (cs & 3) == 3 */
 };
 
 typedef void (*irq_handler_t)(struct regs *r);

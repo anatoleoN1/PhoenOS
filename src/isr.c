@@ -9,6 +9,7 @@
 #include "kprintf.h"
 #include "panic.h"
 #include "log.h"
+#include "user.h"
 
 static const char *const exception_names[32] = {
     "Division par zero",              /*  0 #DE */
@@ -123,7 +124,15 @@ void isr_handler(struct regs *r)
 {
     u8 irq;
 
+    if (r->int_no == 128) {              /* appel systeme d'un programme */
+        syscall_entry(r);
+        return;
+    }
     if (r->int_no < IRQ_BASE) {
+        if ((r->cs & 3) == 3 && user_current()) {   /* faute d'un programme : lui seul est arrete */
+            user_fault(r, exception_names[r->int_no]);
+            return;
+        }
         if (r->int_no == 3) {         /* point d'arret : non fatal */
             breakpoint_hits++;
             return;

@@ -49,7 +49,14 @@ OBJ     := $(patsubst src/%.c,build/%.o,$(SRC_C)) \
            $(patsubst src/%.S,build/%.o,$(SRC_S))
 
 KERNEL  := build/phoenos.bin
-ISO     := phoenos-0.0.9.iso
+VERSION := $(shell sed -n 's/.*PHOENOS_VERSION "\(.*\)".*/\1/p' src/version.h)
+ISO     := phoenos-$(VERSION).iso
+
+# Programmes utilisateur (user/*.c) : un ELF par programme, charge a 4 Mio, copie dans /bin de l'initrd.
+USER_CFLAGS := -m32 -std=gnu11 -O2 -Wall -Wextra -Werror -ffreestanding -fno-stack-protector -fno-pic -fno-pie \
+               -fno-builtin -fno-omit-frame-pointer -mno-sse -mno-mmx -nostdlib -static
+USER_PROGS  := $(patsubst user/%.c,%,$(filter-out user/crt0.c,$(wildcard user/*.c)))
+USER_ELFS   := $(addprefix build/user/,$(addsuffix .elf,$(USER_PROGS)))
 TESTS   := test-div0 test-gp test-panic test-assert test-doublefree test-heapcorrupt
 
 .PHONY: all iso run serial debug check symbol test clean newdisk $(TESTS)
@@ -68,12 +75,20 @@ build/%.o: src/%.S | build
 build:
 	mkdir -p build
 
-iso: $(KERNEL)
+build/user/%.elf: user/%.c user/crt0.c user/phoenos.h user/user.ld
+	mkdir -p build/user
+	$(CC) $(USER_CFLAGS) -T user/user.ld -Wl,--build-id=none -Wl,-z,noexecstack $< user/crt0.c -o $@
+
+iso: $(KERNEL) $(USER_ELFS)
 	rm -rf build/isodir
 	mkdir -p build/isodir/boot/grub
 	cp $(KERNEL) build/isodir/boot/phoenos.bin
 	cp iso/boot/grub/grub.cfg build/isodir/boot/grub/grub.cfg
-	tar --format=ustar --owner=0 --group=0 --numeric-owner -cf build/isodir/boot/initrd.tar -C initrd .
+	rm -rf build/initrd
+	cp -r initrd build/initrd
+	mkdir -p build/initrd/bin
+	for p in $(USER_PROGS); do cp build/user/$$p.elf build/initrd/bin/$$p; done
+	tar --format=ustar --owner=0 --group=0 --numeric-owner -cf build/isodir/boot/initrd.tar -C build/initrd .
 	grub-mkrescue -o $(ISO) build/isodir
 	@echo ">> $(ISO) pret"
 
@@ -116,4 +131,4 @@ newdisk:
 	$(MAKE) $(DISK)
 
 clean:
-	rm -rf build $(ISO) qemu.log
+	rm -rf build phoenos-*.iso PhoenOS.iso qemu.log

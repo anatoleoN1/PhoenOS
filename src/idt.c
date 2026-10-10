@@ -22,7 +22,11 @@ struct idt_ptr {
 
 #define IDT_ENTRIES   256
 #define IDT_GATE_INT  0x8E   /* présent, ring 0, interrupt gate 32 bits */
+#define IDT_GATE_USER 0xEE   /* present, ring 3 autorise : appels systeme */
 #define ISR_STUBS     48
+#define SYSCALL_VECTOR 0x80
+
+extern void isr128(void);
 
 extern u32 isr_stub_table[ISR_STUBS];
 
@@ -42,6 +46,8 @@ void idt_init(void)
 {
     for (int i = 0; i < ISR_STUBS; i++)
         idt_set_gate((u8)i, isr_stub_table[i], IDT_GATE_INT);
+
+    idt_set_gate(SYSCALL_VECTOR, (u32)isr128, IDT_GATE_USER);
 
     idt_pointer.limit = (u16)(sizeof(idt) - 1);
     idt_pointer.base  = (u32)&idt;

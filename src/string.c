@@ -73,3 +73,20 @@ int strcmp(const char *a, const char *b)
     }
     return (u8)*a - (u8)*b;
 }
+
+char *strchr(const char *s, int c)
+{
+    for (; *s; s++)
+        if (*s == (char)c)
+            return (char *)s;
+    return c == 0 ? (char *)s : NULL;
+}
+
+char *strcpy(char *dst, const char *src)
+{
+    char *d = dst;
+
+    while ((*d++ = *src++))
+        ;
+    return dst;
+}

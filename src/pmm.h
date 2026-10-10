@@ -2,6 +2,7 @@
 #define PHOENOS_PMM_H
 
 #include "types.h"
+#include "error.h"
 
 struct multiboot_info;
 
@@ -18,6 +19,12 @@ u32  pmm_alloc_contiguous(u32 count);
 
 /* Libère une frame (PANIC en cas de double libération ou d'adresse invalide). */
 void pmm_free_frame(u32 addr);
+
+/*
+ * Reserve [start, end) pour les programmes utilisateur. E_NOMEM si la plage depasse la RAM,
+ * E_BUSY si une frame y est deja prise (noyau, module GRUB...) : rien n'est alors reserve.
+ */
+err_t pmm_reserve_exact(u32 start, u32 end);
 
 u32  pmm_usable_frames(void);   /* frames signalées disponibles par le bootloader */
 u32  pmm_free_frames(void);     /* frames actuellement libres */

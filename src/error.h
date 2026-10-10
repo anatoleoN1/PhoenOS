@@ -23,7 +23,9 @@ enum {
     E_ISDIR   = -12,  /* est un dossier               */
     E_NOTEMPTY = -13, /* dossier non vide             */
     E_NAMETOOLONG = -14, /* nom ou chemin trop long   */
-    E_FBIG    = -15   /* fichier trop grand           */
+    E_FBIG    = -15,  /* fichier trop grand           */
+    E_NOEXEC  = -16,  /* pas un programme valide      */
+    E_FAULT   = -17   /* adresse interdite            */
 };
 
 static inline const char *err_str(err_t e)
@@ -45,6 +47,8 @@ static inline const char *err_str(err_t e)
     case E_NOTEMPTY: return "dossier non vide";
     case E_NAMETOOLONG: return "nom ou chemin trop long";
     case E_FBIG:    return "fichier trop grand";
+    case E_NOEXEC:  return "programme invalide";
+    case E_FAULT:   return "adresse interdite";
     default:        return "erreur inconnue";
     }
 }

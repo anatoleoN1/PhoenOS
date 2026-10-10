@@ -19,6 +19,7 @@
 #include "shell.h"
 #include "fs.h"
 #include "rtc.h"
+#include "user.h"
 #include "initrd.h"
 #include "ata.h"
 #include "persist.h"
@@ -73,6 +74,28 @@ static u32 last_sleep;
 u32  pit_ticks(void)       { return 1234; }
 u32  pit_uptime_ms(void)   { return 3725000; }              /* 1 h 2 min 5 s */
 void pit_sleep_ms(u32 ms)  { last_sleep = ms; }
+
+/* faux noyau utilisateur : « execute » un fichier commencant par FAKEELF en affichant ses arguments */
+static const u8 *fake_in; static u32 fake_in_len; static int fake_in_set;
+void user_set_stdin(const u8 *b, u32 l, int set) { fake_in = b; fake_in_len = l; fake_in_set = set; }
+err_t user_exec(const u8 *img, u32 size, const char *name, int argc, char **argv, struct user_result *res)
+{
+    if (size < 7 || memcmp(img, "FAKEELF", 7))
+        return E_NOEXEC;
+    kprintf("<%s argc=%d", name, argc);
+    for (int i = 0; i < argc; i++)
+        kprintf(" %s", argv[i]);
+    if (fake_in_set) {
+        kprintf(" in=");
+        for (u32 i = 0; i < fake_in_len; i++)
+            kprintf("%c", fake_in[i]);
+    }
+    kprintf(">\n");
+    fake_in_set = 0;
+    res->killed = 0;
+    res->exit_code = !strcmp(name, "bad") ? 3 : 0;
+    return E_OK;
+}
 
 static const char *expect;
 void test_panic(const char *fmt, ...)
@@ -145,14 +168,14 @@ static void verify(void)
     CHECK(count("  1  sleep 250") == 0 || count("  1  ") >= 1); /* history : numerotation */
     CHECK(count("gris clair") == 1 && count("blanc") == 1);     /* colors */
     CHECK(count(" 10   vert clair") == 1);                      /* %2d correct dans colors */
-    CHECK(count("PhoenOS 0.0.9") == 1);                         /* version */
+    CHECK(count("PhoenOS 0.1.0") == 1);                         /* version */
     CHECK(count("Sujets du manuel") == 1 && count(" ls  - liste\n cat  - affiche\n") == 1);   /* man seul */
     CHECK(count("ls  - liste\n  Syntaxe : ls [-l]\n  Option -l\n") == 1 && count("Syntaxe : cat [-n]") == 0);   /* man ls : uniquement sa section */
     CHECK(count("man: pas de manuel pour 'nope'") == 1);
     CHECK(count("usage : man [commande]") == 1);
     CHECK(count("    1  hello\n    2  more\n    3  hello\n    4  more\n") == 1);
     CHECK(count("usage : cat [-n] [fichier...]") == 1);
-    CHECK(count("4 dossier(s)\n") == 1 && count("tree -d") == 1);
+    CHECK(count("5 dossier(s)\n") == 1 && count("tree -d") == 1);
     CHECK(scroll_total == 12 && scroll_resets > 100);           /* +12 +12 -12 ; toute autre touche ramene en bas */
     CHECK(count("\napres-defilement\n") == 1);
     CHECK(count("FAKE DISK 9000  16 Mio") == 2);
@@ -184,7 +207,7 @@ static void verify(void)
     CHECK(count("b/  f.txt  g.txt  ") == 1);                    /* ls apres cp */
     CHECK(count("cat g.txt \n") == 1);                          /* Tab complete g<Tab> en g.txt */
     CHECK(count("00000000  68 65 6c 6c 6f") == 1 && count("... 6 octet(s) de plus") == 1);   /* hexdump */
-    CHECK(count("3 dossier(s), 3 fichier(s)") == 1);            /* tree / */
+    CHECK(count("4 dossier(s), 6 fichier(s)") == 1);            /* tree / */
     CHECK(count("Redirection : cmd") == 3);                /* help, puis cat h.txt (help redirige) */
     CHECK(count("Commandes (Tab complete") == 3);               /* help redirige + cat : sortie bien capturee */
     CHECK(count("PANIQUE") == 0);
@@ -214,6 +237,14 @@ static void verify(void)
     CHECK(count_end("Trop de tubes (maximum 4 commandes reliees).") == 1);
     CHECK(count_end("sorted.txt") >= 2);
 
+    CHECK(count_end("<hello argc=3 hello x y z>\n") == 1);
+    CHECK(count_end("<hello argc=2 hello q>\n") == 1 && count_end("<hello argc=1 hello>\n") == 1);
+    CHECK(count_end("bad : code de sortie 3") == 1 && count_end("hello : code de sortie") == 0);
+    CHECK(count_end("/bin/notelf : pas un programme PhoenOS valide") == 1);
+    CHECK(count_end("run: nosuch: introuvable") == 1 && count_end("usage : run <programme>") == 1);
+    CHECK(count_end("<hello argc=1 hello in=salut\n>\n") == 1);                  /* tube vers un programme */
+    CHECK(count_end("<hello argc=2 hello zzz>\n") == 1);                         /* redirige puis cat */
+    CHECK(count_end("run: /bin: est un dossier") == 1);
     CHECK(count_end("Redemarrage...") == 1);
     CHECK(count_end("Sauvegarde des fichiers sur le disque... ok (generation 3)") == 1);
     {                                                           /* la sauvegarde automatique est bien sur le « disque » */
@@ -255,6 +286,10 @@ int test_main(void)
         static const char man[] = "INTRO\n\n== ls  - liste\n  Syntaxe : ls [-l]\n  Option -l\n\n== cat  - affiche\n  Syntaxe : cat [-n]\n";
         struct fs_node *f;
 
+        fs_mkdir("/bin");
+        fs_create("/bin/hello", &f); fs_write(f, "FAKEELF", 7);
+        fs_create("/bin/bad", &f); fs_write(f, "FAKEELF", 7);
+        fs_create("/bin/notelf", &f); fs_write(f, "junkjunk", 8);
         fs_mkdir("/docs");
         fs_create("/docs/manuel.txt", &f);
         fs_write(f, man, sizeof man - 1);
@@ -377,6 +412,18 @@ int test_main(void)
     type("cat /nofile | wc -l\n");                               /* l'erreur s'affiche, la suite continue */
     type("ls -l / | grep sorted\n");
     type("echo 1 | echo 2 | echo 3 | echo 4 | echo 5\n");
+    /* ---- 0.1.0 : programmes utilisateur (noyau simule) ---- */
+    type("hello x \"y z\"\n");
+    type("run hello q\n");
+    type("run /bin/hello\n");
+    type("bad\n");
+    type("notelf\n");
+    type("run nosuch\n");
+    type("run\n");
+    type("echo salut | hello\n");
+    type("hello zzz > /o.txt\n");
+    type("cat /o.txt\n");
+    type("run /bin\n");
     type("reboot\n");
 #elif MODE == 1
     expect = "Panique demandee"; type("crash panic\n");

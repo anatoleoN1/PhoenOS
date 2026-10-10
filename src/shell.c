@@ -7,6 +7,7 @@
  * puis l'inscrire dans la table `commands` plus bas.
  */
 #include "rtc.h"
+#include "user.h"
 #include "shell.h"
 #include "cmdline.h"
 #include "version.h"
@@ -87,6 +88,7 @@ static err_t cmd_format(int argc, char **argv);
 static err_t cmd_save(int argc, char **argv);
 static err_t cmd_load(int argc, char **argv);
 static err_t cmd_date(int argc, char **argv);
+static err_t cmd_run(int argc, char **argv);
 static err_t cmd_head(int argc, char **argv);
 static err_t cmd_tail(int argc, char **argv);
 static err_t cmd_wc(int argc, char **argv);
@@ -111,6 +113,7 @@ static const struct command commands[] = {
     { G_SYS, "mem",      "",             "Etat de la memoire physique et du tas",          cmd_mem      },
     { G_SYS, "memtest",  "[Kio]",        "Teste le tas : ecrit et relit des motifs",       cmd_memtest  },
     { G_SYS, "date",     "[-s]",         "Date et heure (-s : secondes depuis 1970)",      cmd_date     },
+    { G_SYS, "run",      "<programme> [args]", "Lance un programme (ex. run /bin/hello ; /bin/ implicite)", cmd_run },
     { G_SYS, "sleep",    "<ms>",         "Attend un nombre de millisecondes",              cmd_sleep    },
     { G_SYS, "colors",   "",             "Affiche les 16 couleurs du mode texte",          cmd_colors   },
     { G_SYS, "dmesg",    "",             "Rejoue tout le journal du noyau",                cmd_dmesg    },
@@ -1382,12 +1385,103 @@ static void capture_sink(char c, void *ctx)
     cp->buf[cp->len++] = c;
 }
 
+/* Lance le programme utilisateur `path` (fichier ELF). argv[0] = nom affiche. */
+static err_t exec_program(const char *path, int argc, char **argv)
+{
+    struct fs_node *n;
+    struct user_result res;
+    err_t e = fs_lookup(path, &n);
+
+    if (e == E_OK && n->type != FS_FILE)
+        e = E_ISDIR;
+    if (e != E_OK)
+        return e;
+    user_set_stdin(stdin_buf, stdin_len, has_stdin);
+    e = user_exec(n->data, n->size, argv[0], argc, argv, &res);
+    if (e == E_NOSYS) {
+        fail_msg("Programmes utilisateur indisponibles (zone memoire non reservee au demarrage).");
+        return E_REPORTED;
+    }
+    if (e == E_NOEXEC) {
+        color(VGA_LIGHT_RED);
+        keprintf("%s : pas un programme PhoenOS valide (ELF 32 bits statique attendu)\n", path);
+        color(VGA_LIGHT_GREY);
+        return E_REPORTED;
+    }
+    if (e == E_2BIG) {
+        fail_msg("Arguments trop longs pour un programme (16 mots, 4 Kio).");
+        return E_REPORTED;
+    }
+    if (e != E_OK)
+        return e;
+    if (!res.killed && res.exit_code != 0) {
+        color(VGA_YELLOW);
+        keprintf("%s : code de sortie %d\n", argv[0], res.exit_code);
+        color(VGA_LIGHT_GREY);
+    }
+    return E_OK;
+}
+
+static const char *base_name(const char *path)
+{
+    const char *b = path;
+
+    for (const char *c = path; *c; c++)
+        if (*c == '/')
+            b = c + 1;
+    return b;
+}
+
+static err_t cmd_run(int argc, char **argv)
+{
+    char *pargv[MAX_ARGS + 1];
+    err_t e;
+
+    if (argc < 2)
+        return usage("run <programme> [arguments...]");
+    for (int i = 1; i < argc; i++)
+        pargv[i - 1] = argv[i];
+    pargv[0] = (char *)base_name(argv[1]);
+    if (!pargv[0][0])
+        return fail_path("run", argv[1], E_ISDIR);
+    if (argv[1][0] != '/' && !strchr(argv[1], '/')) {   /* nom seul : cherche dans /bin */
+        char path[64];
+
+        if (strlen(argv[1]) > 40)
+            return fail_path("run", argv[1], E_NAMETOOLONG);
+        strcpy(path, "/bin/");
+        strcpy(path + 5, argv[1]);
+        e = exec_program(path, argc - 1, pargv);
+    } else {
+        e = exec_program(argv[1], argc - 1, pargv);
+    }
+    if (e == E_NOENT || e == E_ISDIR)
+        return fail_path("run", argv[1], e);
+    return e;
+}
+
 static err_t run_command(int argc, char **argv)
 {
     for (int i = 0; i < COMMAND_COUNT; i++) {
         if (strcmp(commands[i].name, argv[0]) == 0) {
             err_t e = commands[i].fn(argc, argv);
 
+            if (e != E_OK && e != E_REPORTED) {
+                color(VGA_LIGHT_RED);
+                keprintf("%s : echec (%s)\n", argv[0], err_str(e));
+                color(VGA_LIGHT_GREY);
+            }
+            return e;
+        }
+    }
+    if (strlen(argv[0]) <= 40 && !strchr(argv[0], '/')) {      /* programme dans /bin ? */
+        char path[64];
+        err_t e;
+
+        strcpy(path, "/bin/");
+        strcpy(path + 5, argv[0]);
+        e = exec_program(path, argc, argv);
+        if (e != E_NOENT && e != E_ISDIR) {
             if (e != E_OK && e != E_REPORTED) {
                 color(VGA_LIGHT_RED);
                 keprintf("%s : echec (%s)\n", argv[0], err_str(e));

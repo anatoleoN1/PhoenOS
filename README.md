@@ -1,7 +1,7 @@
 # PhoenOS
 
 Système d'exploitation x86 écrit en C : léger, efficace, gratuit.
-Version actuelle : **0.0.9** (horloge et dates des fichiers, tubes `|`, outils texte `head tail wc grep sort`).
+Version actuelle : **0.1.0** (programmes utilisateur en ring 3 : appels système, chargeur ELF, dossier `user/`).
 Le détail de chaque commande et de ses options est dans **[MANUEL.md](MANUEL.md)** (et dans PhoenOS : `man`).
 
 ## Prérequis (Debian / Ubuntu, machine x86_64 ou WSL sous Windows)
@@ -18,7 +18,7 @@ sudo apt install build-essential gcc-multilib grub-pc-bin grub-common xorriso mt
 ```bash
 make              # compile le noyau -> build/phoenos.bin
 make check        # vérifie que le noyau est un binaire Multiboot valide
-make iso          # génère PhoenOS.iso (bootable)
+make iso          # génère phoenos-<version>.iso (ex. phoenos-0.1.0.iso), bootable
 make run          # lance l'ISO dans QEMU (le journal s'affiche aussi dans le terminal)
 make serial       # idem sans fenêtre graphique (Windows 10 + WSL, SSH...)
 make debug        # comme run + journal des exceptions CPU dans qemu.log
@@ -27,10 +27,10 @@ make test         # tests automatiques (15 programmes de test), sans démarrer l
 make clean
 ```
 
-Pour tester sur une vraie machine : écrire `PhoenOS.iso` sur une clé USB
-(`sudo dd if=PhoenOS.iso of=/dev/sdX bs=4M status=progress`, en vérifiant bien `sdX`).
+Pour tester sur une vraie machine : écrire `phoenos-0.1.0.iso` sur une clé USB
+(`sudo dd if=phoenos-0.1.0.iso of=/dev/sdX bs=4M status=progress`, en vérifiant bien `sdX`).
 
-## Ce qu'on doit voir au démarrage (v0.0.9)
+## Ce qu'on doit voir au démarrage (v0.1.0)
 
 Des lignes `[ OK ]` pour : VGA + port série, Multiboot, GDT, IDT/PIC/timer/clavier,
 exceptions (point d'arrêt traité), **mémoire physique, tas du noyau et leurs auto-tests**,
@@ -74,7 +74,21 @@ Limites connues : un débordement de pile est détecté après coup (canari test
 timer) mais peut provoquer une triple faute avant ; la protection complète demande un TSS dédié
 pour la double faute (prévu plus tard).
 
-## Horloge, tubes et outils texte (nouveau en 0.0.9)
+## Programmes utilisateur (nouveau en 0.1.0)
+
+PhoenOS lance maintenant de vrais programmes, en **mode utilisateur (ring 3)**, séparés du noyau :
+- `ls /bin` liste les programmes ; taper `hello a b`, `primes 100`, `saisie`, `compte /etc/motd`, `heure`, `faute gp`.
+  `faute gp|div|ud|io` provoque une erreur dans le programme : le noyau l'arrête, affiche où, et vous revenez au shell.
+- Ils fonctionnent avec les tubes et redirections : `primes 50 > p.txt`, `echo Zoe | saisie`.
+- Écrire un programme : créer `user/nom.c` (voir `user/hello.c` et `user/phoenos.h`), puis `make iso` ; il apparaît dans `/bin/nom`.
+- Technique : TSS + porte `int 0x80` (appels système, numéros de Linux pour exit/read/write/open/close/time/getpid),
+  chargeur ELF32 défensif (`src/elf.c`), zone de 4 Mio à 8 Mio réservée avant le tas, instructions privilégiées/ports/fautes
+  interceptés (`src/user.c`, `src/syscall.c`, `src/user_enter.S`).
+- **Limite honnête** : pas encore de pagination, donc un programme n'est pas isolé de la mémoire du noyau (il ne peut pas
+  planter le noyau par une faute, mais il pourrait l'écraser volontairement). La pagination est l'étape suivante.
+- Le fichier ISO s'appelle maintenant `phoenos-<version>.iso`.
+
+## Horloge, tubes et outils texte (0.0.9)
 
 - `date` lit l'horloge de la machine (puce CMOS) ; `date -s` donne les secondes depuis 1970. `make run` règle QEMU sur
   l'heure de votre ordinateur. Pas de fuseaux horaires : c'est l'heure locale de la machine.
@@ -223,6 +237,7 @@ Pas encore de pagination : le noyau accède directement à la mémoire physique 
 | `tests/`             | Tests automatiques (`make test`)                        |
 | `src/io.h`           | `inb`/`outb`, `cli`/`sti`/`hlt`, sections critiques     |
 | `linker.ld`          | Placement du noyau en mémoire (1 Mio)                   |
+| `user/`              | Programmes utilisateur (un .c = un programme de /bin)    |
 | `iso/boot/grub/`     | Configuration GRUB de l'ISO                             |
 | `MANUEL.md`          | Manuel des commandes (copie de `initrd/docs/manuel.txt`) |
 | `initrd/`            | Fichiers présents dans PhoenOS dès le démarrage         |
@@ -251,6 +266,7 @@ Chaque étape produit une ISO fonctionnelle.
 6. [x] Mini-shell, historique, complétion, tests automatiques
 7. [x] Système de fichiers en RAM + initrd (0.0.6), disque ATA et sauvegarde (0.0.8)
 8. [x] Horloge, dates, tubes et outils texte (0.0.9)
-9. [ ] Appels système et programmes utilisateur
-10. [ ] Mode graphique (framebuffer) et interface soignée
-11. [ ] Passage en x86_64
+9. [x] Appels système, ELF et programmes utilisateur en ring 3 (0.1.0)
+10. [ ] Pagination (isolation mémoire des programmes), plusieurs programmes
+11. [ ] Mode graphique (framebuffer) et interface soignée
+12. [ ] Passage en x86_64

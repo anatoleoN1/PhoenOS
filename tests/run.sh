@@ -48,6 +48,46 @@ run erreur-frame-reservee 100 -DMODE=6 test_mem.c pmm.c kheap.c string.c
 run shell-cmdline       0   test_cmdline.c cmdline.c string.c
 run clavier-azerty      0   test_keyboard.c keyboard.c serial.c string.c
 run horloge 0 test_rtc.c rtc.c string.c
+
+# Programmes utilisateur : compiles comme pour l'ISO (user/*.c, charges a 4 Mio).
+# Les numeros d'appels systeme sont ceux de Linux : on les EXECUTE ici pour de vrai, en 32 bits.
+mkdir -p "$B/user"
+UCF="-m32 -std=gnu11 -O2 -Wall -Wextra -Werror -ffreestanding -fno-stack-protector -fno-pic -fno-pie -fno-builtin -fno-omit-frame-pointer -mno-sse -mno-mmx -nostdlib -static"
+printf '== programmes-utilisateur\n'
+UFAIL=0
+for f in "$ROOT"/user/*.c; do
+    n=$(basename "$f" .c); [ "$n" = crt0 ] && continue
+    if ! gcc $UCF -T "$ROOT/user/user.ld" -Wl,--build-id=none -I"$ROOT/user" "$f" "$ROOT/user/crt0.c" -o "$B/user/$n" 2> "$B/user/$n.err"; then
+        echo "  ECHEC de compilation : $n"; cat "$B/user/$n.err"; UFAIL=1
+    fi
+done
+echo "bonjour
+deux" > "$B/user/data.txt"
+ucheck() { # description, attendu (sous-chaine), sortie
+    if printf '%s' "$3" | grep -qF -- "$2"; then :; else echo "  ECHEC ($1) : attendu '$2', obtenu : $3"; UFAIL=1; fi
+}
+U="$B/user"
+ucheck "hello arguments" "[2] b c" "$("$U/hello" a "b c")"
+ucheck "hello argc" "arguments : 3" "$("$U/hello" a "b c")"
+ucheck "primes 30" "2 3 5 7 11 13 17 19 23 29" "$("$U/primes" 30)"
+ucheck "primes compte" "10 nombre(s) premier(s)" "$("$U/primes" 30)"
+ucheck "primes 1000" "168 nombre(s) premier(s)" "$("$U/primes" 1000)"
+ucheck "primes borne" "au plus 100000" "$("$U/primes" 999999 2>&1)"
+ucheck "saisie" "Bonjour, Anatole !" "$(printf 'Anatole\n' | "$U/saisie")"
+ucheck "saisie vide" "rien recu" "$("$U/saisie" < /dev/null)"
+ucheck "compte" "2 ligne(s), 13 octet(s)" "$("$U/compte" "$B/user/data.txt")"
+ucheck "compte absent" "impossible d'ouvrir" "$("$U/compte" /nofile 2>&1)"
+ucheck "heure" "time()" "$("$U/heure")"
+"$U/faute" gp >/dev/null 2>&1;  [ $? -eq 139 ] || { echo "  ECHEC (faute gp : arret attendu par instruction privilegiee)"; UFAIL=1; }
+"$U/faute" div >/dev/null 2>&1; [ $? -eq 136 ] || { echo "  ECHEC (faute div)"; UFAIL=1; }
+"$U/faute" ud >/dev/null 2>&1;  [ $? -eq 132 ] || { echo "  ECHEC (faute ud)"; UFAIL=1; }
+"$U/faute" io >/dev/null 2>&1;  [ $? -eq 139 ] || { echo "  ECHEC (faute io)"; UFAIL=1; }
+"$U/primes" 999999 >/dev/null 2>&1; [ $? -eq 1 ] || { echo "  ECHEC (code de sortie de primes)"; UFAIL=1; }
+if [ $UFAIL -eq 0 ]; then echo "  6 programmes compiles et executes (arguments, entree, fichiers, fautes) => OK"; else echo "  => ECHEC"; FAILED=1; fi
+
+# Les ELF reels, pour le chargeur
+run elf 0 test_elf.c elf.c string.c
+run appels-systeme 0 test_syscall.c syscall.c fs.c kprintf.c pmm.c kheap.c string.c rtc.c
 run ecran-defilement 0 -DVGA_TEST_MEMORY=test_vga test_vga.c vga.c string.c
 run kprintf             0   test_kprintf.c kprintf.c string.c
 run fichiers 0 test_fs.c fs.c pmm.c kheap.c string.c
@@ -82,7 +122,7 @@ for c in $cmds; do
     grep -q "^== $c " "$ROOT/initrd/docs/manuel.txt" || { echo "  commande sans page de manuel : $c"; FAILED=1; }
 done
 for c in $(sed -n 's/^== \([a-z]*\) .*/\1/p' "$ROOT/initrd/docs/manuel.txt"); do
-    case " $cmds general fichiers stockage " in *" $c "*) ;; *) echo "  page de manuel sans commande : $c"; FAILED=1;; esac
+    case " $cmds general fichiers stockage programmes " in *" $c "*) ;; *) echo "  page de manuel sans commande : $c"; FAILED=1;; esac
 done
 echo "  manuel verifie : $(echo $cmds | wc -w) commandes documentees"
 

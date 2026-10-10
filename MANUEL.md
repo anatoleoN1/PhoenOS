@@ -1,4 +1,4 @@
-# Manuel de PhoenOS 0.0.9
+# Manuel de PhoenOS 0.1.0
 
 > Généré à partir de `initrd/docs/manuel.txt` (lisible dans PhoenOS avec `man`).
 
@@ -18,6 +18,7 @@ affiche la ligne "usage". Pas d'options longues (--exemple).
 - [`general`](#general) — ligne de commande, touches, redirection
 - [`fichiers`](#fichiers) — le systeme de fichiers en RAM
 - [`stockage`](#stockage) — disque et sauvegarde
+- [`programmes`](#programmes) — programmes utilisateur (mode protege, ring 3)
 - [`help`](#help) — rappel rapide d'une commande
 - [`man`](#man) — ce manuel
 - [`clear`](#clear) — efface l'ecran
@@ -26,6 +27,7 @@ affiche la ligne "usage". Pas d'options longues (--exemple).
 - [`mem`](#mem) — etat de la memoire
 - [`memtest`](#memtest) — teste le tas
 - [`date`](#date) — date et heure de la machine
+- [`run`](#run) — lance un programme utilisateur
 - [`sleep`](#sleep) — attend
 - [`colors`](#colors) — les 16 couleurs du mode texte
 - [`dmesg`](#dmesg) — journal du noyau
@@ -135,6 +137,39 @@ Differences avec Unix : pas de droits ni de proprietaires (les dates existent, v
   pas de partitions (le disque entier est reserve a PhoenOS).
 ```
 
+## programmes
+
+*programmes utilisateur (mode protege, ring 3)*
+
+```
+  Depuis la 0.1.0, PhoenOS lance de vrais programmes, separes du noyau. Ce sont des fichiers
+  ELF 32 bits statiques (dossier user/ du projet, compiles par "make iso") places dans /bin.
+  Taper le nom d'un programme le lance : hello a b    primes 100    ls /bin
+  "run <chemin> [args]" lance un programme situe ailleurs. Une commande integree (ls, cat...)
+  a toujours priorite sur un programme de meme nom.
+  Programmes fournis :
+    hello    affiche ses arguments et son numero de processus
+    primes   nombres premiers jusqu'a N (primes 100)
+    saisie   demande un nom (clavier ou tube : echo Zoe | saisie) et dit bonjour
+    compte   lignes et octets de fichiers (compte /etc/motd)
+    heure    heure machine (secondes depuis 1970), duree depuis le demarrage, pause
+    faute    provoque une erreur (faute gp | div | ud | io) : le noyau arrete le programme
+  Ce que le noyau garantit : un programme n'a le droit ni de couper les interruptions, ni
+  d'acceder aux ports, ni d'executer une instruction privilegiee ; en cas de faute il est
+  arrete avec un message (adresse, exception) et vous revenez au shell. Ctrl+C arrete un
+  programme qui attend une saisie. Les programmes marchent dans les tubes et les redirections :
+  primes 50 > p.txt    echo Zoe | saisie.
+  Limites actuelles : un seul programme a la fois ; 4 Mio de memoire (adresses 4 Mio a 8 Mio) ;
+  pas encore de pagination, donc le programme n'est PAS isole de la memoire du noyau (un
+  programme malveillant pourrait l'ecraser) : n'executez que vos propres programmes.
+  Appels systeme (int 0x80 : numero dans eax, arguments dans ebx, ecx, edx, resultat dans eax ;
+  negatif = erreur) : exit 1, read 3, write 4, open 5 (lecture seule), close 6, time 13,
+  getpid 20, sleep_ms 200, uptime_ms 201. Les sept premiers ont les numeros de Linux i386.
+  Ecrire un programme : user/phoenos.h (mini-bibliotheque), user/hello.c (exemple) ; tout
+  fichier user/nom.c devient /bin/nom. Code de sortie : main renvoie un entier (0 = succes) ;
+  un code non nul est signale par le shell.
+```
+
 ## help
 
 *rappel rapide d'une commande*
@@ -212,6 +247,18 @@ Differences avec Unix : pas de droits ni de proprietaires (les dates existent, v
   sous QEMU, "make run" utilise l'heure de votre ordinateur. On ne peut pas la regler.
   Si l'horloge est illisible, un message l'indique et les fichiers n'ont pas de date.
   Exemple : date  ->  lundi 5 octobre 2026, 07:31:12
+```
+
+## run
+
+*lance un programme utilisateur*
+
+```
+  Syntaxe : run <programme> [arguments...]
+  Lance le fichier ELF indique (nom seul : cherche dans /bin). Equivalent de taper le nom d'un
+  programme de /bin, mais fonctionne aussi pour un chemin quelconque : run /home/prog a b.
+  Message d'erreur "pas un programme PhoenOS valide" si le fichier n'est pas un ELF 32 bits statique.
+  Voir "man programmes".  Exemple : run hello monde
 ```
 
 ## sleep

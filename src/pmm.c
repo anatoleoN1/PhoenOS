@@ -185,5 +185,23 @@ void pmm_free_frame(u32 addr)
     free_count++;
 }
 
+err_t pmm_reserve_exact(u32 start, u32 end)
+{
+    u32 first = start >> 12;
+    u32 last  = (end + PMM_FRAME_SIZE - 1) >> 12;
+
+    if (end <= start)
+        return E_INVAL;
+    if (last > frame_count)
+        return E_NOMEM;
+    for (u32 f = first; f < last; f++)
+        if (bit_test(f))
+            return E_BUSY;
+    for (u32 f = first; f < last; f++)
+        bit_set(f);
+    free_count -= last - first;
+    return E_OK;
+}
+
 u32 pmm_usable_frames(void) { return usable_count; }
 u32 pmm_free_frames(void)   { return free_count; }

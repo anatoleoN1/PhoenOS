@@ -22,6 +22,7 @@
 #include "shell.h"
 #include "fs.h"
 #include "rtc.h"
+#include "user.h"
 #include "initrd.h"
 #include "ata.h"
 #include "persist.h"
@@ -245,6 +246,12 @@ void kernel_main(u32 magic, const struct multiboot_info *mbi)
             pmm_free_frames() * 4, pmm_free_frames());
     status(1, "Gestionnaire de memoire physique initialise");
 
+    {
+        err_t ue = user_init();         /* avant le tas : reserve la zone des programmes (4 Mio-8 Mio) */
+
+        if (ue != E_OK)
+            klog(LOG_WARN, "programmes utilisateur indisponibles (%s)", err_str(ue));
+    }
     kheap_init();
     kprintf("       Tas du noyau : %u Kio\n", kheap_size() / 1024);
     status(1, "Tas du noyau initialise (kmalloc / kfree)");

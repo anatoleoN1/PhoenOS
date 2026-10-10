@@ -1,0 +1,227 @@
+/*
+ * PhoenOS - syscall.c
+ * Appels systeme (int 0x80). Convention : numero dans EAX, arguments dans EBX, ECX, EDX,
+ * resultat dans EAX (negatif = code d'erreur E_*). Les numeros communs sont ceux de Linux i386.
+ * Tout pointeur recu d'un programme est verifie : il doit rester dans la zone du programme.
+ */
+#include "user.h"
+#include "fs.h"
+#include "kprintf.h"
+#include "keyboard.h"
+#include "pit.h"
+#include "rtc.h"
+#include "string.h"
+
+#define WRITE_MAX    (1u << 20)         /* octets ecrits par appel au plus */
+#define SLEEP_MAX_MS 60000u
+#define PATH_MAX_LEN 256
+#define CTRL_C       3
+#define CTRL_D       4
+
+static u32 next_pid = 1;
+
+void user_proc_reset(struct uproc *p, const char *name)
+{
+    memset(p, 0, sizeof(*p));
+    p->win_lo = USER_BASE;
+    p->win_hi = USER_END;
+    p->pid = next_pid++;
+    for (usize i = 0; i + 1 < sizeof(p->name) && name[i]; i++)
+        p->name[i] = name[i];
+}
+
+static int user_range(const struct uproc *p, u32 addr, u32 len)
+{
+    u32 end = addr + len;
+
+    if (addr < p->win_lo || addr > p->win_hi || end < addr)
+        return 0;
+    return end <= p->win_hi;
+}
+
+/* Copie une chaine terminee par 0 depuis le programme ; -1 si elle sort de la zone ou est trop longue. */
+static int user_string(const struct uproc *p, u32 addr, char *dst, u32 max)
+{
+    for (u32 i = 0; i < max; i++) {
+        if (!user_range(p, addr + i, 1))
+            return -1;
+        dst[i] = *(const char *)(addr + i);
+        if (!dst[i])
+            return 0;
+    }
+    return -1;
+}
+
+static void out_bytes(const u8 *d, u32 n, int to_error)
+{
+    for (u32 i = 0; i < n; i++) {
+        if (to_error)
+            keprintf("%c", d[i]);
+        else
+            kprintf("%c", d[i]);
+    }
+}
+
+/* Lit une ligne au clavier (avec echo et retour arriere). 0 : Ctrl+D sur ligne vide ; -1 : Ctrl+C. */
+static int read_console_line(struct uproc *p)
+{
+    p->line_len = p->line_pos = 0;
+    for (;;) {
+        int c = keyboard_getc();
+
+        if (c == CTRL_C) {
+            kprintf("^C\n");
+            return -1;
+        }
+        if (c == CTRL_D) {
+            if (p->line_len == 0)
+                return 0;
+            continue;
+        }
+        if (c == '\n' || c == '\r') {
+            kprintf("\n");
+            p->line[p->line_len++] = '\n';
+            return 1;
+        }
+        if (c == '\b') {
+            if (p->line_len) {
+                p->line_len--;
+                kprintf("\b");
+            }
+            continue;
+        }
+        if (c >= 32 && c < 256 && p->line_len < sizeof(p->line) - 1) {
+            p->line[p->line_len++] = (char)c;
+            kprintf("%c", (char)c);
+        }
+    }
+}
+
+static i32 sys_read(struct uproc *p, u32 fd, u32 buf, u32 n)
+{
+    u32 avail, take;
+
+    if (!user_range(p, buf, n))
+        return E_FAULT;
+    if (n == 0)
+        return 0;
+
+    if (fd == 0) {
+        if (p->in_set) {
+            avail = p->in_len - p->in_pos;
+            take = n < avail ? n : avail;
+            memcpy((void *)buf, p->in + p->in_pos, take);
+            p->in_pos += take;
+            return (i32)take;
+        }
+        if (p->line_pos >= p->line_len) {
+            int r = read_console_line(p);
+
+            if (r < 0) {
+                p->exit_code = 130;
+                p->exit_requested = 1;
+                return 0;
+            }
+            if (r == 0)
+                return 0;                                       /* fin de fichier */
+        }
+        avail = p->line_len - p->line_pos;
+        take = n < avail ? n : avail;
+        memcpy((void *)buf, p->line + p->line_pos, take);
+        p->line_pos += take;
+        return (i32)take;
+    }
+    if (fd >= USER_FIRST_FD && fd < USER_FIRST_FD + USER_MAX_FDS && p->fd[fd - USER_FIRST_FD].node) {
+        struct user_fd *f = &p->fd[fd - USER_FIRST_FD];
+
+        avail = f->pos < f->node->size ? f->node->size - f->pos : 0;
+        take = n < avail ? n : avail;
+        memcpy((void *)buf, f->node->data + f->pos, take);
+        f->pos += take;
+        return (i32)take;
+    }
+    return E_INVAL;
+}
+
+static i32 sys_write(struct uproc *p, u32 fd, u32 buf, u32 n)
+{
+    if (fd != 1 && fd != 2)
+        return E_INVAL;                                         /* pas d'ecriture de fichier pour l'instant */
+    if (n > WRITE_MAX)
+        n = WRITE_MAX;
+    if (!user_range(p, buf, n))
+        return E_FAULT;
+    out_bytes((const u8 *)buf, n, fd == 2);
+    return (i32)n;
+}
+
+static i32 sys_open(struct uproc *p, u32 path_addr, u32 flags)
+{
+    char path[PATH_MAX_LEN];
+    struct fs_node *node;
+    err_t e;
+
+    if (flags != 0)
+        return E_INVAL;                                         /* lecture seule */
+    if (user_string(p, path_addr, path, sizeof path) != 0)
+        return E_FAULT;
+    e = fs_lookup(path, &node);
+    if (e != E_OK)
+        return e;
+    if (node->type != FS_FILE)
+        return E_ISDIR;
+    for (int i = 0; i < USER_MAX_FDS; i++) {
+        if (!p->fd[i].node) {
+            p->fd[i].node = node;
+            p->fd[i].pos = 0;
+            return USER_FIRST_FD + i;
+        }
+    }
+    return E_NOMEM;
+}
+
+static i32 sys_close(struct uproc *p, u32 fd)
+{
+    if (fd >= USER_FIRST_FD && fd < USER_FIRST_FD + USER_MAX_FDS && p->fd[fd - USER_FIRST_FD].node) {
+        p->fd[fd - USER_FIRST_FD].node = NULL;
+        return 0;
+    }
+    return E_INVAL;
+}
+
+i32 syscall_dispatch(struct uproc *p, u32 nr, u32 a, u32 b, u32 c)
+{
+    switch (nr) {
+    case SYS_EXIT:
+        p->exit_code = (int)(a & 0xFF);
+        p->exit_requested = 1;
+        return 0;
+    case SYS_READ:
+        return sys_read(p, a, b, c);
+    case SYS_WRITE:
+        return sys_write(p, a, b, c);
+    case SYS_OPEN:
+        return sys_open(p, a, b);
+    case SYS_CLOSE:
+        return sys_close(p, a);
+    case SYS_TIME: {
+        u32 t = rtc_now_unix();
+
+        if (a) {
+            if (!user_range(p, a, 4))
+                return E_FAULT;
+            memcpy((void *)a, &t, 4);
+        }
+        return (i32)t;
+    }
+    case SYS_GETPID:
+        return (i32)p->pid;
+    case SYS_SLEEP_MS:
+        pit_sleep_ms(a > SLEEP_MAX_MS ? SLEEP_MAX_MS : a);
+        return 0;
+    case SYS_UPTIME:
+        return (i32)pit_uptime_ms();
+    default:
+        return E_NOSYS;
+    }
+}
