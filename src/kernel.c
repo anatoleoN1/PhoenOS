@@ -18,8 +18,9 @@
 #include "pmm.h"
 #include "kheap.h"
 #include "string.h"
+#include "version.h"
+#include "shell.h"
 
-#define PHOENOS_VERSION            "0.0.4"
 #define MULTIBOOT_BOOTLOADER_MAGIC 0x2BADB002
 
 static void banner(void)
@@ -152,7 +153,7 @@ void kernel_main(u32 magic, const struct multiboot_info *mbi)
     stack_guard_init();
     banner();
 
-    kprintf("PhoenOS %s - noyau x86 (32 bits)\n\n", PHOENOS_VERSION);
+    kprintf("%s %s - noyau x86 (32 bits)\n\n", PHOENOS_NAME, PHOENOS_VERSION);
 
     status(1, "Pilote VGA texte et port serie COM1 initialises");
 
@@ -191,14 +192,13 @@ void kernel_main(u32 magic, const struct multiboot_info *mbi)
     status(selftest_pmm(),  "Auto-test memoire physique");
     status(selftest_heap(), "Auto-test du tas (decoupe et fusion des blocs)");
 
-    /* --- Timer --- */
-    kprintf("       Timer :");
-    for (u32 s = 1; s <= 3; s++) {
-        pit_sleep_ms(1000);
-        kprintf(" %us", s);
+    /* --- Timer : 300 ms d'attente doivent faire avancer le compteur d'environ 30 ticks --- */
+    {
+        u32 t0 = pit_ticks();
+
+        pit_sleep_ms(300);
+        status(pit_ticks() - t0 >= 25, "Timer PIT fonctionnel (100 Hz)");
     }
-    kprintf("\n");
-    status(pit_ticks() >= 300, "Timer PIT fonctionnel");
 
     kheap_get_stats(&hs);
     klog(LOG_INFO, "Demarrage termine en %u ms, %u Kio libres dans le tas",
@@ -206,13 +206,11 @@ void kernel_main(u32 magic, const struct multiboot_info *mbi)
 
     run_selected_test();
 
-    kprintf("\nProchaine etape : mini-shell.\n");
-    kprintf("Clavier AZERTY pret, tapez du texte :\n> ");
+    kprintf("\nTapez ");
+    vga_set_color(VGA_LIGHT_CYAN, VGA_BLACK);
+    kprintf("help");
+    vga_set_color(VGA_LIGHT_GREY, VGA_BLACK);
+    kprintf(" pour la liste des commandes.\n\n");
 
-    for (;;) {
-        u8 c = keyboard_getc();
-        kprintf("%c", c);
-        if (c == '\n')
-            kprintf("> ");
-    }
+    shell_run();
 }

@@ -8,13 +8,22 @@
  * Clavier PS/2 (IRQ 1), disposition AZERTY français, AltGr géré.
  * Les touches mortes (^ et trema) ne sont pas encore gérées.
  * Les caractères accentués sont renvoyés en CP437 (jeu de l'affichage VGA).
+ * Les touches spéciales (flèches...) sont renvoyées avec un code >= 0x100.
  */
+#define KEY_UP    0x100
+#define KEY_DOWN  0x101
+#define KEY_LEFT  0x102
+#define KEY_RIGHT 0x103
+#define KEY_HOME  0x104
+#define KEY_END   0x105
+#define KEY_DEL   0x106
+
 err_t keyboard_init(void);
 
-/* Renvoie un caractère, ou -1 si aucune touche n'est en attente. */
+/* Renvoie un caractère (0-255) ou une touche spéciale (KEY_*), ou -1 si rien n'est en attente. */
 int keyboard_try_getc(void);
 
-/* Attend (en veille) puis renvoie le prochain caractère. */
-u8 keyboard_getc(void);
+/* Attend (en veille) puis renvoie le prochain caractère ou la prochaine touche spéciale. */
+int keyboard_getc(void);
 
 #endif

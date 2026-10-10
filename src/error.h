@@ -15,7 +15,9 @@ enum {
     E_IO      = -4,   /* erreur d'entrée/sortie       */
     E_BUSY    = -5,   /* ressource déjà utilisée      */
     E_TIMEOUT = -6,   /* délai dépassé                */
-    E_NOSYS   = -7    /* non implémenté               */
+    E_NOSYS   = -7,   /* non implémenté               */
+    E_2BIG    = -8,   /* trop d'arguments             */
+    E_REPORTED = -9   /* erreur déjà expliquée à l'écran */
 };
 
 static inline const char *err_str(err_t e)
@@ -29,6 +31,8 @@ static inline const char *err_str(err_t e)
     case E_BUSY:    return "ressource occupee";
     case E_TIMEOUT: return "delai depasse";
     case E_NOSYS:   return "non implemente";
+    case E_2BIG:    return "trop d'arguments";
+    case E_REPORTED: return "deja signale";
     default:        return "erreur inconnue";
     }
 }

@@ -1,7 +1,7 @@
 # PhoenOS
 
 Système d'exploitation x86 écrit en C : léger, efficace, gratuit.
-Version actuelle : **0.0.4** (écran d'erreur orange/violet, gestion de la mémoire : `kmalloc`/`kfree`).
+Version actuelle : **0.0.5** (mini-shell interactif, historique, tests automatiques).
 
 ## Prérequis (Debian / Ubuntu, machine x86_64 ou WSL sous Windows)
 
@@ -22,19 +22,19 @@ make run          # lance l'ISO dans QEMU (le journal s'affiche aussi dans le te
 make serial       # idem sans fenêtre graphique (Windows 10 + WSL, SSH...)
 make debug        # comme run + journal des exceptions CPU dans qemu.log
 make run PANIC_THEME=violet   # écran d'erreur violet au lieu d'orange
+make test         # tests automatiques (15 programmes de test), sans démarrer l'OS
 make clean
 ```
 
 Pour tester sur une vraie machine : écrire `PhoenOS.iso` sur une clé USB
 (`sudo dd if=PhoenOS.iso of=/dev/sdX bs=4M status=progress`, en vérifiant bien `sdX`).
 
-## Ce qu'on doit voir au démarrage (v0.0.4)
+## Ce qu'on doit voir au démarrage (v0.0.5)
 
 Des lignes `[ OK ]` pour : VGA + port série, Multiboot, GDT, IDT/PIC/timer/clavier,
 exceptions (point d'arrêt traité), **mémoire physique, tas du noyau et leurs auto-tests**,
-puis un compteur « 1s 2s 3s », « Timer PIT fonctionnel »,
-une ligne de journal `[0.xxx INFO ] Demarrage termine...` et une invite `>` où l'on peut taper
-au clavier (AZERTY, AltGr pour `~ # { [ | \ @ ] }`).
+« Timer PIT fonctionnel », une ligne de journal `[0.xxx INFO ] Demarrage termine...`
+et l'invite `phoenos>` du shell (clavier AZERTY, AltGr pour `~ # { [ | \ @ ] }`).
 
 ## Comprendre un plantage
 
@@ -73,7 +73,43 @@ Limites connues : un débordement de pile est détecté après coup (canari test
 timer) mais peut provoquer une triple faute avant ; la protection complète demande un TSS dédié
 pour la double faute (prévu plus tard).
 
-## Mémoire (nouveau en 0.0.4)
+## Le shell (nouveau en 0.0.5)
+
+Tapez `help` pour la liste. Commandes : `help`, `clear`, `version`, `uptime`, `mem`, `memtest`,
+`echo`, `sleep`, `colors`, `dmesg`, `history`, `crash`, `reboot`, `shutdown`, `halt`.
+
+| Touche              | Effet                                                            |
+|---------------------|------------------------------------------------------------------|
+| Flèches haut / bas  | Parcourent l'historique (16 commandes) ; la saisie en cours est conservée |
+| Tab                 | Complète le nom d'une commande ; liste les choix s'il y en a plusieurs |
+| Ctrl+C / Ctrl+U     | Abandonne la ligne / l'efface                                    |
+| Ctrl+L              | Efface l'écran en gardant la ligne                               |
+| Retour arrière      | Efface le dernier caractère                                      |
+
+`echo "a   b" c` : les guillemets doubles regroupent plusieurs mots en un seul argument.
+`crash div0|gp|ud|panic|assert|doublefree|heap` provoque une erreur pour voir l'écran d'erreur.
+`dmesg` rejoue le journal du noyau depuis le démarrage (les 8 derniers Kio).
+Limite actuelle : l'édition se fait en fin de ligne (pas de déplacement avec ← →).
+
+**Ajouter une commande** dans `src/shell.c` : écrire `static err_t cmd_xxx(int argc, char **argv)`,
+ajouter son prototype puis une ligne dans le tableau `commands`. Renvoyer `E_OK` si tout va bien,
+un code d'erreur sinon (le shell affiche la cause), ou `E_REPORTED` si le message a déjà été affiché.
+
+Sous QEMU lancé par `make run`, `reboot` quitte QEMU (option `-no-reboot` voulue : elle évite les
+redémarrages en boucle lors d'un plantage) ; `shutdown` ferme la machine virtuelle proprement.
+
+## Tests automatiques
+
+`make test` compile des petits programmes 32 bits qui exécutent le **vrai code du noyau**
+(mémoire, shell, clavier AZERTY, `kprintf`) avec une fausse RAM, de faux scancodes et un écran
+simulé : on vérifie ce qui serait affiché sans démarrer l'OS (quelques secondes). À lancer après
+chaque modification. Ils ne remplacent pas un test dans QEMU : pilotes matériels (VGA, port série,
+timer) et carte mémoire réelle de GRUB ne sont pas couverts.
+
+Les messages de `kprintf` sont vérifiés par le compilateur : un `%d` sans argument, ou un argument
+en trop, est une erreur de compilation. `kprintf` accepte la largeur et les zéros (`%2d`, `%05u`, `%08x`).
+
+## Mémoire (0.0.4)
 
 - `pmm.c` : gestionnaire de mémoire physique, un bit par frame de 4 Kio, alimenté par la carte
   mémoire de GRUB. Protège la mémoire basse (< 1 Mio) et l'image du noyau. Détecte les doubles
@@ -112,11 +148,16 @@ Pas encore de pagination : le noyau accède directement à la mémoire physique 
 | `src/isr.c`          | Exceptions CPU décodées et distribution des IRQ         |
 | `src/pic.c`          | Contrôleur 8259 (remap, masque, EOI, fausses IRQ)       |
 | `src/pit.c`          | Timer 100 Hz, `pit_ticks`, `pit_sleep_ms`               |
-| `src/keyboard.c`     | Clavier PS/2, AZERTY, AltGr, tampon circulaire          |
+| `src/keyboard.c`     | Clavier PS/2, AZERTY, AltGr, flèches, tampon circulaire |
 | `src/pmm.c`          | Mémoire physique : frames de 4 Kio                      |
 | `src/kheap.c`        | Tas du noyau : `kmalloc` / `kfree`                      |
 | `src/string.c`       | `memset`, `memcpy`, `strlen`...                         |
 | `src/multiboot.h`    | Structures d'information de GRUB (carte mémoire)        |
+| `src/shell.c`        | Shell : saisie, historique, Tab, commandes              |
+| `src/cmdline.c`      | Découpage de ligne, nombres, historique (testable seul) |
+| `src/power.c`        | `reboot`, `shutdown`, `halt`                            |
+| `src/version.h`      | Nom et numéro de version                                |
+| `tests/`             | Tests automatiques (`make test`)                        |
 | `src/io.h`           | `inb`/`outb`, `cli`/`sti`/`hlt`, sections critiques     |
 | `linker.ld`          | Placement du noyau en mémoire (1 Mio)                   |
 | `iso/boot/grub/`     | Configuration GRUB de l'ISO                             |
@@ -142,8 +183,8 @@ Chaque étape produit une ISO fonctionnelle.
 3. [x] PIC, timer (PIT) et interruptions
 4. [x] Traitement d'erreurs (panique, trace d'appel, journal série) et clavier PS/2
 5. [x] Mémoire physique et tas du noyau (`kmalloc`) — *la pagination viendra plus tard*
-6. [ ] Mini-shell (prochaine étape)
-7. [ ] Système de fichiers (initrd, puis disque)
+6. [x] Mini-shell, historique, complétion, tests automatiques
+7. [ ] Système de fichiers (initrd, puis disque) — *prochaine étape*
 8. [ ] Appels système et programmes utilisateur
 9. [ ] Mode graphique (framebuffer) et interface soignée
 10. [ ] Passage en x86_64

@@ -67,13 +67,13 @@ static const u8 layout_altgr[128] = {
     [0x0D] = '}',
 };
 
-static volatile u8 buffer[KBD_BUF_SIZE];
+static volatile u16 buffer[KBD_BUF_SIZE];
 static volatile u32 head, tail;
 
 static int extended, pause_skip;
 static int shift, ctrl, alt, altgr, caps;
 
-static void buffer_push(u8 c)
+static void buffer_push(u16 c)
 {
     u32 next = (head + 1) % KBD_BUF_SIZE;
 
@@ -91,9 +91,11 @@ static void keyboard_irq(struct regs *r)
     (void)r;
     sc = inb(KBD_DATA);
 
-    if (sc == 0xE0) { extended = 1; return; }
-    if (sc == 0xE1) { pause_skip = 5; return; }     /* séquence de la touche Pause */
+    /* Touche Pause : E1 1D 45 E1 9D C5. Le test du compteur doit passer AVANT celui de E1,
+     * sinon le second E1 relancerait le décompte et avalerait les touches suivantes. */
     if (pause_skip) { pause_skip--; return; }
+    if (sc == 0xE1) { pause_skip = 5; return; }
+    if (sc == 0xE0) { extended = 1; return; }
 
     release  = (sc & 0x80) != 0;
     sc      &= 0x7F;
@@ -118,8 +120,24 @@ static void keyboard_irq(struct regs *r)
     }
 
     (void)alt;
-    if (release || ext)                         /* flèches, etc. : pas encore gérées */
+    if (release)
         return;
+
+    if (ext) {                                  /* bloc de navigation (touches préfixées E0) */
+        switch (sc) {
+        case 0x48: buffer_push(KEY_UP);    break;
+        case 0x50: buffer_push(KEY_DOWN);  break;
+        case 0x4B: buffer_push(KEY_LEFT);  break;
+        case 0x4D: buffer_push(KEY_RIGHT); break;
+        case 0x47: buffer_push(KEY_HOME);  break;
+        case 0x4F: buffer_push(KEY_END);   break;
+        case 0x53: buffer_push(KEY_DEL);   break;
+        case 0x35: buffer_push('/');       break;   /* pavé numérique : / */
+        case 0x1C: buffer_push('\n');      break;   /* pavé numérique : Entrée */
+        default:   break;
+        }
+        return;
+    }
 
     if (altgr && layout_altgr[sc]) {
         buffer_push(layout_altgr[sc]);
@@ -161,12 +179,12 @@ int keyboard_try_getc(void)
     return c;
 }
 
-u8 keyboard_getc(void)
+int keyboard_getc(void)
 {
     for (;;) {
         cpu_cli();
         if (head != tail) {
-            u8 c = buffer[tail];
+            int c = buffer[tail];
             tail = (tail + 1) % KBD_BUF_SIZE;
             cpu_sti();
             return c;

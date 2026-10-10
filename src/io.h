@@ -15,6 +15,11 @@ static inline u8 inb(u16 port)
     return value;
 }
 
+static inline void outw(u16 port, u16 value)
+{
+    __asm__ volatile ("outw %0, %1" : : "a"(value), "Nd"(port));
+}
+
 /* Petit délai : écriture sur un port inutilisé (0x80). */
 static inline void io_wait(void)
 {

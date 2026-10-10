@@ -12,6 +12,7 @@
 #   make debug        comme run + journal des exceptions CPU dans qemu.log
 #
 # Diagnostic :
+#   make test         tests automatiques (mémoire, shell, clavier AZERTY) sans démarrer l'OS
 #   make symbol ADDR=0x100abc   traduit une adresse de la trace d'appel en fonction/ligne
 #   make test-div0 | test-gp | test-panic | test-assert | test-doublefree | test-heapcorrupt
 #                                déclenche volontairement une erreur pour voir l'écran d'erreur
@@ -40,10 +41,10 @@ OBJ     := $(patsubst src/%.c,build/%.o,$(SRC_C)) \
            $(patsubst src/%.S,build/%.o,$(SRC_S))
 
 KERNEL  := build/phoenos.bin
-ISO     := phoenos-0.0.4.iso
+ISO     := phoenos-0.0.5.iso
 TESTS   := test-div0 test-gp test-panic test-assert test-doublefree test-heapcorrupt
 
-.PHONY: all iso run serial debug check symbol clean $(TESTS)
+.PHONY: all iso run serial debug check symbol test clean $(TESTS)
 
 all: $(KERNEL)
 
@@ -77,6 +78,9 @@ serial: iso
 debug: iso
 	$(QEMU) -cdrom $(ISO) -serial stdio -no-reboot -d int,cpu_reset -D qemu.log
 	@echo ">> Journal QEMU : qemu.log (chercher : grep -n 'v=0\|Triple' qemu.log)"
+
+test:
+	sh tests/run.sh
 
 check: $(KERNEL)
 	grub-file --is-x86-multiboot $(KERNEL) && echo "Multiboot OK"
