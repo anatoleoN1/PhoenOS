@@ -10,6 +10,7 @@
 static struct fs_node *root;
 static struct fs_node *cwd;
 static u32 node_count;
+static u32 version;                     /* +1 à chaque modification (voir fs_version) */
 
 /* ------------------------------------------------------------------ */
 /* Noms et chemins                                                     */
@@ -71,6 +72,7 @@ static void link_child(struct fs_node *dir, struct fs_node *n)
 {
     struct fs_node **pp = &dir->child;
 
+    version++;
     while (*pp && strcmp((*pp)->name, n->name) < 0)
         pp = &(*pp)->next;
     n->next = *pp;
@@ -81,6 +83,8 @@ static void link_child(struct fs_node *dir, struct fs_node *n)
 static void unlink_child(struct fs_node *n)
 {
     struct fs_node **pp = &n->parent->child;
+
+    version++;
 
     while (*pp && *pp != n)
         pp = &(*pp)->next;
@@ -197,6 +201,11 @@ static void free_subtree(struct fs_node *n)
     kfree(n->data);
     kfree(n);
     node_count--;
+}
+
+u32 fs_version(void)
+{
+    return version;
 }
 
 void fs_init(void)
@@ -342,6 +351,7 @@ err_t fs_write(struct fs_node *file, const void *data, u32 len)
     file->data = buf;
     file->size = len;
     file->cap  = len;
+    version++;
     return E_OK;
 }
 
@@ -376,6 +386,7 @@ err_t fs_append(struct fs_node *file, const void *data, u32 len)
         memmove(file->data + file->size, data, len);
     }
     file->size += len;
+    version++;
     return E_OK;
 }
 

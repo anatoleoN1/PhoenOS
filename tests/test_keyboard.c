@@ -93,7 +93,7 @@ int test_main(void)
     CHECK(tap_ext(0x4B) == KEY_LEFT && tap_ext(0x4D) == KEY_RIGHT);
     CHECK(tap_ext(0x47) == KEY_HOME && tap_ext(0x4F) == KEY_END && tap_ext(0x53) == KEY_DEL);
     CHECK(tap_ext(0x1C) == '\n' && tap_ext(0x35) == '/');       /* pavé numérique */
-    CHECK(tap_ext(0x49) == -1);                                 /* Page haut : ignorée */
+    CHECK(tap_ext(0x49) == KEY_PGUP && tap_ext(0x51) == KEY_PGDN);   /* Page haut / bas */
 
     /* faux Maj envoyé avant ImprEcran (E0 2A) : ne doit pas bloquer la Maj */
     sc(0xE0); sc(0x2A);
@@ -118,6 +118,69 @@ int test_main(void)
         CHECK(n == 127);
     }
     CHECK(tap(0x11) == 'z');                                    /* le clavier repart normalement */
+
+    /* ---- console série (terminal où tourne QEMU) ---- */
+    {
+        static const struct { const char *in; int out[6]; } cases[] = {
+            { "ls\r",            { 'l', 's', '\n', -1 } },
+            { "a\r\nb",          { 'a', '\n', 'b', -1 } },           /* \r\n : une seule Entrée */
+            { "a\n\nb",          { 'a', '\n', '\n', 'b', -1 } },     /* deux \n = deux Entrées */
+            { "x\x7f\x08",       { 'x', '\b', '\b', -1 } },         /* Retour arriere : 0x7F ou 0x08 */
+            { "\t\x03\x0c\x15", { '\t', 3, 12, 21, -1 } },         /* Tab, Ctrl+C, Ctrl+L, Ctrl+U */
+            { "\x1b[A\x1b[B",    { KEY_UP, KEY_DOWN, -1 } },
+            { "\x1b[C\x1b[D",    { KEY_RIGHT, KEY_LEFT, -1 } },
+            { "\x1b[H\x1b[F",    { KEY_HOME, KEY_END, -1 } },
+            { "\x1b[5~\x1b[6~",  { KEY_PGUP, KEY_PGDN, -1 } },
+            { "\x1b[3~",         { KEY_DEL, -1 } },
+            { "\x1bOA\x1bOD",    { KEY_UP, KEY_LEFT, -1 } },          /* mode application */
+            { "\x1b[1;5C",       { KEY_RIGHT, -1 } },                 /* avec modificateur : touche de base */
+            { "\x1bx",           { 'x', -1 } },                       /* ESC isole : ignore */
+            { "\xc3\xa9\xc3\xa8\xc3\xa0\xc3\xa7", { 0x82, 0x8A, 0x85, 0x87, -1 } },   /* é è à ç */
+            { "\xc3\x01z",       { 'z', -1 } },                       /* UTF-8 inconnu : ignore sans bloquer */
+            { "\xff\xfe\x80q",   { 'q', -1 } },                       /* octets parasites ignores */
+        };
+
+        for (usize i = 0; i < sizeof cases / sizeof cases[0]; i++) {
+            for (const char *p = cases[i].in; *p; p++)
+                keyboard_feed_serial((u8)*p);
+            for (int j = 0;; j++) {
+                int got = keyboard_try_getc();
+
+                if (cases[i].out[j] == -1) {
+                    if (got != -1) { out("  ECHEC serie cas "); outnum((u32)i); out(" : touche en trop\n"); test_fails++; }
+                    break;
+                }
+                if (got != cases[i].out[j]) {
+                    out("  ECHEC serie cas "); outnum((u32)i); out(" : attendu "); outnum((u32)cases[i].out[j]);
+                    out(" obtenu "); outnum((u32)(got + 1)); out("-1\n");
+                    test_fails++;
+                    while (keyboard_try_getc() != -1) ;
+                    break;
+                }
+            }
+        }
+        /* un octet de séquence coupée en deux morceaux par le réseau/terminal */
+        keyboard_feed_serial(0x1b); keyboard_feed_serial('[');
+        CHECK(keyboard_try_getc() == -1);
+        keyboard_feed_serial('A');
+        CHECK(keyboard_try_getc() == KEY_UP);
+        /* flot d'octets au hasard : jamais de blocage ni de plantage */
+        {
+            u32 x = 12345;
+
+            for (int i = 0; i < 20000; i++) {
+                x = x * 1103515245u + 12345u;
+                keyboard_feed_serial((u8)(x >> 16));
+                if (i % 7 == 0) (void)keyboard_try_getc();
+            }
+            while (keyboard_try_getc() != -1) ;
+            keyboard_feed_serial('o'); keyboard_feed_serial('k');
+            keyboard_feed_serial(0x1b); keyboard_feed_serial('x');                  /* sortir de tout etat intermediaire */
+            while (keyboard_try_getc() != -1) ;
+            keyboard_feed_serial('o');
+            CHECK(keyboard_try_getc() == 'o');
+        }
+    }
 
     out("  clavier AZERTY verifie : lettres, chiffres, AltGr, Maj, Verr. Maj, Ctrl, fleches\n");
     return 0;

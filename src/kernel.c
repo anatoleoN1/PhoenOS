@@ -22,6 +22,8 @@
 #include "shell.h"
 #include "fs.h"
 #include "initrd.h"
+#include "ata.h"
+#include "persist.h"
 
 #define MULTIBOOT_BOOTLOADER_MAGIC 0x2BADB002
 
@@ -169,6 +171,37 @@ static void load_initrd(const struct multiboot_info *mbi)
     }
 }
 
+/* Détecte le disque et recharge la sauvegarde PhoenFS par-dessus le contenu de l'initrd. */
+static void init_storage(void)
+{
+    const struct persist_info *pi;
+
+    ata_init();
+    persist_init();
+    pi = persist_get_info();
+
+    switch (persist_state()) {
+    case PERSIST_NO_DISK:
+        kprintf("       Stockage : aucun disque (les fichiers seront perdus a l'extinction)\n");
+        break;
+    case PERSIST_UNFORMATTED:
+        kprintf("       Disque : %s, %u Mio, non formate (tapez  format oui)\n", pi->model, pi->sectors / 2048);
+        break;
+    default: {
+        struct initrd_stats st;
+        err_t e = persist_load(&st);
+
+        kprintf("       Disque : %s, %u Mio, sauvegarde %u : %u fichier(s)\n", pi->model, pi->sectors / 2048,
+                pi->generation, st.files);
+        status(e == E_OK, "Fichiers relus depuis le disque");
+        if (e != E_OK)
+            klog(LOG_WARN, "disque : %s", err_str(e));
+        break;
+    }
+    }
+    persist_mark_clean();                       /* ce qui vient d'être chargé est déjà enregistré */
+}
+
 void kernel_main(u32 magic, const struct multiboot_info *mbi)
 {
     struct kheap_stats hs;
@@ -221,6 +254,7 @@ void kernel_main(u32 magic, const struct multiboot_info *mbi)
     fs_init();
     status(1, "Systeme de fichiers en RAM initialise");
     load_initrd(mbi);
+    init_storage();
 
     /* --- Timer : 300 ms d'attente doivent faire avancer le compteur d'environ 30 ticks --- */
     {

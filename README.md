@@ -1,7 +1,7 @@
 # PhoenOS
 
 Système d'exploitation x86 écrit en C : léger, efficace, gratuit.
-Version actuelle : **0.0.7** (manuel intégré `man`, `MANUEL.md`, options `cat -n` et `tree -d`, correctifs).
+Version actuelle : **0.0.8** (stockage sur disque ATA, défilement de l'écran PageHaut/PageBas, console série).
 Le détail de chaque commande et de ses options est dans **[MANUEL.md](MANUEL.md)** (et dans PhoenOS : `man`).
 
 ## Prérequis (Debian / Ubuntu, machine x86_64 ou WSL sous Windows)
@@ -30,7 +30,7 @@ make clean
 Pour tester sur une vraie machine : écrire `PhoenOS.iso` sur une clé USB
 (`sudo dd if=PhoenOS.iso of=/dev/sdX bs=4M status=progress`, en vérifiant bien `sdX`).
 
-## Ce qu'on doit voir au démarrage (v0.0.7)
+## Ce qu'on doit voir au démarrage (v0.0.8)
 
 Des lignes `[ OK ]` pour : VGA + port série, Multiboot, GDT, IDT/PIC/timer/clavier,
 exceptions (point d'arrêt traité), **mémoire physique, tas du noyau et leurs auto-tests**,
@@ -74,7 +74,28 @@ Limites connues : un débordement de pile est détecté après coup (canari test
 timer) mais peut provoquer une triple faute avant ; la protection complète demande un TSS dédié
 pour la double faute (prévu plus tard).
 
-## Manuel (nouveau en 0.0.7)
+## Stockage et défilement (nouveau en 0.0.8)
+
+**Défilement** : PageHaut / PageBas remontent dans les 500 dernières lignes de l'écran (12 lignes par appui) ;
+toute autre touche ramène à la saisie.
+
+**Disque** : `make run` crée `disk.img` (32 Mio) et le branche en IDE dans QEMU (il n'est pas effacé
+par `make clean` ; `make newdisk` repart de zéro). Dans PhoenOS : `disks`, puis `format oui` **une seule fois**.
+Ensuite `save` / `load`, et `shutdown`, `reboot` et `halt` enregistrent seuls les modifications. Au démarrage,
+la sauvegarde est relue par-dessus l'initrd (voir `man stockage`). Sous VirtualBox : ajouter un disque IDE
+(contrôleur PIIX4) au VM ; sans disque, tout fonctionne comme avant (fichiers en RAM seulement).
+Format : « PhoenFS », deux emplacements A/B de 8 Mio au plus, archive tar + CRC32, validation en dernier
+(une coupure pendant l'écriture ne détruit jamais l'ancienne sauvegarde). Le test simule 12 coupures de courant.
+
+## Console série : utiliser PhoenOS sans fenêtre (Chromebook, WSL...)
+
+`make serial` lance PhoenOS **sans fenêtre** : l'écran et le clavier sont ce terminal (Ctrl+A puis X pour quitter).
+Les touches tapées sont lues sur le port série COM1 (Entrée, Retour arrière, Tab, flèches, PageHaut/Bas, Ctrl+C/L/U,
+lettres accentuées). Pratique quand la fenêtre de QEMU s'affiche mais ne reçoit pas le clavier (cas observé sous
+Linux dans ChromeOS). Si vous préférez la fenêtre : cliquer dedans d'abord, ou essayer
+`make run QEMU_DISPLAY="-display sdl"` (ou `gtk`). Avec `make run`, le terminal garde aussi le clavier série.
+
+## Manuel (0.0.7)
 
 `man` liste les sujets, `man ls` affiche la page de `ls`. Le texte vient de `initrd/docs/manuel.txt`
 (une section par commande, commençant par `== nom - résumé`). `MANUEL.md` en est la version lisible
@@ -183,6 +204,10 @@ Pas encore de pagination : le noyau accède directement à la mémoire physique 
 | `src/cmdline.c`      | Découpage de ligne, nombres, historique (testable seul) |
 | `src/fs.c`           | Système de fichiers en RAM (arbre, chemins)             |
 | `src/initrd.c`       | Lecteur d'archives tar → système de fichiers           |
+| `src/ata.c`          | Pilote disque ATA/IDE en mode PIO (détection, lecture, écriture) |
+| `src/persist.c`      | Sauvegarde PhoenFS sur disque (deux emplacements, CRC)  |
+| `src/tarw.c`         | Écriture du système de fichiers au format tar           |
+| `src/crc32.c`        | Somme de contrôle CRC-32                                |
 | `src/power.c`        | `reboot`, `shutdown`, `halt`                            |
 | `src/version.h`      | Nom et numéro de version                                |
 | `tests/`             | Tests automatiques (`make test`)                        |
@@ -214,7 +239,7 @@ Chaque étape produit une ISO fonctionnelle.
 4. [x] Traitement d'erreurs (panique, trace d'appel, journal série) et clavier PS/2
 5. [x] Mémoire physique et tas du noyau (`kmalloc`) — *la pagination viendra plus tard*
 6. [x] Mini-shell, historique, complétion, tests automatiques
-7. [x] Système de fichiers en RAM + initrd (0.0.6) — *le disque (ATA) viendra plus tard*
+7. [x] Système de fichiers en RAM + initrd (0.0.6), disque ATA et sauvegarde (0.0.8)
 8. [ ] Appels système et programmes utilisateur
 9. [ ] Mode graphique (framebuffer) et interface soignée
 10. [ ] Passage en x86_64

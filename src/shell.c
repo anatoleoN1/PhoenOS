@@ -21,10 +21,13 @@
 #include "panic.h"
 #include "string.h"
 #include "fs.h"
+#include "ata.h"
+#include "persist.h"
 #include "io.h"
 
 #define LINE_MAX 256
 #define MAX_ARGS 8
+#define SCROLL_STEP 12                   /* lignes par appui sur PageHaut / PageBas */
 #define CAPTURE_MAX (128u * 1024)       /* sortie maximale d'une commande redirigée */
 
 typedef err_t (*cmd_fn)(int argc, char **argv);
@@ -72,6 +75,10 @@ static err_t cmd_tree(int argc, char **argv);
 static err_t cmd_df(int argc, char **argv);
 static err_t cmd_hexdump(int argc, char **argv);
 static err_t cmd_man(int argc, char **argv);
+static err_t cmd_disks(int argc, char **argv);
+static err_t cmd_format(int argc, char **argv);
+static err_t cmd_save(int argc, char **argv);
+static err_t cmd_load(int argc, char **argv);
 
 /* ------------------------------------------------------------------ */
 /* Table des commandes (ordre = ordre d'affichage de `help`)           */
@@ -79,6 +86,7 @@ static err_t cmd_man(int argc, char **argv);
 
 #define G_SYS "Systeme"
 #define G_FS  "Fichiers"
+#define G_DISK "Stockage"
 #define G_TXT "Texte"
 
 static const struct command commands[] = {
@@ -110,6 +118,10 @@ static const struct command commands[] = {
     { G_FS,  "tree",     "[-d] [dossier]", "Affiche l'arborescence (-d : dossiers seuls)",                         cmd_tree     },
     { G_FS,  "df",       "",             "Occupation du systeme de fichiers",              cmd_df       },
     { G_FS,  "hexdump",  "<fichier> [octets]", "Affiche un fichier en hexadecimal",        cmd_hexdump  },
+    { G_DISK, "disks",   "",             "Liste les disques et l'etat du stockage",        cmd_disks    },
+    { G_DISK, "format",  "oui",          "Prepare le disque pour PhoenOS (efface la sauvegarde)", cmd_format },
+    { G_DISK, "save",    "",             "Enregistre les fichiers sur le disque",          cmd_save     },
+    { G_DISK, "load",    "",             "Relit la sauvegarde du disque",                  cmd_load     },
     { G_TXT, "echo",     "[-n] [texte...]", "Affiche son texte (\"entre guillemets\" permis)", cmd_echo },
 };
 
@@ -180,7 +192,7 @@ static err_t parse_flags(int argc, char **argv, const char *allowed, u32 *flags,
 
 static err_t cmd_help(int argc, char **argv)
 {
-    static const char *const groups[] = { G_SYS, G_FS, G_TXT };
+    static const char *const groups[] = { G_SYS, G_FS, G_DISK, G_TXT };
 
     if (argc >= 2) {
         for (int i = 0; i < COMMAND_COUNT; i++) {
@@ -399,10 +411,29 @@ static err_t cmd_crash(int argc, char **argv)
     return E_OK;
 }
 
+/* Avant d'éteindre ou de redémarrer : enregistre les fichiers modifiés si un disque PhoenOS est prêt. */
+static void autosave_before_exit(void)
+{
+    err_t e;
+
+    kprintf_redirect(NULL, NULL);
+    if (persist_state() != PERSIST_READY || !persist_dirty())
+        return;
+    kprintf("Sauvegarde des fichiers sur le disque... ");
+    e = persist_autosave();
+    if (e == E_OK) {
+        kprintf("ok (generation %u)\n", persist_get_info()->generation);
+    } else {
+        color(VGA_LIGHT_RED);
+        kprintf("ECHEC (%s) : les modifications seront perdues.\n", err_str(e));
+        color(VGA_LIGHT_GREY);
+    }
+}
+
 static err_t cmd_reboot(int argc, char **argv)
 {
     (void)argc; (void)argv;
-    kprintf_redirect(NULL, NULL);
+    autosave_before_exit();
     kprintf("Redemarrage...\n");
     power_reboot();
 }
@@ -410,7 +441,7 @@ static err_t cmd_reboot(int argc, char **argv)
 static err_t cmd_shutdown(int argc, char **argv)
 {
     (void)argc; (void)argv;
-    kprintf_redirect(NULL, NULL);
+    autosave_before_exit();
     kprintf("Extinction...\n");
     power_shutdown();
 }
@@ -418,7 +449,7 @@ static err_t cmd_shutdown(int argc, char **argv)
 static err_t cmd_halt(int argc, char **argv)
 {
     (void)argc; (void)argv;
-    kprintf_redirect(NULL, NULL);
+    autosave_before_exit();
     kprintf("Processeur arrete. Redemarrez la machine manuellement.\n");
     power_halt();
 }
@@ -706,6 +737,11 @@ static err_t cmd_df(int argc, char **argv)
     kprintf("  dossiers : %u (racine comprise)\n", st.dirs);
     kprintf("  contenu  : %u octets\n", st.bytes);
     kprintf("  limites  : %u elements, %u Kio par fichier\n", FS_NODES_MAX, FS_FILE_MAX / 1024);
+    if (persist_state() == PERSIST_READY)
+        kprintf("  disque   : pret, generation %u%s\n", persist_get_info()->generation,
+                persist_dirty() ? " (modifications non enregistrees : save)" : " (a jour)");
+    else
+        kprintf("  disque   : %s\n", persist_state() == PERSIST_NO_DISK ? "aucun" : "non formate (format oui)");
     return E_OK;
 }
 
@@ -744,6 +780,100 @@ static err_t cmd_hexdump(int argc, char **argv)
     }
     if (count < n->size)
         kprintf("... %u octet(s) de plus\n", n->size - count);
+    return E_OK;
+}
+
+/* ------------------------------------------------------------------ */
+/* Stockage                                                            */
+/* ------------------------------------------------------------------ */
+
+static err_t cmd_disks(int argc, char **argv)
+{
+    const struct persist_info *pi = persist_get_info();
+
+    (void)argc; (void)argv;
+    if (ata_count() == 0)
+        kprintf("Aucun disque ATA detecte.\n");
+    for (int i = 0; i < ata_count(); i++) {
+        const struct ata_dev *d = ata_dev(i);
+
+        kprintf(" %d  %s / %s  ", i, d->channel ? "secondaire" : "primaire  ", d->drive ? "esclave" : "maitre  ");
+        if (d->atapi)
+            kprintf("%s (non utilisable)\n", d->model);
+        else
+            kprintf("%s  %u Mio\n", d->model, d->sectors / 2048);
+    }
+    switch (persist_state()) {
+    case PERSIST_NO_DISK:
+        kprintf("Stockage PhoenOS : aucun disque utilisable (les fichiers sont perdus a l'extinction).\n");
+        break;
+    case PERSIST_UNFORMATTED:
+        kprintf("Stockage PhoenOS : %s non formate. Tapez  format oui  pour l'utiliser.\n", pi->model);
+        break;
+    default:
+        kprintf("Stockage PhoenOS : pret sur %s (generation %u, %u octets enregistres)%s\n",
+                pi->model, pi->generation, pi->snapshot_bytes,
+                persist_dirty() ? ", modifications non enregistrees" : "");
+        break;
+    }
+    return E_OK;
+}
+
+static err_t cmd_format(int argc, char **argv)
+{
+    err_t e;
+
+    if (argc < 2 || argc > 3 || strcmp(argv[1], "oui") != 0 || (argc == 3 && strcmp(argv[2], "oui") != 0))
+        return usage("format oui   (efface la sauvegarde du disque ; oui oui : disque deja utilise)");
+    if (persist_state() == PERSIST_NO_DISK)
+        return fail_msg("Aucun disque utilisable (voir disks).");
+
+    e = persist_format(argc == 3);
+    if (e == E_BUSY)
+        return fail_msg("Ce disque contient deja des donnees qui ne sont pas du PhoenFS. Pour l'effacer quand meme : format oui oui");
+    if (e != E_OK)
+        return e;
+    kprintf("Disque formate. Utilisez save pour enregistrer vos fichiers (shutdown et reboot le font seuls).\n");
+    return E_OK;
+}
+
+static err_t cmd_save(int argc, char **argv)
+{
+    err_t e;
+
+    (void)argv;
+    if (argc != 1)
+        return usage("save");
+    if (persist_state() != PERSIST_READY)
+        return fail_msg(persist_state() == PERSIST_NO_DISK ? "Aucun disque utilisable (voir disks)."
+                                                           : "Disque non formate : tapez  format oui");
+    e = persist_save();
+    if (e == E_FBIG)
+        return fail_msg("Les fichiers sont trop volumineux pour l'emplacement de sauvegarde du disque (8 Mio maximum).");
+    if (e != E_OK)
+        return e;
+    kprintf("Sauvegarde %u enregistree (%u octets).\n", persist_get_info()->generation,
+            persist_get_info()->snapshot_bytes);
+    return E_OK;
+}
+
+static err_t cmd_load(int argc, char **argv)
+{
+    struct initrd_stats st;
+    err_t e;
+
+    (void)argv;
+    if (argc != 1)
+        return usage("load");
+    if (persist_state() != PERSIST_READY)
+        return fail_msg(persist_state() == PERSIST_NO_DISK ? "Aucun disque utilisable (voir disks)."
+                                                           : "Disque non formate : tapez  format oui");
+    e = persist_load(&st);
+    if (e != E_OK)
+        return e;
+    kprintf("Sauvegarde %u relue : %u fichier(s), %u octets (les fichiers de meme nom ont ete remplaces).\n",
+            persist_get_info()->generation, st.files, st.bytes);
+    persist_mark_clean();
     return E_OK;
 }
 
@@ -1132,6 +1262,16 @@ static void read_line(char *line, usize *len_out)
 
     for (;;) {
         int key = keyboard_getc();
+
+        if (key == KEY_PGUP) {                  /* lecture de l'historique de l'écran */
+            vga_scroll_view(SCROLL_STEP);
+            continue;
+        }
+        if (key == KEY_PGDN) {
+            vga_scroll_view(-SCROLL_STEP);
+            continue;
+        }
+        vga_scroll_reset();                     /* toute autre touche ramène à la saisie */
 
         switch (key) {
         case '\n':

@@ -3,6 +3,7 @@
  * et on vérifie ce qui serait affiché à l'écran. MODE 0 : session complète ;
  * MODE 1..4 : commandes `crash` qui doivent déclencher une panique.
  */
+#include "fakeata.h"
 #include <stdarg.h>
 #include "testlib.h"
 #include "multiboot.h"
@@ -18,6 +19,8 @@
 #include "shell.h"
 #include "fs.h"
 #include "initrd.h"
+#include "ata.h"
+#include "persist.h"
 
 #ifndef MODE
 #define MODE 0
@@ -40,6 +43,9 @@ void vga_putc(char c)
     if (outlen + 1 < sizeof outbuf) outbuf[outlen++] = c;
 }
 void serial_putc(char c) { (void)c; }
+static int scroll_total, scroll_resets;
+void vga_scroll_view(int lines) { scroll_total += lines; }
+void vga_scroll_reset(void) { scroll_resets++; }
 
 static int count_in(const char *buf, usize len, const char *sub)
 {
@@ -137,7 +143,7 @@ static void verify(void)
     CHECK(count("  1  sleep 250") == 0 || count("  1  ") >= 1); /* history : numerotation */
     CHECK(count("gris clair") == 1 && count("blanc") == 1);     /* colors */
     CHECK(count(" 10   vert clair") == 1);                      /* %2d correct dans colors */
-    CHECK(count("PhoenOS 0.0.7") == 1);                         /* version */
+    CHECK(count("PhoenOS 0.0.8") == 1);                         /* version */
     CHECK(count("Sujets du manuel") == 1 && count(" ls  - liste\n cat  - affiche\n") == 1);   /* man seul */
     CHECK(count("ls  - liste\n  Syntaxe : ls [-l]\n  Option -l\n") == 1 && count("Syntaxe : cat [-n]") == 0);   /* man ls : uniquement sa section */
     CHECK(count("man: pas de manuel pour 'nope'") == 1);
@@ -145,6 +151,20 @@ static void verify(void)
     CHECK(count("    1  hello\n    2  more\n    3  hello\n    4  more\n") == 1);
     CHECK(count("usage : cat [-n] <fichier>...") == 1);
     CHECK(count("4 dossier(s)\n") == 1 && count("tree -d") == 1);
+    CHECK(scroll_total == 12 && scroll_resets > 100);           /* +12 +12 -12 ; toute autre touche ramene en bas */
+    CHECK(count("\napres-defilement\n") == 1);
+    CHECK(count("FAKE DISK 9000  16 Mio") == 2);
+    CHECK(count("Lecteur ATAPI (CD/DVD) (non utilisable)") == 2);
+    CHECK(count("non formate. Tapez  format oui") == 1);
+    CHECK(count("Disque non formate : tapez  format oui") == 1);   /* save avant format */
+    CHECK(count("usage : format oui") == 2);                    /* sans argument, puis "non" */
+    CHECK(count("Disque formate.") == 1);
+    CHECK(count("disque   : pret, generation 1 (a jour)") == 1);
+    CHECK(count("Sauvegarde 2 enregistree (") == 1);
+    CHECK(count("pret sur FAKE DISK 9000 (generation 2") == 1);
+    CHECK(count("modifications non enregistrees : save)") == 1);
+    CHECK(count("Sauvegarde 2 relue : ") == 1);
+    CHECK(count("\napres\n") == 1 && count("\nlocal\n") == 0);     /* load a remplace la version locale */
     CHECK(count("PANIQUE") == 0);
 
     /* ---- fichiers ---- */
@@ -171,6 +191,14 @@ static void verify(void)
     CHECK(count_end("Commandes (Tab complete") == 6);
     CHECK(count_end("\ndeux\n") == 4);
     CHECK(count_end("Redemarrage...") == 1);
+    CHECK(count_end("Sauvegarde des fichiers sur le disque... ok (generation 3)") == 1);
+    {                                                           /* la sauvegarde automatique est bien sur le « disque » */
+        struct fs_node *n;
+
+        fs_init();
+        CHECK(persist_init() == E_OK && persist_state() == PERSIST_READY && persist_get_info()->generation == 3);
+        CHECK(persist_load(NULL) == E_OK && fs_lookup("/final.txt", &n) == E_OK && n->size == 9);
+    }
     if (test_fails) {
         out("---- ecran simule (avant dmesg) ----\n");
         snap[snaplen] = 0;
@@ -194,6 +222,8 @@ int test_main(void)
     pmm_init(&M.mbi);
     kheap_init();
     fs_init();
+    ata_init();
+    persist_init();
     {
         static const char man[] = "INTRO\n\n== ls  - liste\n  Syntaxe : ls [-l]\n  Option -l\n\n== cat  - affiche\n  Syntaxe : cat [-n]\n";
         struct fs_node *f;
@@ -267,6 +297,22 @@ int test_main(void)
     type("cat -x f\n");
     type("mkdir /t1\n");
     type("tree -d /\n");
+    key(KEY_PGUP); key(KEY_PGUP); key(KEY_PGDN);                /* defilement : ne modifie pas la ligne */
+    type("echo apres-defilement\n");
+    type("disks\n");
+    type("save\n");                                             /* disque non formate */
+    type("format\n");
+    type("format non\n");
+    type("format oui\n");
+    type("df\n");
+    type("echo apres > /s.txt\n");
+    type("save\n");
+    type("disks\n");
+    type("echo local > /s.txt\n");
+    type("df\n");
+    type("load\n");                                             /* remplace s.txt par la version enregistree */
+    type("cat /s.txt\n");
+    type("echo derniere > /final.txt\n");                       /* modification non enregistree : reboot la sauvegarde */
     snapshot_at = nkeys;
     type("dmesg\n");
     type("reboot\n");

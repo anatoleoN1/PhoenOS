@@ -39,6 +39,12 @@ static inline void outnum(u32 v)
     out(b + i);
 }
 
+extern u8 test_scancode;
+#ifndef TEST_HAS_PORTS                      /* fakeata.h fournit ses propres versions */
+__attribute__((weak)) u32 test_port_in(u16 port, int size) { (void)size; return port == 0x60 ? test_scancode : 0; }
+__attribute__((weak)) void test_port_out(u16 port, u32 v, int size) { (void)port; (void)v; (void)size; }
+#endif
+
 static int test_fails;
 
 #define CHECK(c) do { \

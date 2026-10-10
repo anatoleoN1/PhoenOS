@@ -10,7 +10,7 @@ FAILED=0
 rm -rf "$B"; mkdir -p "$B/src"
 cp "$ROOT"/src/* "$B/src/"
 cp "$ROOT"/tests/shim/* "$B/src/"        # remplace io.h et panic.h par des versions de test
-cp "$ROOT"/tests/*.c "$ROOT"/tests/testlib.h "$B/src/"
+cp "$ROOT"/tests/*.c "$ROOT"/tests/testlib.h "$ROOT"/tests/fakeata.h "$B/src/"
 
 CF="-m32 -static -nostdlib -ffreestanding -fno-builtin -fno-stack-protector -fno-pie \
 -fno-tree-loop-distribute-patterns -O2 -Wall -Wextra -Wno-unused-function -I$B/src"
@@ -46,7 +46,8 @@ run erreur-kfree-invalide 100 -DMODE=4 test_mem.c pmm.c kheap.c string.c
 run erreur-frame-double 100 -DMODE=5 test_mem.c pmm.c kheap.c string.c
 run erreur-frame-reservee 100 -DMODE=6 test_mem.c pmm.c kheap.c string.c
 run shell-cmdline       0   test_cmdline.c cmdline.c string.c
-run clavier-azerty      0   test_keyboard.c keyboard.c string.c
+run clavier-azerty      0   test_keyboard.c keyboard.c serial.c string.c
+run ecran-defilement 0 -DVGA_TEST_MEMORY=test_vga test_vga.c vga.c string.c
 run kprintf             0   test_kprintf.c kprintf.c string.c
 run fichiers 0 test_fs.c fs.c pmm.c kheap.c string.c
 
@@ -55,7 +56,18 @@ mkdir -p "$B/real/etc" "$B/real/docs/a/b"
 printf 'Bonjour\n' > "$B/real/etc/motd"; printf 'salut\n' > "$B/real/hello.txt"; printf 'profond\n' > "$B/real/docs/a/b/c.txt"
 tar --format=ustar --owner=0 --group=0 --numeric-owner -cf "$B/real.tar" -C "$B/real" .
 run initrd 0 test_initrd.c initrd.c fs.c pmm.c kheap.c string.c
-SH="test_shell.c shell.c cmdline.c kprintf.c pmm.c kheap.c string.c fs.c initrd.c"
+run stockage 0 test_storage.c persist.c ata.c crc32.c tarw.c initrd.c fs.c pmm.c kheap.c string.c
+if [ -f "$B/src/../snapshot.tar" ] || [ -f "$B/snapshot.tar" ]; then
+    printf '== tar-reel\n'
+    if tar tvf "$B/snapshot.tar" > "$B/snapshot.lst" 2> "$B/snapshot.err" && [ ! -s "$B/snapshot.err" ]; then
+        n=$(wc -l < "$B/snapshot.lst"); echo "  GNU tar relit la sauvegarde PhoenFS : $n elements"
+        mkdir -p "$B/snapx" && tar xf "$B/snapshot.tar" -C "$B/snapx" && [ "$(cat "$B/snapx/dir/sub/b.txt")" = "bravo
+ligne2" ] && echo "  => OK" || { echo "  => ECHEC (contenu extrait different)"; FAILED=1; }
+    else
+        echo "  => ECHEC : tar refuse l'archive"; cat "$B/snapshot.err"; FAILED=1
+    fi
+fi
+SH="test_shell.c shell.c cmdline.c kprintf.c pmm.c kheap.c string.c fs.c initrd.c persist.c ata.c crc32.c tarw.c"
 run shell-session       0   -DMODE=0 $SH
 run shell-crash-panic   100 -DMODE=1 $SH
 run shell-crash-assert  100 -DMODE=2 $SH
@@ -69,7 +81,7 @@ for c in $cmds; do
     grep -q "^== $c " "$ROOT/initrd/docs/manuel.txt" || { echo "  commande sans page de manuel : $c"; FAILED=1; }
 done
 for c in $(sed -n 's/^== \([a-z]*\) .*/\1/p' "$ROOT/initrd/docs/manuel.txt"); do
-    case " $cmds general fichiers " in *" $c "*) ;; *) echo "  page de manuel sans commande : $c"; FAILED=1;; esac
+    case " $cmds general fichiers stockage " in *" $c "*) ;; *) echo "  page de manuel sans commande : $c"; FAILED=1;; esac
 done
 echo "  manuel verifie : $(echo $cmds | wc -w) commandes documentees"
 

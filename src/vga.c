@@ -7,10 +7,29 @@
 
 #define VGA_WIDTH   80
 #define VGA_HEIGHT  25
+#ifdef VGA_TEST_MEMORY                          /* les tests fournissent une fausse mémoire vidéo */
+extern volatile u16 VGA_TEST_MEMORY[VGA_WIDTH * VGA_HEIGHT];
+#define VGA_MEMORY  VGA_TEST_MEMORY
+#else
 #define VGA_MEMORY  ((volatile u16 *)0xB8000)
+#endif
 
 #define VGA_CRTC_INDEX 0x3D4
 #define VGA_CRTC_DATA  0x3D5
+
+#define SCROLLBACK_LINES 500                    /* lignes conservées au-dessus de l'écran */
+
+/*
+ * L'écran « vivant » est d'abord dessiné dans `live` (copie en RAM), puis recopié dans la
+ * mémoire vidéo. Les lignes qui sortent par le haut vont dans `ring` (tampon circulaire).
+ * Pour remonter dans l'historique, on affiche une fenêtre sur ring + live ; toute écriture
+ * ramène automatiquement en bas.
+ */
+static u16 live[VGA_HEIGHT][VGA_WIDTH];
+static u16 ring[SCROLLBACK_LINES][VGA_WIDTH];
+static usize ring_count;                        /* lignes valides dans le tampon (<= SCROLLBACK_LINES) */
+static usize ring_head;                         /* indice où écrire la prochaine ligne */
+static usize view_offset;                       /* 0 = en bas ; sinon nombre de lignes remontées */
 
 static usize row, col;
 static u8 color;
@@ -24,10 +43,69 @@ static void cursor_update(void)
 {
     u16 pos = (u16)(row * VGA_WIDTH + col);
 
+    if (view_offset)
+        pos = VGA_WIDTH * VGA_HEIGHT;           /* hors écran : le curseur disparaît pendant la lecture */
     outb(VGA_CRTC_INDEX, 14);
     outb(VGA_CRTC_DATA, (u8)(pos >> 8));
     outb(VGA_CRTC_INDEX, 15);
     outb(VGA_CRTC_DATA, (u8)(pos & 0xFF));
+}
+
+/* Ligne virtuelle i : 0 = la plus ancienne conservée ... ring_count-1, puis les 25 lignes de l'écran. */
+static const u16 *virtual_line(usize i)
+{
+    if (i < ring_count)
+        return ring[(ring_head + SCROLLBACK_LINES - ring_count + i) % SCROLLBACK_LINES];
+    return live[i - ring_count];
+}
+
+static void redraw(void)
+{
+    usize first = ring_count - view_offset;     /* première ligne virtuelle affichée */
+
+    for (usize y = 0; y < VGA_HEIGHT; y++) {
+        const u16 *line = virtual_line(first + y);
+
+        for (usize x = 0; x < VGA_WIDTH; x++)
+            VGA_MEMORY[y * VGA_WIDTH + x] = line[x];
+    }
+}
+
+/* Écrit une cellule de l'écran vivant (et à l'écran si on est en bas). */
+static void put_cell(usize y, usize x, u16 value)
+{
+    live[y][x] = value;
+    if (!view_offset)
+        VGA_MEMORY[y * VGA_WIDTH + x] = value;
+}
+
+void vga_scroll_reset(void)
+{
+    if (view_offset) {
+        view_offset = 0;
+        redraw();
+        cursor_update();
+    }
+}
+
+void vga_scroll_view(int lines)
+{
+    long target = (long)view_offset + lines;
+
+    if (target < 0)
+        target = 0;
+    if (target > (long)ring_count)
+        target = (long)ring_count;
+    if ((usize)target == view_offset)
+        return;
+    view_offset = (usize)target;
+    redraw();
+    cursor_update();
+}
+
+usize vga_scrollback_lines(void)
+{
+    return ring_count;
 }
 
 void vga_set_color(enum vga_color fg, enum vga_color bg)
@@ -51,8 +129,11 @@ void vga_set_palette(enum vga_color c, u8 r, u8 g, u8 b)
 
 void vga_clear(void)
 {
-    for (usize i = 0; i < VGA_WIDTH * VGA_HEIGHT; i++)
-        VGA_MEMORY[i] = entry(' ', color);
+    view_offset = 0;
+    for (usize y = 0; y < VGA_HEIGHT; y++)
+        for (usize x = 0; x < VGA_WIDTH; x++)
+            live[y][x] = entry(' ', color);
+    redraw();
     row = col = 0;
     cursor_update();
 }
@@ -60,18 +141,26 @@ void vga_clear(void)
 void vga_init(void)
 {
     vga_set_color(VGA_LIGHT_GREY, VGA_BLACK);
+    ring_count = ring_head = 0;
     vga_clear();
 }
 
 static void scroll(void)
 {
+    /* la ligne du haut part dans l'historique */
+    for (usize x = 0; x < VGA_WIDTH; x++)
+        ring[ring_head][x] = live[0][x];
+    ring_head = (ring_head + 1) % SCROLLBACK_LINES;
+    if (ring_count < SCROLLBACK_LINES)
+        ring_count++;
+
     for (usize y = 1; y < VGA_HEIGHT; y++)
         for (usize x = 0; x < VGA_WIDTH; x++)
-            VGA_MEMORY[(y - 1) * VGA_WIDTH + x] = VGA_MEMORY[y * VGA_WIDTH + x];
-
+            live[y - 1][x] = live[y][x];
     for (usize x = 0; x < VGA_WIDTH; x++)
-        VGA_MEMORY[(VGA_HEIGHT - 1) * VGA_WIDTH + x] = entry(' ', color);
+        live[VGA_HEIGHT - 1][x] = entry(' ', color);
 
+    redraw();                                   /* view_offset vaut 0 ici : on affiche l'écran vivant */
     row = VGA_HEIGHT - 1;
 }
 
@@ -84,6 +173,8 @@ static void newline(void)
 
 void vga_putc(char c)
 {
+    vga_scroll_reset();                         /* écrire ramène en bas */
+
     switch (c) {
     case '\n':
         newline();
@@ -98,11 +189,11 @@ void vga_putc(char c)
             row--;
             col = VGA_WIDTH - 1;
         }
-        VGA_MEMORY[row * VGA_WIDTH + col] = entry(' ', color);
+        put_cell(row, col, entry(' ', color));
         break;
     case '\t':
         do {
-            VGA_MEMORY[row * VGA_WIDTH + col] = entry(' ', color);
+            put_cell(row, col, entry(' ', color));
             if (++col == VGA_WIDTH) {
                 newline();
                 break;
@@ -110,7 +201,7 @@ void vga_putc(char c)
         } while (col % 4);
         break;
     default:
-        VGA_MEMORY[row * VGA_WIDTH + col] = entry(c, color);
+        put_cell(row, col, entry(c, color));
         if (++col == VGA_WIDTH)
             newline();
         break;

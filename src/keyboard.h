@@ -17,8 +17,16 @@
 #define KEY_HOME  0x104
 #define KEY_END   0x105
 #define KEY_DEL   0x106
+#define KEY_PGUP  0x107
+#define KEY_PGDN  0x108
 
 err_t keyboard_init(void);
+
+/*
+ * Console série : un octet reçu sur COM1 est converti en touche (voir keyboard.c). Appelée par le
+ * pilote ; publique pour pouvoir être testée.
+ */
+void keyboard_feed_serial(u8 byte);
 
 /* Renvoie un caractère (0-255) ou une touche spéciale (KEY_*), ou -1 si rien n'est en attente. */
 int keyboard_try_getc(void);

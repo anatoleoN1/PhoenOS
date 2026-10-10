@@ -8,8 +8,10 @@
 #
 # Exécution (QEMU) :
 #   make run          lance l'ISO ; le journal du noyau s'affiche aussi dans le terminal
-#   make serial       idem sans fenêtre graphique (utile sans affichage, ex. WSL Windows 10)
+#   make serial       SANS fenêtre : tout se passe dans ce terminal (clavier compris). Quitter : Ctrl+A puis X.
+#                     Utile sans affichage (WSL, Chromebook) ou si la fenêtre ne reçoit pas le clavier.
 #   make debug        comme run + journal des exceptions CPU dans qemu.log
+#   make newdisk     recree un disque vide disk.img (celui qui garde vos fichiers entre deux lancements)
 #
 # Diagnostic :
 #   make test         tests automatiques (mémoire, shell, clavier AZERTY) sans démarrer l'OS
@@ -23,6 +25,12 @@
 CC      := gcc
 LD      := ld
 QEMU    := qemu-system-i386
+DISK    := disk.img
+DISKMB  := 32
+# Option d'affichage de QEMU : vide = choix automatique. Essayez  make run QEMU_DISPLAY="-display sdl"  (ou gtk)
+# si la fenetre s'affiche mais ne recoit pas le clavier (ex. Chromebook / Linux sous ChromeOS).
+QEMU_DISPLAY :=
+QEMU_DISK := -drive file=$(DISK),format=raw,if=ide,index=0,media=disk
 CFLAGS  := -m32 -std=gnu11 -O2 -g -Wall -Wextra -Werror \
            -ffreestanding -fno-stack-protector -fno-pic -fno-pie \
            -fno-builtin -fno-omit-frame-pointer -fno-tree-loop-distribute-patterns \
@@ -41,10 +49,10 @@ OBJ     := $(patsubst src/%.c,build/%.o,$(SRC_C)) \
            $(patsubst src/%.S,build/%.o,$(SRC_S))
 
 KERNEL  := build/phoenos.bin
-ISO     := phoenos-0.0.7.iso
+ISO     := phoenos-0.0.8b.iso
 TESTS   := test-div0 test-gp test-panic test-assert test-doublefree test-heapcorrupt
 
-.PHONY: all iso run serial debug check symbol test clean $(TESTS)
+.PHONY: all iso run serial debug check symbol test clean newdisk $(TESTS)
 
 all: $(KERNEL)
 
@@ -70,14 +78,15 @@ iso: $(KERNEL)
 	@echo ">> $(ISO) pret"
 
 # -no-reboot : en cas de triple faute, QEMU s'arrête au lieu de redémarrer en boucle.
-run: iso
-	$(QEMU) -cdrom $(ISO) -serial stdio -no-reboot
+run: iso $(DISK)
+	$(QEMU) $(QEMU_DISK) $(QEMU_DISPLAY) -cdrom $(ISO) -serial stdio -no-reboot
 
-serial: iso
-	$(QEMU) -cdrom $(ISO) -display none -serial stdio -no-reboot
+serial: iso $(DISK)
+	$(QEMU) $(QEMU_DISK) -display none -cdrom $(ISO) -no-reboot \
+	    -chardev stdio,id=con,mux=on,signal=off -serial chardev:con -mon chardev=con
 
-debug: iso
-	$(QEMU) -cdrom $(ISO) -serial stdio -no-reboot -d int,cpu_reset -D qemu.log
+debug: iso $(DISK)
+	$(QEMU) $(QEMU_DISK) -cdrom $(ISO) -serial stdio -no-reboot -d int,cpu_reset -D qemu.log
 	@echo ">> Journal QEMU : qemu.log (chercher : grep -n 'v=0\|Triple' qemu.log)"
 
 test:
@@ -95,6 +104,16 @@ $(TESTS): test-%:
 	$(MAKE) clean
 	-$(MAKE) run EXTRA_CFLAGS=-DTEST_$(shell echo $* | tr a-z A-Z)
 	$(MAKE) clean
+
+# Disque virtuel de PhoenOS (vide au départ) : conservé par `make clean` pour ne pas perdre vos fichiers.
+$(DISK):
+	truncate -s $(DISKMB)M $(DISK)
+	@echo ">> $(DISK) cree ($(DISKMB) Mio) : dans PhoenOS, tapez  format oui  une fois"
+
+# Repart d'un disque vide (ATTENTION : efface tout ce que PhoenOS y avait enregistre).
+newdisk:
+	rm -f $(DISK)
+	$(MAKE) $(DISK)
 
 clean:
 	rm -rf build $(ISO) qemu.log

@@ -1,6 +1,6 @@
-# Manuel de PhoenOS 0.0.7
+# Manuel de PhoenOS 0.0.8
 
-> Ce document est généré à partir de `initrd/docs/manuel.txt` (lisible dans PhoenOS avec `man`).
+> Généré à partir de `initrd/docs/manuel.txt` (lisible dans PhoenOS avec `man`).
 
 ```
 Tapez  man            pour la liste des sujets,
@@ -11,13 +11,13 @@ Les commandes de PhoenOS ressemblent a celles d'Unix mais ne sont PAS identiques
 chaque page indique ce qui differe. Les options se placent juste apres le nom de la
 commande, une lettre par option, et se combinent (-rp = -r -p). Une option inconnue
 affiche la ligne "usage". Pas d'options longues (--exemple).
-
 ```
 
 ## Sommaire
 
 - [`general`](#general) — ligne de commande, touches, redirection
 - [`fichiers`](#fichiers) — le systeme de fichiers en RAM
+- [`stockage`](#stockage) — disque et sauvegarde
 - [`help`](#help) — rappel rapide d'une commande
 - [`man`](#man) — ce manuel
 - [`clear`](#clear) — efface l'ecran
@@ -46,18 +46,30 @@ affiche la ligne "usage". Pas d'options longues (--exemple).
 - [`tree`](#tree) — arborescence
 - [`df`](#df) — occupation du systeme de fichiers
 - [`hexdump`](#hexdump) — affiche un fichier en hexadecimal
+- [`disks`](#disks) — disques et etat du stockage
+- [`format`](#format) — prepare le disque pour PhoenOS
+- [`save`](#save) — enregistre les fichiers sur le disque
+- [`load`](#load) — relit la sauvegarde du disque
 - [`echo`](#echo) — affiche du texte
-
 
 ## general
 
 *ligne de commande, touches, redirection*
+
 ```
 Saisie
   Fleches haut/bas   historique (16 commandes) ; la saisie en cours est conservee
   Tab                complete une commande (1er mot) ou un chemin (mots suivants)
   Ctrl+C             abandonne la ligne        Ctrl+U   l'efface
   Ctrl+L             efface l'ecran, garde la ligne
+  PageHaut/PageBas   remontent / redescendent dans l'historique de l'ecran (500 lignes,
+                     12 par appui) ; toute autre touche, ou toute sortie, ramene en bas
+Console serie (sans fenetre)
+  Avec "make serial" (ou "-serial stdio" sous QEMU), le terminal ou tourne QEMU sert de
+  clavier ET d'ecran : tout ce que PhoenOS affiche y est recopie, et les touches tapees dans
+  ce terminal sont lues comme celles du clavier (Entree, Retour arriere, Tab, fleches,
+  PageHaut/Bas, Suppr, Ctrl+C/L/U, lettres accentuees). "make serial" : Ctrl+A puis X quitte QEMU.
+  Dans ce mode le defilement de l'ecran est celui de votre terminal (molette, Maj+PageHaut).
 Guillemets
   "a  b" regroupe plusieurs mots en un seul argument : echo "a   b" c
   Maximum 8 arguments par commande.
@@ -79,15 +91,40 @@ Differences avec Unix : pas de droits, de dates ni de proprietaires ; pas de fic
 ## fichiers
 
 *le systeme de fichiers en RAM*
+
 ```
   Au demarrage, GRUB charge l'initrd (dossier initrd/ du projet) dans le systeme de
-  fichiers. Ce que vous creez ensuite est PERDU a l'extinction (pas de disque encore).
+  fichiers. Les fichiers vivent en memoire : sans disque, ils sont PERDUS a l'extinction.
+  Avec un disque PhoenOS (voir "stockage"), ils sont enregistres puis relus au demarrage.
   Limites : fichiers 1 Mio, 4096 elements, 32 niveaux de dossiers.
+```
+
+## stockage
+
+*disque et sauvegarde*
+
+```
+  PhoenOS peut garder vos fichiers sur un disque ATA/IDE (QEMU : disk.img, cree par
+  "make run" ; VirtualBox : ajouter un disque IDE).
+  Mise en route, une seule fois : tapez  disks  puis  format oui.
+  Ensuite : save enregistre, load relit ; shutdown, reboot et halt enregistrent tout seuls
+  les modifications. Au demarrage, la derniere sauvegarde est relue AUTOMATIQUEMENT
+  par-dessus les fichiers de l'initrd (vos fichiers gagnent sur ceux de l'initrd).
+  Consequence : apres une mise a jour de PhoenOS, un fichier de l'initrd que vous aviez
+  modifie ou enregistre garde son ancienne version ; "make newdisk" repart d'un disque vide.
+  Un fichier SUPPRIME qui venait de l'initrd reapparait au demarrage suivant.
+  Securite : la sauvegarde alterne entre deux emplacements du disque (A et B) et ne valide
+  le nouveau qu'une fois entierement ecrit ; une coupure de courant pendant l'ecriture
+  laisse l'ancienne sauvegarde intacte. Chaque sauvegarde est protegee par une somme de
+  controle (CRC32) ; si la plus recente est abimee, la precedente est utilisee.
+  Limites : 8 Mio de fichiers au plus (tar), disques jusqu'a 128 Gio, un seul disque,
+  pas de partitions (le disque entier est reserve a PhoenOS).
 ```
 
 ## help
 
 *rappel rapide d'une commande*
+
 ```
   Syntaxe : help [commande]
   Sans argument : liste toutes les commandes par groupe. Avec un nom : sa syntaxe en
@@ -97,6 +134,7 @@ Differences avec Unix : pas de droits, de dates ni de proprietaires ; pas de fic
 ## man
 
 *ce manuel*
+
 ```
   Syntaxe : man [sujet]
   Sans argument : liste des sujets. Avec un sujet : sa page.
@@ -106,6 +144,7 @@ Differences avec Unix : pas de droits, de dates ni de proprietaires ; pas de fic
 ## clear
 
 *efface l'ecran*
+
 ```
   Syntaxe : clear        (Ctrl+L fait pareil sans perdre la ligne en cours)
 ```
@@ -113,6 +152,7 @@ Differences avec Unix : pas de droits, de dates ni de proprietaires ; pas de fic
 ## version
 
 *version et date de compilation*
+
 ```
   Syntaxe : version
 ```
@@ -120,6 +160,7 @@ Differences avec Unix : pas de droits, de dates ni de proprietaires ; pas de fic
 ## uptime
 
 *temps depuis le demarrage*
+
 ```
   Syntaxe : uptime
   Affiche heures, minutes, secondes et le nombre de ticks (100 par seconde).
@@ -128,6 +169,7 @@ Differences avec Unix : pas de droits, de dates ni de proprietaires ; pas de fic
 ## mem
 
 *etat de la memoire*
+
 ```
   Syntaxe : mem
   Memoire physique detectee / libre, taille du tas du noyau, blocs utilises et libres.
@@ -136,6 +178,7 @@ Differences avec Unix : pas de droits, de dates ni de proprietaires ; pas de fic
 ## memtest
 
 *teste le tas*
+
 ```
   Syntaxe : memtest [Kio]
   Alloue un bloc (64 Kio par defaut, de 1 a 4096), y ecrit 4 motifs (00, FF, AA, 55), les
@@ -146,6 +189,7 @@ Differences avec Unix : pas de droits, de dates ni de proprietaires ; pas de fic
 ## sleep
 
 *attend*
+
 ```
   Syntaxe : sleep <ms>
   Difference : l'argument est en MILLISECONDES (pas en secondes). Maximum 60000.
@@ -155,6 +199,7 @@ Differences avec Unix : pas de droits, de dates ni de proprietaires ; pas de fic
 ## colors
 
 *les 16 couleurs du mode texte*
+
 ```
   Syntaxe : colors
 ```
@@ -162,6 +207,7 @@ Differences avec Unix : pas de droits, de dates ni de proprietaires ; pas de fic
 ## dmesg
 
 *journal du noyau*
+
 ```
   Syntaxe : dmesg
   Rejoue tout ce que le noyau a ecrit depuis le demarrage (les 8 derniers Kio).
@@ -171,6 +217,7 @@ Differences avec Unix : pas de droits, de dates ni de proprietaires ; pas de fic
 ## history
 
 *commandes precedentes*
+
 ```
   Syntaxe : history
   Les 16 dernieres, de la plus ancienne a la plus recente. Utilisez les fleches pour les rappeler.
@@ -179,6 +226,7 @@ Differences avec Unix : pas de droits, de dates ni de proprietaires ; pas de fic
 ## crash
 
 *provoque une erreur (pour voir l'ecran d'erreur)*
+
 ```
   Syntaxe : crash <type>
   Types : div0 (division par zero), gp (faute de protection), ud (instruction invalide),
@@ -190,29 +238,37 @@ Differences avec Unix : pas de droits, de dates ni de proprietaires ; pas de fic
 ## reboot
 
 *redemarre*
+
 ```
   Syntaxe : reboot
+  Enregistre d'abord les fichiers modifies si un disque PhoenOS est pret (message
+  "Sauvegarde des fichiers sur le disque... ok").
   Sous "make run" (QEMU lance avec -no-reboot) cela quitte QEMU au lieu de redemarrer.
 ```
 
 ## shutdown
 
 *eteint la machine*
+
 ```
   Syntaxe : shutdown
+  Enregistre d'abord les fichiers modifies si un disque PhoenOS est pret.
   Fonctionne sous QEMU et VirtualBox. Sur un vrai PC : arret du processeur seulement.
 ```
 
 ## halt
 
 *arrete le processeur*
+
 ```
   Syntaxe : halt
+  Enregistre d'abord les fichiers modifies si un disque PhoenOS est pret.
 ```
 
 ## ls
 
 *liste un dossier*
+
 ```
   Syntaxe : ls [-l] [chemin]
   Options :
@@ -226,6 +282,7 @@ Differences avec Unix : pas de droits, de dates ni de proprietaires ; pas de fic
 ## cat
 
 *affiche des fichiers*
+
 ```
   Syntaxe : cat [-n] <fichier>...
   Options :
@@ -238,6 +295,7 @@ Differences avec Unix : pas de droits, de dates ni de proprietaires ; pas de fic
 ## cd
 
 *change de dossier*
+
 ```
   Syntaxe : cd [dossier]
   Sans argument : retourne a la racine / (et non a un "dossier personnel").
@@ -247,6 +305,7 @@ Differences avec Unix : pas de droits, de dates ni de proprietaires ; pas de fic
 ## pwd
 
 *dossier courant*
+
 ```
   Syntaxe : pwd
 ```
@@ -254,6 +313,7 @@ Differences avec Unix : pas de droits, de dates ni de proprietaires ; pas de fic
 ## mkdir
 
 *cree des dossiers*
+
 ```
   Syntaxe : mkdir [-p] <dossier>...
   Options :
@@ -264,6 +324,7 @@ Differences avec Unix : pas de droits, de dates ni de proprietaires ; pas de fic
 ## touch
 
 *cree des fichiers vides*
+
 ```
   Syntaxe : touch <fichier>...
   Difference : ne fait que creer (pas de dates a mettre a jour) ; un fichier existant
@@ -273,6 +334,7 @@ Differences avec Unix : pas de droits, de dates ni de proprietaires ; pas de fic
 ## rm
 
 *supprime*
+
 ```
   Syntaxe : rm [-r] <chemin>...
   Options :
@@ -285,6 +347,7 @@ Differences avec Unix : pas de droits, de dates ni de proprietaires ; pas de fic
 ## rmdir
 
 *supprime des dossiers vides*
+
 ```
   Syntaxe : rmdir <dossier>...
   Erreur "dossier non vide" sinon (utilisez rm -r).
@@ -293,6 +356,7 @@ Differences avec Unix : pas de droits, de dates ni de proprietaires ; pas de fic
 ## cp
 
 *copie un fichier*
+
 ```
   Syntaxe : cp <source> <destination>
   Si la destination est un dossier, le fichier y est copie sous le meme nom ; si c'est
@@ -304,6 +368,7 @@ Differences avec Unix : pas de droits, de dates ni de proprietaires ; pas de fic
 ## mv
 
 *deplace ou renomme*
+
 ```
   Syntaxe : mv <source> <destination>
   Destination = dossier existant : on y deplace. Sinon : renommage. Une destination qui
@@ -314,6 +379,7 @@ Differences avec Unix : pas de droits, de dates ni de proprietaires ; pas de fic
 ## tree
 
 *arborescence*
+
 ```
   Syntaxe : tree [-d] [dossier]
   Options :
@@ -325,15 +391,17 @@ Differences avec Unix : pas de droits, de dates ni de proprietaires ; pas de fic
 ## df
 
 *occupation du systeme de fichiers*
+
 ```
   Syntaxe : df
-  Nombre de fichiers, de dossiers, octets de contenu et limites. Pas de disques : tout
-  est en RAM.
+  Nombre de fichiers, de dossiers, octets de contenu et limites, puis l'etat du disque
+  (aucun / non formate / pret, avec "modifications non enregistrees" le cas echeant).
 ```
 
 ## hexdump
 
 *affiche un fichier en hexadecimal*
+
 ```
   Syntaxe : hexdump <fichier> [octets]
   Affiche les 256 premiers octets par defaut (ou le nombre demande) : decalage, 16 octets
@@ -342,9 +410,58 @@ Differences avec Unix : pas de droits, de dates ni de proprietaires ; pas de fic
   Exemples : hexdump hello.txt    hexdump hello.txt 1000
 ```
 
+## disks
+
+*disques et etat du stockage*
+
+```
+  Syntaxe : disks
+  Liste les peripheriques ATA trouves (canal, maitre/esclave, nom, taille en Mio) ; les
+  lecteurs de CD sont indiques "non utilisable". Termine par l'etat du stockage PhoenOS :
+  aucun disque / non formate / pret (generation, taille, modifications en attente).
+  Voir aussi : stockage.
+```
+
+## format
+
+*prepare le disque pour PhoenOS*
+
+```
+  Syntaxe : format oui
+  Ecrit une sauvegarde vide dans les deux emplacements du disque. A faire une fois par
+  disque neuf. Le mot "oui" est obligatoire (protection contre une faute de frappe).
+  ATTENTION : sur un disque deja formate, EFFACE la sauvegarde existante.
+  Si le premier secteur du disque contient deja autre chose que du PhoenFS, la commande
+  refuse : "format oui oui" force l'effacement. Difference avec Unix : pas de choix de
+  systeme de fichiers ni de partition ; le disque entier est utilise.
+```
+
+## save
+
+*enregistre les fichiers sur le disque*
+
+```
+  Syntaxe : save
+  Ecrit tout le systeme de fichiers dans l'emplacement le plus ancien du disque, puis le
+  valide. Erreur si le disque n'est pas pret, ou si les fichiers depassent 8 Mio.
+  Pas d'equivalent direct sous Unix (sync ecrit des caches, pas une sauvegarde complete).
+```
+
+## load
+
+*relit la sauvegarde du disque*
+
+```
+  Syntaxe : load
+  Relit la derniere sauvegarde valide PAR-DESSUS les fichiers actuels : les fichiers de meme
+  nom sont remplaces, les autres restent (rien n'est supprime). Utile pour annuler des
+  modifications non enregistrees d'un fichier (cat, puis load).
+```
+
 ## echo
 
 *affiche du texte*
+
 ```
   Syntaxe : echo [-n] [texte...]
   Options :

@@ -43,6 +43,10 @@ struct fs_stats {
 #define FS_RM_DIR_OK    1           /* accepte de supprimer un dossier (vide) */
 #define FS_RM_RECURSIVE 2           /* supprime aussi le contenu des dossiers */
 
+/* Compteur qui augmente à chaque modification (création, écriture, suppression, déplacement) :
+ * permet de savoir si une sauvegarde est nécessaire. */
+u32 fs_version(void);
+
 /* (Ré)initialise : arbre vide avec seulement la racine "/" ; dossier courant = racine. */
 void fs_init(void);
 

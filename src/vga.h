@@ -19,4 +19,13 @@ void vga_clear(void);
 void vga_putc(char c);
 void vga_puts(const char *s);
 
+/*
+ * Historique de l'écran : les 500 dernières lignes sorties par le haut sont conservées.
+ * vga_scroll_view(+n) remonte de n lignes, (-n) redescend ; vga_scroll_reset() revient en bas
+ * (et toute écriture le fait aussi). vga_scrollback_lines() : lignes disponibles au-dessus.
+ */
+void vga_scroll_view(int lines);
+void vga_scroll_reset(void);
+usize vga_scrollback_lines(void);
+
 #endif
