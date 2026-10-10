@@ -96,6 +96,25 @@ void pmm_init(const struct multiboot_info *mbi)
     if (mbi->flags & MB_FLAG_MMAP)
         reserve_range(mbi->mmap_addr, mbi->mmap_addr + mbi->mmap_length);
 
+    /*
+     * Modules (initrd) : GRUB les place dans la mémoire "disponible", juste après le noyau.
+     * Sans cette réservation, le tas les écraserait avant qu'on ait pu les lire.
+     */
+    if (mbi->flags & MB_FLAG_MODS) {
+        const struct multiboot_module *mod = (const struct multiboot_module *)mbi->mods_addr;
+        u32 count = mbi->mods_count;
+
+        if (count > 16)
+            count = 16;                         /* GRUB n'en fournit pas autant : valeur absurde */
+        reserve_range(mbi->mods_addr, mbi->mods_addr + count * (u32)sizeof(*mod));
+        for (u32 i = 0; i < count; i++) {
+            if (mod[i].mod_end > mod[i].mod_start)
+                reserve_range(mod[i].mod_start, mod[i].mod_end);
+            if (mod[i].string)
+                reserve_range(mod[i].string, mod[i].string + 256);
+        }
+    }
+
     if (free_count == 0)
         PANIC("Aucune memoire libre apres l'initialisation du gestionnaire physique");
 }
@@ -153,14 +172,14 @@ void pmm_free_frame(u32 addr)
     u32 f = addr >> 12;
 
     if (addr & (PMM_FRAME_SIZE - 1))
-        PANIC("pmm_free_frame(%x) : adresse non alignee sur une frame", addr);
+        PANIC("pmm_free_frame(%#x) : adresse non alignee sur une frame", addr);
     if (f >= frame_count)
-        PANIC("pmm_free_frame(%x) : adresse hors de la memoire geree", addr);
+        PANIC("pmm_free_frame(%#x) : adresse hors de la memoire geree", addr);
     if (addr < LOW_MEMORY ||
         (addr + PMM_FRAME_SIZE > (u32)kernel_start && addr < (u32)kernel_end))
-        PANIC("pmm_free_frame(%x) : tentative de liberer une frame reservee", addr);
+        PANIC("pmm_free_frame(%#x) : tentative de liberer une frame reservee", addr);
     if (!bit_test(f))
-        PANIC("Double liberation de la frame %x", addr);
+        PANIC("Double liberation de la frame %#x", addr);
 
     bit_clear(f);
     free_count++;

@@ -16,6 +16,8 @@
 #include "power.h"
 #include "panic.h"
 #include "shell.h"
+#include "fs.h"
+#include "initrd.h"
 
 #ifndef MODE
 #define MODE 0
@@ -111,8 +113,8 @@ void power_halt(void)     { out("  halt appele\n"); exit_now(3); }
 static void verify(void)
 {
 #if MODE == 0
-    CHECK(count("phoenos> ") > 20);
-    CHECK(count("Commandes disponibles") == 2);                 /* help, puis he<Tab> */
+    CHECK(count("phoenos:/> ") > 20);
+    CHECK(count("Commandes (Tab complete") == 3);                 /* help, puis he<Tab> */
     CHECK(count("\na   b c\n") == 1);                           /* guillemets */
     CHECK(count("Commande inconnue : foo") == 1);
     CHECK(count("usage : sleep <millisecondes>") == 1);
@@ -135,11 +137,31 @@ static void verify(void)
     CHECK(count("  1  sleep 250") == 0 || count("  1  ") >= 1); /* history : numerotation */
     CHECK(count("gris clair") == 1 && count("blanc") == 1);     /* colors */
     CHECK(count(" 10   vert clair") == 1);                      /* %2d correct dans colors */
-    CHECK(count("PhoenOS 0.0.5") == 1);                         /* version */
+    CHECK(count("PhoenOS 0.0.6") == 1);                         /* version */
+    CHECK(count("PANIQUE") == 0);
+
+    /* ---- fichiers ---- */
+    CHECK(count("\n/a\n") == 1);                               /* pwd apres cd /a */
+    CHECK(count("phoenos:/a> ") >= 8 && count("phoenos:/a/b> ") == 1);   /* le prompt suit le dossier */
+    CHECK(count("\nhello\nmore\n") == 2);                      /* cat apres > puis >> (et cat de g.txt) */
+    CHECK(count("mkdir: /a: existe deja") == 1);
+    CHECK(count("cat: nofile: introuvable") == 1);
+    CHECK(count("-       11  f.txt") == 1 && count("d        -  b/") == 1);   /* ls -l */
+    CHECK(count("\n> x\n") == 1);                              /* echo ">" x : pas une redirection */
+    CHECK(count("Redirection invalide") == 1);
+    CHECK(count("redirection: /nodir/z: introuvable") == 1);
+    CHECK(count("rm: /a/b: est un dossier") == 1);
+    CHECK(count("rmdir: a: dossier non vide") == 1);
+    CHECK(count("b/  f.txt  g.txt  ") == 1);                    /* ls apres cp */
+    CHECK(count("cat g.txt \n") == 1);                          /* Tab complete g<Tab> en g.txt */
+    CHECK(count("00000000  68 65 6c 6c 6f") == 1 && count("... 6 octet(s) de plus") == 1);   /* hexdump */
+    CHECK(count("2 dossier(s), 2 fichier(s)") == 1);            /* tree / */
+    CHECK(count("Redirection : commande") == 3);                /* help, puis cat h.txt (help redirige) */
+    CHECK(count("Commandes (Tab complete") == 3);               /* help redirige + cat : sortie bien capturee */
     CHECK(count("PANIQUE") == 0);
 
     /* après `dmesg` : tout le journal rejoué une seconde fois */
-    CHECK(count_end("Commandes disponibles") == 4);
+    CHECK(count_end("Commandes (Tab complete") == 6);
     CHECK(count_end("\ndeux\n") == 4);
     CHECK(count_end("Redemarrage...") == 1);
     if (test_fails) {
@@ -164,12 +186,13 @@ int test_main(void)
     M.e[0] = (struct multiboot_mmap_entry){ 20, (u32)fake_ram, 0, sizeof fake_ram, 0, MB_MMAP_AVAILABLE };
     pmm_init(&M.mbi);
     kheap_init();
+    fs_init();
 
 #if MODE == 0
     type("help\n");
     type("echo \"a   b\"  c\n");
     type("foo\n");
-    type("he\t\n");                                             /* Tab complete en "help " */
+    type("hel\t\n");                                             /* Tab complete en "help " */
     type("sleep abc\n");
     type("sleep 250\n");
     type("sleep 70000\n");
@@ -194,6 +217,33 @@ int test_main(void)
     type("history\n");
     type("colors\n");
     type("version\n");
+    type("mkdir -p /a/b\n");
+    type("cd /a\n");
+    type("pwd\n");
+    type("echo hello > f.txt\n");
+    type("cat f.txt\n");
+    type("echo more >> f.txt\n");
+    type("cat f.txt\n");
+    type("ls -l\n");
+    type("cd b\n");
+    type("cd ..\n");
+    type("mkdir /a\n");
+    type("cat nofile\n");
+    type("echo \">\" x\n");
+    type("echo a > b > c\n");
+    type("echo hi > /nodir/z\n");
+    type("rm /a/b\n");
+    type("cd /\n");
+    type("rmdir a\n");
+    type("cp /a/f.txt /a/g.txt\n");
+    type("cd a\n");
+    type("ls\n");
+    type("cat g.\t\n");
+    type("hexdump f.txt 5\n");
+    type("cd /\n");
+    type("tree /\n");
+    type("help > h.txt\n");
+    type("cat h.txt\n");
     snapshot_at = nkeys;
     type("dmesg\n");
     type("reboot\n");

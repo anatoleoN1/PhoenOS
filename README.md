@@ -1,7 +1,7 @@
 # PhoenOS
 
 Système d'exploitation x86 écrit en C : léger, efficace, gratuit.
-Version actuelle : **0.0.5** (mini-shell interactif, historique, tests automatiques).
+Version actuelle : **0.0.6** (système de fichiers en RAM, initrd chargé par GRUB, redirection `>` / `>>`).
 
 ## Prérequis (Debian / Ubuntu, machine x86_64 ou WSL sous Windows)
 
@@ -29,7 +29,7 @@ make clean
 Pour tester sur une vraie machine : écrire `PhoenOS.iso` sur une clé USB
 (`sudo dd if=PhoenOS.iso of=/dev/sdX bs=4M status=progress`, en vérifiant bien `sdX`).
 
-## Ce qu'on doit voir au démarrage (v0.0.5)
+## Ce qu'on doit voir au démarrage (v0.0.6)
 
 Des lignes `[ OK ]` pour : VGA + port série, Multiboot, GDT, IDT/PIC/timer/clavier,
 exceptions (point d'arrêt traité), **mémoire physique, tas du noyau et leurs auto-tests**,
@@ -73,9 +73,26 @@ Limites connues : un débordement de pile est détecté après coup (canari test
 timer) mais peut provoquer une triple faute avant ; la protection complète demande un TSS dédié
 pour la double faute (prévu plus tard).
 
-## Le shell (nouveau en 0.0.5)
+## Fichiers et initrd (nouveau en 0.0.6)
 
-Tapez `help` pour la liste. Commandes : `help`, `clear`, `version`, `uptime`, `mem`, `memtest`,
+Le noyau a un **système de fichiers en RAM** (dossiers, fichiers, chemins absolus ou relatifs,
+`.` et `..`). Au démarrage, GRUB charge `initrd.tar` (le contenu du dossier `initrd/`, empaqueté par
+`make iso`) et le noyau le déverse dans le système de fichiers. Pour ajouter un fichier au démarrage :
+le mettre dans `initrd/` puis `make iso`. Tout ce qui est créé ensuite est **perdu à l'extinction**
+(pas encore de disque). `/etc/motd`, s'il existe, est affiché au démarrage.
+
+Commandes : `ls [-l]`, `cat`, `cd`, `pwd`, `mkdir [-p]`, `touch`, `rm [-r]`, `rmdir`, `cp`, `mv`,
+`tree`, `df`, `hexdump`. Redirection : `echo salut > a.txt`, `help >> doc.txt` (le nom de fichier est le
+dernier mot de la ligne ; `echo ">"` entre guillemets reste un simple texte). Les messages d'erreur
+restent toujours à l'écran. Tab complète aussi les chemins. Limites : noms 31 caractères, fichiers 1 Mio,
+4096 éléments, 32 niveaux. L'archive est lue de façon prudente (checksum, chemins `..` refusés,
+tailles vérifiées) et la mémoire du module est protégée du tas.
+
+**Changement pour développeurs** : `%x` de `kprintf` n'ajoute plus `0x` ; utiliser `%#x` (ou `%#010x`).
+
+## Le shell (0.0.5)
+
+Tapez `help` pour la liste. Commandes système : `help`, `clear`, `version`, `uptime`, `mem`, `memtest`,
 `echo`, `sleep`, `colors`, `dmesg`, `history`, `crash`, `reboot`, `shutdown`, `halt`.
 
 | Touche              | Effet                                                            |
@@ -101,13 +118,13 @@ redémarrages en boucle lors d'un plantage) ; `shutdown` ferme la machine virtue
 ## Tests automatiques
 
 `make test` compile des petits programmes 32 bits qui exécutent le **vrai code du noyau**
-(mémoire, shell, clavier AZERTY, `kprintf`) avec une fausse RAM, de faux scancodes et un écran
+(mémoire, shell, clavier AZERTY, `kprintf`, système de fichiers, lecteur tar avec une vraie archive GNU tar) avec une fausse RAM, de faux scancodes et un écran
 simulé : on vérifie ce qui serait affiché sans démarrer l'OS (quelques secondes). À lancer après
 chaque modification. Ils ne remplacent pas un test dans QEMU : pilotes matériels (VGA, port série,
 timer) et carte mémoire réelle de GRUB ne sont pas couverts.
 
 Les messages de `kprintf` sont vérifiés par le compilateur : un `%d` sans argument, ou un argument
-en trop, est une erreur de compilation. `kprintf` accepte la largeur et les zéros (`%2d`, `%05u`, `%08x`).
+en trop, est une erreur de compilation. `kprintf` accepte la largeur et les zéros (`%2d`, `%05u`, `%08x`), `%-12s` (aligné à gauche) et `%#x` (préfixe 0x).
 
 ## Mémoire (0.0.4)
 
@@ -155,17 +172,20 @@ Pas encore de pagination : le noyau accède directement à la mémoire physique 
 | `src/multiboot.h`    | Structures d'information de GRUB (carte mémoire)        |
 | `src/shell.c`        | Shell : saisie, historique, Tab, commandes              |
 | `src/cmdline.c`      | Découpage de ligne, nombres, historique (testable seul) |
+| `src/fs.c`           | Système de fichiers en RAM (arbre, chemins)             |
+| `src/initrd.c`       | Lecteur d'archives tar → système de fichiers           |
 | `src/power.c`        | `reboot`, `shutdown`, `halt`                            |
 | `src/version.h`      | Nom et numéro de version                                |
 | `tests/`             | Tests automatiques (`make test`)                        |
 | `src/io.h`           | `inb`/`outb`, `cli`/`sti`/`hlt`, sections critiques     |
 | `linker.ld`          | Placement du noyau en mémoire (1 Mio)                   |
 | `iso/boot/grub/`     | Configuration GRUB de l'ISO                             |
+| `initrd/`            | Fichiers présents dans PhoenOS dès le démarrage         |
 
 ## Vision : où va PhoenOS ?
 
 Le noyau actuel est déjà plus avancé que MS-DOS (32 bits, interruptions, segments prêts pour
-le mode utilisateur), mais il n'a pas encore de système de fichiers ni de programmes.
+le mode utilisateur), mais il n'a pas encore de disque ni de programmes.
 L'architecture visée est en couches, chacune posée sur la précédente :
 
 1. noyau : mémoire, interruptions, processus ;
@@ -184,7 +204,7 @@ Chaque étape produit une ISO fonctionnelle.
 4. [x] Traitement d'erreurs (panique, trace d'appel, journal série) et clavier PS/2
 5. [x] Mémoire physique et tas du noyau (`kmalloc`) — *la pagination viendra plus tard*
 6. [x] Mini-shell, historique, complétion, tests automatiques
-7. [ ] Système de fichiers (initrd, puis disque) — *prochaine étape*
+7. [x] Système de fichiers en RAM + initrd (0.0.6) — *le disque (ATA) viendra plus tard*
 8. [ ] Appels système et programmes utilisateur
 9. [ ] Mode graphique (framebuffer) et interface soignée
 10. [ ] Passage en x86_64

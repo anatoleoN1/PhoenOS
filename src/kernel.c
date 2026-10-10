@@ -20,6 +20,8 @@
 #include "string.h"
 #include "version.h"
 #include "shell.h"
+#include "fs.h"
+#include "initrd.h"
 
 #define MULTIBOOT_BOOTLOADER_MAGIC 0x2BADB002
 
@@ -143,6 +145,30 @@ static void run_selected_test(void)
 #endif
 }
 
+/* Charge chaque module GRUB (archive tar) dans le système de fichiers. */
+static void load_initrd(const struct multiboot_info *mbi)
+{
+    const struct multiboot_module *m = (const struct multiboot_module *)(usize)mbi->mods_addr;
+    u32 count = (mbi->flags & MB_FLAG_MODS) ? mbi->mods_count : 0;
+
+    if (count > 16)
+        count = 16;
+    if (count == 0) {
+        status(0, "Pas d'initrd (module GRUB absent) : systeme de fichiers vide");
+        return;
+    }
+    for (u32 i = 0; i < count; i++) {
+        struct initrd_stats st;
+        err_t e = initrd_load((const u8 *)(usize)m[i].mod_start, m[i].mod_end - m[i].mod_start, &st);
+
+        kprintf("       initrd : %u fichier(s), %u dossier(s), %u octets, %u ignore(s)\n",
+                st.files, st.dirs, st.bytes, st.skipped);
+        status(e == E_OK, "Initrd charge dans le systeme de fichiers");
+        if (e != E_OK)
+            klog(LOG_WARN, "initrd : %s", err_str(e));
+    }
+}
+
 void kernel_main(u32 magic, const struct multiboot_info *mbi)
 {
     struct kheap_stats hs;
@@ -158,7 +184,7 @@ void kernel_main(u32 magic, const struct multiboot_info *mbi)
     status(1, "Pilote VGA texte et port serie COM1 initialises");
 
     if (magic != MULTIBOOT_BOOTLOADER_MAGIC)
-        PANIC("Magic Multiboot invalide (%x) : demarrez via GRUB", magic);
+        PANIC("Magic Multiboot invalide (%#x) : demarrez via GRUB", magic);
     ASSERT(mbi != NULL);
     status(1, "Demarre par un bootloader Multiboot");
 
@@ -189,6 +215,10 @@ void kernel_main(u32 magic, const struct multiboot_info *mbi)
     kprintf("       Tas du noyau : %u Kio\n", kheap_size() / 1024);
     status(1, "Tas du noyau initialise (kmalloc / kfree)");
 
+    fs_init();
+    status(1, "Systeme de fichiers en RAM initialise");
+    load_initrd(mbi);
+
     status(selftest_pmm(),  "Auto-test memoire physique");
     status(selftest_heap(), "Auto-test du tas (decoupe et fusion des blocs)");
 
@@ -210,7 +240,18 @@ void kernel_main(u32 magic, const struct multiboot_info *mbi)
     vga_set_color(VGA_LIGHT_CYAN, VGA_BLACK);
     kprintf("help");
     vga_set_color(VGA_LIGHT_GREY, VGA_BLACK);
-    kprintf(" pour la liste des commandes.\n\n");
+    kprintf(" pour la liste des commandes.\n");
+    {
+        struct fs_node *motd;
+
+        if (fs_lookup("/etc/motd", &motd) == E_OK && motd->type == FS_FILE) {
+            vga_set_color(VGA_YELLOW, VGA_BLACK);
+            for (u32 i = 0; i < motd->size; i++)
+                kprintf("%c", motd->data[i]);
+            vga_set_color(VGA_LIGHT_GREY, VGA_BLACK);
+        }
+    }
+    kprintf("\n");
 
     shell_run();
 }

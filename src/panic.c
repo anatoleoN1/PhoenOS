@@ -35,6 +35,7 @@ static volatile int panicking;
 void panic_begin(const char *title)
 {
     cpu_cli();
+    kprintf_redirect(NULL, NULL);               /* la panique s'affiche toujours à l'écran */
 
     if (panicking) {
         /* Panique pendant une panique : on n'essaie plus rien de compliqué. */
@@ -59,7 +60,7 @@ void panic_backtrace(u32 ebp, u32 eip)
     kprintf("\n  Trace d'appel (decoder avec : make symbol ADDR=<adresse>) :\n");
 
     if (eip)
-        kprintf("   #%d  %x  <- instruction courante\n", n++, eip);
+        kprintf("   #%d  %#x  <- instruction courante\n", n++, eip);
 
     /* Remontée de la chaîne des frames (-fno-omit-frame-pointer) */
     while (n < 12) {
@@ -70,7 +71,7 @@ void panic_backtrace(u32 ebp, u32 eip)
         frame = (u32 *)ebp;
         if (frame[1] == 0)
             break;
-        kprintf("   #%d  %x\n", n++, frame[1]);
+        kprintf("   #%d  %#x\n", n++, frame[1]);
         if (frame[0] <= ebp)
             break;
         ebp = frame[0];

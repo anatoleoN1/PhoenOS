@@ -21,12 +21,12 @@ void klog(enum log_level level, const char *fmt, ...)
         level = LOG_ERROR;
 
     vga_set_color(color[level], VGA_BLACK);
-    kprintf("[%u.%u%u%u %s] ", ms / 1000, (ms / 100) % 10, (ms / 10) % 10, ms % 10,
+    keprintf("[%u.%u%u%u %s] ", ms / 1000, (ms / 100) % 10, (ms / 10) % 10, ms % 10,
             tag[level]);
     vga_set_color(VGA_LIGHT_GREY, VGA_BLACK);
 
     va_start(ap, fmt);
-    kvprintf(fmt, ap);
+    kveprintf(fmt, ap);
     va_end(ap);
-    kprintf("\n");
+    keprintf("\n");
 }

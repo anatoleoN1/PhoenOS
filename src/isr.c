@@ -72,7 +72,7 @@ static void describe_cause(const struct regs *r)
         kprintf("  Cause : division par zero ou quotient trop grand\n");
         break;
     case 6:
-        kprintf("  Cause : instruction invalide a l'adresse %x\n", r->eip);
+        kprintf("  Cause : instruction invalide a l'adresse %#x\n", r->eip);
         break;
     case 8:
         kprintf("  Cause : une exception s'est produite pendant le traitement d'une autre\n");
@@ -89,7 +89,7 @@ static void describe_cause(const struct regs *r)
     case 14: {
         u32 cr2;
         __asm__ volatile ("movl %%cr2, %0" : "=r"(cr2));
-        kprintf("  Cause : %s a l'adresse %x (%s)\n",
+        kprintf("  Cause : %s a l'adresse %#x (%s)\n",
                 (e & 2) ? "ecriture" : "lecture", cr2,
                 (e & 1) ? "droits insuffisants" : "page absente");
         break;
@@ -104,12 +104,12 @@ static void panic_exception(const struct regs *r)
     panic_begin("Exception du processeur");
 
     kprintf("  Exception %u : %s\n", r->int_no, exception_names[r->int_no]);
-    kprintf("  Code d'erreur : %x\n", r->err_code);
+    kprintf("  Code d'erreur : %#x\n", r->err_code);
     describe_cause(r);
 
-    kprintf("\n  EAX=%x  EBX=%x  ECX=%x  EDX=%x\n", r->eax, r->ebx, r->ecx, r->edx);
-    kprintf("  ESI=%x  EDI=%x  EBP=%x  ESP=%x\n", r->esi, r->edi, r->ebp, r->esp_pusha);
-    kprintf("  EIP=%x  CS=%x  EFLAGS=%x\n", r->eip, r->cs, r->eflags);
+    kprintf("\n  EAX=%#x  EBX=%#x  ECX=%#x  EDX=%#x\n", r->eax, r->ebx, r->ecx, r->edx);
+    kprintf("  ESI=%#x  EDI=%#x  EBP=%#x  ESP=%#x\n", r->esi, r->edi, r->ebp, r->esp_pusha);
+    kprintf("  EIP=%#x  CS=%#x  EFLAGS=%#x\n", r->eip, r->cs, r->eflags);
 
     if (r->esp_pusha < (u32)stack_bottom || r->esp_pusha > (u32)stack_top)
         kprintf("\n  ATTENTION : ESP hors de la pile du noyau (debordement probable)\n");

@@ -41,7 +41,7 @@ OBJ     := $(patsubst src/%.c,build/%.o,$(SRC_C)) \
            $(patsubst src/%.S,build/%.o,$(SRC_S))
 
 KERNEL  := build/phoenos.bin
-ISO     := phoenos-0.0.5.iso
+ISO     := phoenos-0.0.6.iso
 TESTS   := test-div0 test-gp test-panic test-assert test-doublefree test-heapcorrupt
 
 .PHONY: all iso run serial debug check symbol test clean $(TESTS)
@@ -65,6 +65,7 @@ iso: $(KERNEL)
 	mkdir -p build/isodir/boot/grub
 	cp $(KERNEL) build/isodir/boot/phoenos.bin
 	cp iso/boot/grub/grub.cfg build/isodir/boot/grub/grub.cfg
+	tar --format=ustar --owner=0 --group=0 --numeric-owner -cf build/isodir/boot/initrd.tar -C initrd .
 	grub-mkrescue -o $(ISO) build/isodir
 	@echo ">> $(ISO) pret"
 

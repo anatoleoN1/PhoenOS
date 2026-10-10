@@ -22,7 +22,7 @@ run() {
     if ! (cd "$B/src" && gcc $CF "$@" -o "$B/$name"); then
         echo "  ECHEC de compilation"; FAILED=1; return
     fi
-    "$B/$name"; got=$?
+    (cd "$B" && "./$name"); got=$?
     if [ "$got" -ne "$want" ]; then
         echo "  => ECHEC (code de sortie $got, attendu $want)"; FAILED=1
     else
@@ -39,6 +39,7 @@ fi
 
 run memoire-frames      0   -DMODE=0 test_mem.c pmm.c kheap.c string.c
 run memoire-tas         0   -DMODE=1 test_mem.c pmm.c kheap.c string.c
+run memoire-modules 0 -DMODE=7 test_mem.c pmm.c kheap.c string.c
 run erreur-double-free  100 -DMODE=2 test_mem.c pmm.c kheap.c string.c
 run erreur-debordement  100 -DMODE=3 test_mem.c pmm.c kheap.c string.c
 run erreur-kfree-invalide 100 -DMODE=4 test_mem.c pmm.c kheap.c string.c
@@ -47,7 +48,14 @@ run erreur-frame-reservee 100 -DMODE=6 test_mem.c pmm.c kheap.c string.c
 run shell-cmdline       0   test_cmdline.c cmdline.c string.c
 run clavier-azerty      0   test_keyboard.c keyboard.c string.c
 run kprintf             0   test_kprintf.c kprintf.c string.c
-SH="test_shell.c shell.c cmdline.c kprintf.c pmm.c kheap.c string.c"
+run fichiers 0 test_fs.c fs.c pmm.c kheap.c string.c
+
+# Vraie archive GNU tar (ustar) pour tester le lecteur avec un vrai fichier
+mkdir -p "$B/real/etc" "$B/real/docs/a/b"
+printf 'Bonjour\n' > "$B/real/etc/motd"; printf 'salut\n' > "$B/real/hello.txt"; printf 'profond\n' > "$B/real/docs/a/b/c.txt"
+tar --format=ustar --owner=0 --group=0 --numeric-owner -cf "$B/real.tar" -C "$B/real" .
+run initrd 0 test_initrd.c initrd.c fs.c pmm.c kheap.c string.c
+SH="test_shell.c shell.c cmdline.c kprintf.c pmm.c kheap.c string.c fs.c initrd.c"
 run shell-session       0   -DMODE=0 $SH
 run shell-crash-panic   100 -DMODE=1 $SH
 run shell-crash-assert  100 -DMODE=2 $SH

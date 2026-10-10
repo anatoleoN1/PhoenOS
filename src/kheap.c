@@ -33,7 +33,7 @@ static u32 heap_start, heap_end;
 static void verify_magic(const struct block *b, const char *where)
 {
     if (b->magic != MAGIC_USED && b->magic != MAGIC_FREE)
-        PANIC("Corruption du tas (%s) : en-tete invalide a %x (magic=%x)",
+        PANIC("Corruption du tas (%s) : en-tete invalide a %#x (magic=%#x)",
               where, (u32)b, b->magic);
 }
 
@@ -120,15 +120,15 @@ void kfree(void *ptr)
     if (!ptr)
         return;
     if (p < heap_start + sizeof(struct block) || p >= heap_end || (p & (HEAP_ALIGN - 1)))
-        PANIC("kfree(%x) : pointeur hors du tas ou mal aligne", p);
+        PANIC("kfree(%#x) : pointeur hors du tas ou mal aligne", p);
 
     irq = cpu_irq_save();
     b = (struct block *)ptr - 1;
 
     if (b->magic == MAGIC_FREE)
-        PANIC("Double liberation detectee : kfree(%x)", p);
+        PANIC("Double liberation detectee : kfree(%#x)", p);
     if (b->magic != MAGIC_USED)
-        PANIC("Corruption du tas : en-tete invalide pour kfree(%x) (magic=%x)", p, b->magic);
+        PANIC("Corruption du tas : en-tete invalide pour kfree(%#x) (magic=%#x)", p, b->magic);
 
     b->magic = MAGIC_FREE;
 
@@ -168,9 +168,9 @@ void kheap_check(void)
     for (const struct block *b = heap_first; b; b = b->next) {
         verify_magic(b, "kheap_check");
         if (b->prev != prev)
-            PANIC("Corruption du tas : chainage casse au bloc %x", (u32)b);
+            PANIC("Corruption du tas : chainage casse au bloc %#x", (u32)b);
         if ((u32)b < heap_start || (u32)(b + 1) + b->size > heap_end)
-            PANIC("Corruption du tas : bloc %x hors des bornes (taille %u)", (u32)b, b->size);
+            PANIC("Corruption du tas : bloc %#x hors des bornes (taille %u)", (u32)b, b->size);
         prev = b;
     }
     cpu_irq_restore(irq);

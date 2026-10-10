@@ -133,9 +133,38 @@ static void test_heap(void)
     outnum(n); out(" blocs de 1000 octets alloues puis tout refusionne\n");
 }
 
+/* Les modules GRUB (initrd) ne doivent jamais être donnés par pmm_alloc_frame. */
+static void test_modules(void)
+{
+    u32 base = (u32)fake_ram;
+    struct multiboot_module *mod = (struct multiboot_module *)(base + (5u << 20));
+    char *name = (char *)(base + (6u << 20));
+    u32 m0 = base + (1u << 20), m1 = m0 + 300 * 1024, f, got = 0;
+
+    setup();
+    memcpy(name, "/boot/initrd.tar", 17);
+    mod[0] = (struct multiboot_module){ m0, m1, (u32)name, 0 };
+    M.mbi.flags |= MB_FLAG_MODS;
+    M.mbi.mods_count = 1;
+    M.mbi.mods_addr = (u32)mod;
+    pmm_init(&M.mbi);
+    while ((f = pmm_alloc_frame()) != 0) {
+        got++;
+        CHECK(!(f >= (m0 & ~0xFFFu) && f < m1));                /* corps du module */
+        CHECK(!(f == (u32)mod >> 12 << 12));                    /* tableau des modules */
+        CHECK(!(f == ((u32)name >> 12 << 12)));                 /* nom du module */
+        if (test_fails > 3)
+            break;
+    }
+    CHECK(got > 5000);
+    out("  modules GRUB proteges : "); outnum(got); out(" frames allouees, aucune dans l'initrd\n");
+}
+
 int test_main(void)
 {
-#if MODE == 0
+#if MODE == 7
+    test_modules();
+#elif MODE == 0
     test_pmm();
 #elif MODE == 1
     test_heap();

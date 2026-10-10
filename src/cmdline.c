@@ -6,7 +6,7 @@
 #include "cmdline.h"
 #include "string.h"
 
-int cmdline_split(char *line, char **argv, int max)
+int cmdline_split_ex(char *line, char **argv, int max, u8 *quoted)
 {
     int argc = 0;
     char *p = line;
@@ -20,6 +20,8 @@ int cmdline_split(char *line, char **argv, int max)
             return E_2BIG;
 
         if (*p == '"') {
+            if (quoted)
+                quoted[argc] = 1;
             argv[argc++] = ++p;
             while (*p && *p != '"')
                 p++;
@@ -27,6 +29,8 @@ int cmdline_split(char *line, char **argv, int max)
                 return E_INVAL;                 /* guillemet non fermé */
             *p++ = '\0';
         } else {
+            if (quoted)
+                quoted[argc] = 0;
             argv[argc++] = p;
             while (*p && *p != ' ' && *p != '\t')
                 p++;
@@ -37,6 +41,11 @@ int cmdline_split(char *line, char **argv, int max)
 
     argv[argc] = NULL;
     return argc;
+}
+
+int cmdline_split(char *line, char **argv, int max)
+{
+    return cmdline_split_ex(line, argv, max, NULL);
 }
 
 err_t cmdline_parse_u32(const char *s, u32 *out)

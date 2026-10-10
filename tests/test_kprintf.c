@@ -34,9 +34,14 @@ int test_main(void)
     EXPECT("-2147483648", "%d", (int)0x80000000);                /* INT_MIN */
     EXPECT("2147483647", "%d", 2147483647);
     EXPECT("4294967295", "%u", 0xFFFFFFFFu);
-    EXPECT("0xbeef", "%x", 0xBEEFu);
-    EXPECT("0x0", "%x", 0u);
-    EXPECT("0xffffffff", "%x", 0xFFFFFFFFu);
+    EXPECT("beef", "%x", 0xBEEFu);
+    EXPECT("0", "%x", 0u);
+    EXPECT("ffffffff", "%x", 0xFFFFFFFFu);
+    EXPECT("BEEF", "%X", 0xBEEFu);
+    EXPECT("0xbeef", "%#x", 0xBEEFu);
+    EXPECT("0x0", "%#x", 0u);
+    EXPECT("0x0000beef", "%#010x", 0xBEEFu);
+    EXPECT("0xBEEF", "%#X", 0xBEEFu);
     EXPECT("hi", "%s", "hi");
     EXPECT("(null)", "%s", (char *)0);
     EXPECT("x", "%c", 'x');
@@ -53,11 +58,14 @@ int test_main(void)
     EXPECT("-12345", "%3d", -12345);
     EXPECT("-2147483648", "%5d", (int)0x80000000);
     EXPECT("00042", "%05u", 42u);
-    EXPECT("0x0000beef", "%08x", 0xBEEFu);
+    EXPECT("0000beef", "%08x", 0xBEEFu);
+    EXPECT("ab  |", "%-4s|", "ab");
+    EXPECT("7   |", "%-4d|", 7);
+    EXPECT("  ab|", "%4s|", "ab");
     EXPECT("  ab", "%4s", "ab");
     EXPECT("ab", "%1s", "ab");
     EXPECT("  x", "%3c", 'x');
-    EXPECT("a=1 b=2 c=0x3", "a=%d b=%u c=%x", 1, 2u, 3u);
+    EXPECT("a=1 b=2 c=0x3", "a=%d b=%u c=%#x", 1, 2u, 3u);
 
     /* cas anormaux : ne doivent ni planter ni consommer d'argument */
     EXPECT("%q", "%q");

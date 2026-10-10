@@ -12,6 +12,10 @@
  */
 int cmdline_split(char *line, char **argv, int max);
 
+/* Comme cmdline_split ; quoted[i] vaut 1 si l'argument i était entre guillemets
+ * (utile pour distinguer  echo ">"  de  echo > fichier). quoted peut être NULL. */
+int cmdline_split_ex(char *line, char **argv, int max, u8 *quoted);
+
 /* Convertit "123" ou "0x1F" en nombre. E_INVAL si vide, mal formé ou trop grand. */
 err_t cmdline_parse_u32(const char *s, u32 *out);
 

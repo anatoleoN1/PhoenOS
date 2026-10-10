@@ -1,7 +1,7 @@
 /*
  * PhoenOS - shell.c
  * Shell en ligne de commande : édition de ligne, historique (flèches haut/bas),
- * complétion par Tab, commandes intégrées.
+ * complétion par Tab (commandes et chemins), redirection > et >>, commandes intégrées.
  *
  * Ajouter une commande : écrire `static err_t cmd_xxx(int argc, char **argv)`
  * puis l'inscrire dans la table `commands` plus bas.
@@ -20,14 +20,17 @@
 #include "power.h"
 #include "panic.h"
 #include "string.h"
+#include "fs.h"
 #include "io.h"
 
 #define LINE_MAX 256
 #define MAX_ARGS 8
+#define CAPTURE_MAX (128u * 1024)       /* sortie maximale d'une commande redirigée */
 
 typedef err_t (*cmd_fn)(int argc, char **argv);
 
 struct command {
+    const char *group;
     const char *name;
     const char *usage;      /* arguments, pour l'aide */
     const char *help;
@@ -35,6 +38,9 @@ struct command {
 };
 
 static struct history hist;
+
+/* Vrai pendant une redirection : cat copie alors les octets tels quels. */
+static int raw_output;
 
 /* Prototypes des commandes (la table qui les référence est juste en dessous). */
 static err_t cmd_help(int argc, char **argv);
@@ -52,27 +58,57 @@ static err_t cmd_crash(int argc, char **argv);
 static err_t cmd_reboot(int argc, char **argv);
 static err_t cmd_shutdown(int argc, char **argv);
 static err_t cmd_halt(int argc, char **argv);
+static err_t cmd_ls(int argc, char **argv);
+static err_t cmd_cat(int argc, char **argv);
+static err_t cmd_cd(int argc, char **argv);
+static err_t cmd_pwd(int argc, char **argv);
+static err_t cmd_mkdir(int argc, char **argv);
+static err_t cmd_touch(int argc, char **argv);
+static err_t cmd_rm(int argc, char **argv);
+static err_t cmd_rmdir(int argc, char **argv);
+static err_t cmd_cp(int argc, char **argv);
+static err_t cmd_mv(int argc, char **argv);
+static err_t cmd_tree(int argc, char **argv);
+static err_t cmd_df(int argc, char **argv);
+static err_t cmd_hexdump(int argc, char **argv);
 
 /* ------------------------------------------------------------------ */
 /* Table des commandes (ordre = ordre d'affichage de `help`)           */
 /* ------------------------------------------------------------------ */
 
+#define G_SYS "Systeme"
+#define G_FS  "Fichiers"
+#define G_TXT "Texte"
+
 static const struct command commands[] = {
-    { "help",     "[commande]",  "Liste les commandes ou detaille l'une d'elles",   cmd_help     },
-    { "clear",    "",            "Efface l'ecran (Ctrl+L aussi)",                  cmd_clear    },
-    { "version",  "",            "Version et date de compilation",                 cmd_version  },
-    { "uptime",   "",            "Temps depuis le demarrage",                      cmd_uptime   },
-    { "mem",      "",            "Etat de la memoire physique et du tas",          cmd_mem      },
-    { "memtest",  "[Kio]",       "Teste le tas : ecrit et relit des motifs",       cmd_memtest  },
-    { "echo",     "[texte...]",  "Affiche son texte (\"entre guillemets\" permis)", cmd_echo     },
-    { "sleep",    "<ms>",        "Attend un nombre de millisecondes",              cmd_sleep    },
-    { "colors",   "",            "Affiche les 16 couleurs du mode texte",          cmd_colors   },
-    { "dmesg",    "",            "Rejoue tout le journal du noyau",                cmd_dmesg    },
-    { "history",  "",            "Liste les commandes precedentes",                cmd_history  },
-    { "crash",    "<type>",      "Provoque une erreur : voir l'ecran d'erreur",    cmd_crash    },
-    { "reboot",   "",            "Redemarre la machine",                           cmd_reboot   },
-    { "shutdown", "",            "Eteint la machine (QEMU, VirtualBox)",           cmd_shutdown },
-    { "halt",     "",            "Arrete le processeur",                           cmd_halt     },
+    { G_SYS, "help",     "[commande]",   "Liste les commandes, ou detaille l'une d'elles",  cmd_help     },
+    { G_SYS, "clear",    "",             "Efface l'ecran (Ctrl+L aussi)",                  cmd_clear    },
+    { G_SYS, "version",  "",             "Version et date de compilation",                 cmd_version  },
+    { G_SYS, "uptime",   "",             "Temps depuis le demarrage",                      cmd_uptime   },
+    { G_SYS, "mem",      "",             "Etat de la memoire physique et du tas",          cmd_mem      },
+    { G_SYS, "memtest",  "[Kio]",        "Teste le tas : ecrit et relit des motifs",       cmd_memtest  },
+    { G_SYS, "sleep",    "<ms>",         "Attend un nombre de millisecondes",              cmd_sleep    },
+    { G_SYS, "colors",   "",             "Affiche les 16 couleurs du mode texte",          cmd_colors   },
+    { G_SYS, "dmesg",    "",             "Rejoue tout le journal du noyau",                cmd_dmesg    },
+    { G_SYS, "history",  "",             "Liste les commandes precedentes",                cmd_history  },
+    { G_SYS, "crash",    "<type>",       "Provoque une erreur : voir l'ecran d'erreur",    cmd_crash    },
+    { G_SYS, "reboot",   "",             "Redemarre la machine",                           cmd_reboot   },
+    { G_SYS, "shutdown", "",             "Eteint la machine (QEMU, VirtualBox)",           cmd_shutdown },
+    { G_SYS, "halt",     "",             "Arrete le processeur",                           cmd_halt     },
+    { G_FS,  "ls",       "[-l] [chemin]", "Liste un dossier (-l : type et taille)",        cmd_ls       },
+    { G_FS,  "cat",      "<fichier>...", "Affiche le contenu de fichiers",                 cmd_cat      },
+    { G_FS,  "cd",       "[dossier]",    "Change de dossier (sans argument : /)",          cmd_cd       },
+    { G_FS,  "pwd",      "",             "Affiche le dossier courant",                     cmd_pwd      },
+    { G_FS,  "mkdir",    "[-p] <dossier>...", "Cree des dossiers (-p : avec les parents)", cmd_mkdir    },
+    { G_FS,  "touch",    "<fichier>...", "Cree des fichiers vides",                        cmd_touch    },
+    { G_FS,  "rm",       "[-r] <chemin>...", "Supprime (-r : dossiers et contenu)",        cmd_rm       },
+    { G_FS,  "rmdir",    "<dossier>...", "Supprime des dossiers vides",                    cmd_rmdir    },
+    { G_FS,  "cp",       "<source> <destination>", "Copie un fichier",                     cmd_cp       },
+    { G_FS,  "mv",       "<source> <destination>", "Deplace ou renomme",                   cmd_mv       },
+    { G_FS,  "tree",     "[dossier]",    "Affiche l'arborescence",                         cmd_tree     },
+    { G_FS,  "df",       "",             "Occupation du systeme de fichiers",              cmd_df       },
+    { G_FS,  "hexdump",  "<fichier> [octets]", "Affiche un fichier en hexadecimal",        cmd_hexdump  },
+    { G_TXT, "echo",     "[-n] [texte...]", "Affiche son texte (\"entre guillemets\" permis)", cmd_echo },
 };
 
 #define COMMAND_COUNT ((int)(sizeof(commands) / sizeof(commands[0])))
@@ -87,21 +123,53 @@ static void color(enum vga_color fg)
     vga_set_color(fg, VGA_BLACK);
 }
 
-static void pad(const char *s, usize width)
-{
-    usize n = strlen(s);
-
-    kprintf("%s", s);
-    while (n++ < width)
-        kprintf(" ");
-}
-
 static err_t usage(const char *text)
 {
     color(VGA_YELLOW);
-    kprintf("usage : %s\n", text);
+    keprintf("usage : %s\n", text);
     color(VGA_LIGHT_GREY);
     return E_REPORTED;                          /* déjà expliqué : execute() n'ajoute rien */
+}
+
+/* Erreur de la forme  commande: chemin: cause  (jamais redirigée). */
+static err_t fail_path(const char *cmd, const char *path, err_t e)
+{
+    color(VGA_LIGHT_RED);
+    keprintf("%s: %s: %s\n", cmd, path, err_str(e));
+    color(VGA_LIGHT_GREY);
+    return E_REPORTED;
+}
+
+static err_t fail_msg(const char *msg)
+{
+    color(VGA_LIGHT_RED);
+    keprintf("%s\n", msg);
+    color(VGA_LIGHT_GREY);
+    return E_REPORTED;
+}
+
+/* Options (-r, -p, -l) en tête des arguments : le bit i de *flags correspond à allowed[i]. */
+static err_t parse_flags(int argc, char **argv, const char *allowed, u32 *flags, int *first)
+{
+    int i = 1;
+
+    *flags = 0;
+    for (; i < argc && argv[i][0] == '-' && argv[i][1]; i++) {
+        for (const char *c = argv[i] + 1; *c; c++) {
+            const char *p = allowed;
+            int bit = 0;
+
+            while (*p && *p != *c) {
+                p++;
+                bit++;
+            }
+            if (!*p)
+                return E_INVAL;
+            *flags |= 1u << bit;
+        }
+    }
+    *first = i;
+    return E_OK;
 }
 
 /* ------------------------------------------------------------------ */
@@ -110,27 +178,43 @@ static err_t usage(const char *text)
 
 static err_t cmd_help(int argc, char **argv)
 {
-    const int n = COMMAND_COUNT;
+    static const char *const groups[] = { G_SYS, G_FS, G_TXT };
 
     if (argc >= 2) {
-        for (int i = 0; i < n; i++) {
+        for (int i = 0; i < COMMAND_COUNT; i++) {
             if (strcmp(commands[i].name, argv[1]) == 0) {
                 kprintf("%s %s\n  %s\n", commands[i].name, commands[i].usage, commands[i].help);
                 return E_OK;
             }
         }
-        kprintf("Pas d'aide pour '%s'.\n", argv[1]);
-        return E_REPORTED;
+        return fail_path("help", argv[1], E_NOENT);
     }
 
-    kprintf("Commandes disponibles (Tab complete, fleches haut/bas = historique) :\n\n");
-    for (int i = 0; i < n; i++) {
+    kprintf("Commandes (Tab complete, fleches haut/bas = historique) :\n");
+    for (usize g = 0; g < sizeof(groups) / sizeof(groups[0]); g++) {
+        usize col;
+
+        color(VGA_YELLOW);
+        kprintf(" %-9s", groups[g]);
+        col = 10;
         color(VGA_LIGHT_CYAN);
-        kprintf("  ");
-        pad(commands[i].name, 10);
+        for (int i = 0; i < COMMAND_COUNT; i++) {
+            usize w = strlen(commands[i].name) + 1;
+
+            if (strcmp(commands[i].group, groups[g]) != 0)
+                continue;
+            if (col + w > 79) {
+                kprintf("\n          ");
+                col = 10;
+            }
+            kprintf("%s ", commands[i].name);
+            col += w;
+        }
         color(VGA_LIGHT_GREY);
-        kprintf("%s\n", commands[i].help);
+        kprintf("\n");
     }
+    kprintf("Redirection : commande > fichier   ou   commande >> fichier (ajoute)\n");
+    kprintf("Tapez help <commande> pour le detail.\n");
     return E_OK;
 }
 
@@ -176,9 +260,16 @@ static err_t cmd_mem(int argc, char **argv)
 
 static err_t cmd_echo(int argc, char **argv)
 {
-    for (int i = 1; i < argc; i++)
-        kprintf("%s%s", i > 1 ? " " : "", argv[i]);
-    kprintf("\n");
+    int first = 1, newline = 1;
+
+    if (argc >= 2 && strcmp(argv[1], "-n") == 0) {
+        newline = 0;
+        first = 2;
+    }
+    for (int i = first; i < argc; i++)
+        kprintf("%s%s", i > first ? " " : "", argv[i]);
+    if (newline)
+        kprintf("\n");
     return E_OK;
 }
 
@@ -188,10 +279,8 @@ static err_t cmd_sleep(int argc, char **argv)
 
     if (argc != 2 || cmdline_parse_u32(argv[1], &ms) != E_OK)
         return usage("sleep <millisecondes>");
-    if (ms > 60000) {
-        kprintf("Maximum : 60000 ms.\n");
-        return E_REPORTED;
-    }
+    if (ms > 60000)
+        return fail_msg("Maximum : 60000 ms.");
     pit_sleep_ms(ms);
     return E_OK;
 }
@@ -238,15 +327,13 @@ static err_t cmd_memtest(int argc, char **argv)
 
     if (argc > 2 || (argc == 2 && cmdline_parse_u32(argv[1], &kb) != E_OK))
         return usage("memtest [taille en Kio, 1 a 4096]");
-    if (kb == 0 || kb > 4096) {
-        kprintf("Taille entre 1 et 4096 Kio.\n");
-        return E_REPORTED;
-    }
+    if (kb == 0 || kb > 4096)
+        return fail_msg("Taille entre 1 et 4096 Kio.");
 
     size = (usize)kb * 1024;
     buf = kmalloc(size);
     if (!buf) {
-        kprintf("kmalloc(%u Kio) a echoue : le tas est trop petit ou fragmente.\n", kb);
+        keprintf("kmalloc(%u Kio) a echoue : le tas est trop petit ou fragmente.\n", kb);
         return E_NOMEM;
     }
 
@@ -257,7 +344,7 @@ static err_t cmd_memtest(int argc, char **argv)
         memset(buf, pattern[pass], size);
         for (usize i = 0; i < size; i++) {
             if (buf[i] != pattern[pass]) {
-                kprintf("ERREUR a l'offset %u : lu %x, attendu %x\n", (u32)i, buf[i], pattern[pass]);
+                keprintf("ERREUR a l'offset %u : lu %#x, attendu %#x\n", (u32)i, buf[i], pattern[pass]);
                 kfree(buf);
                 return E_IO;
             }
@@ -304,7 +391,7 @@ static err_t cmd_crash(int argc, char **argv)
         memset(p, 0x41, 32 + 16 + 4);           /* déborde sur l'en-tête du bloc suivant */
         kfree(q);
     } else {
-        kprintf("Type inconnu '%s'. Types : %s\n", argv[1], kinds);
+        keprintf("Type inconnu '%s'. Types : %s\n", argv[1], kinds);
         return E_REPORTED;
     }
     return E_OK;
@@ -313,6 +400,7 @@ static err_t cmd_crash(int argc, char **argv)
 static err_t cmd_reboot(int argc, char **argv)
 {
     (void)argc; (void)argv;
+    kprintf_redirect(NULL, NULL);
     kprintf("Redemarrage...\n");
     power_reboot();
 }
@@ -320,6 +408,7 @@ static err_t cmd_reboot(int argc, char **argv)
 static err_t cmd_shutdown(int argc, char **argv)
 {
     (void)argc; (void)argv;
+    kprintf_redirect(NULL, NULL);
     kprintf("Extinction...\n");
     power_shutdown();
 }
@@ -327,45 +416,452 @@ static err_t cmd_shutdown(int argc, char **argv)
 static err_t cmd_halt(int argc, char **argv)
 {
     (void)argc; (void)argv;
+    kprintf_redirect(NULL, NULL);
     kprintf("Processeur arrete. Redemarrez la machine manuellement.\n");
     power_halt();
 }
 
-static void execute(char *line)
+/* ------------------------------------------------------------------ */
+/* Commandes fichiers                                                  */
+/* ------------------------------------------------------------------ */
+
+static void print_entry_name(const struct fs_node *n)
 {
-    char *argv[MAX_ARGS + 1];
-    int argc = cmdline_split(line, argv, MAX_ARGS);
-    const int n = COMMAND_COUNT;
-
-    if (argc < 0) {
-        color(VGA_LIGHT_RED);
-        if (argc == E_2BIG)
-            kprintf("Trop d'arguments (maximum %d).\n", MAX_ARGS);
-        else
-            kprintf("Guillemet non ferme.\n");
+    if (n->type == FS_DIR) {
+        color(VGA_LIGHT_CYAN);
+        kprintf("%s/", n->name);
         color(VGA_LIGHT_GREY);
-        return;
+    } else {
+        kprintf("%s", n->name);
     }
-    if (argc == 0)
-        return;
+}
 
-    for (int i = 0; i < n; i++) {
+static void print_entry_long(const struct fs_node *n)
+{
+    if (n->type == FS_DIR)
+        kprintf("d %8s  ", "-");
+    else
+        kprintf("- %8u  ", n->size);
+    print_entry_name(n);
+    kprintf("\n");
+}
+
+static err_t cmd_ls(int argc, char **argv)
+{
+    struct fs_node *n;
+    const char *target = ".";
+    u32 flags;
+    int first;
+    usize col = 0;
+    err_t e;
+
+    if (parse_flags(argc, argv, "l", &flags, &first) != E_OK || argc - first > 1)
+        return usage("ls [-l] [chemin]");
+    if (first < argc)
+        target = argv[first];
+
+    e = fs_lookup(target, &n);
+    if (e != E_OK)
+        return fail_path("ls", target, e);
+
+    if (n->type == FS_FILE) {
+        if (flags & 1) {
+            print_entry_long(n);
+        } else {
+            print_entry_name(n);
+            kprintf("\n");
+        }
+        return E_OK;
+    }
+
+    for (const struct fs_node *c = n->child; c; c = c->next) {
+        usize w;
+
+        if (flags & 1) {
+            print_entry_long(c);
+            continue;
+        }
+        w = strlen(c->name) + (c->type == FS_DIR ? 1 : 0) + 2;
+        if (col && col + w > 78) {
+            kprintf("\n");
+            col = 0;
+        }
+        print_entry_name(c);
+        kprintf("  ");
+        col += w;
+    }
+    if (col)
+        kprintf("\n");
+    return E_OK;
+}
+
+static err_t cmd_cat(int argc, char **argv)
+{
+    err_t result = E_OK;
+
+    if (argc < 2)
+        return usage("cat <fichier>...");
+
+    for (int i = 1; i < argc; i++) {
+        struct fs_node *n;
+        err_t e = fs_lookup(argv[i], &n);
+
+        if (e == E_OK && n->type != FS_FILE)
+            e = E_ISDIR;
+        if (e != E_OK) {
+            result = fail_path("cat", argv[i], e);
+            continue;
+        }
+        for (u32 k = 0; k < n->size; k++) {
+            u8 c = n->data[k];
+
+            /* À l'écran, les octets de contrôle deviennent '.' ; redirigé, copie fidèle. */
+            if (!raw_output && c != '\n' && c != '\t' && (c < 32 || c == 127))
+                c = '.';
+            kprintf("%c", c);
+        }
+        if (!raw_output && n->size && n->data[n->size - 1] != '\n')
+            kprintf("\n");
+    }
+    return result;
+}
+
+static err_t cmd_cd(int argc, char **argv)
+{
+    const char *p = argc == 2 ? argv[1] : "/";
+    err_t e;
+
+    if (argc > 2)
+        return usage("cd [dossier]");
+    e = fs_chdir(p);
+    return e == E_OK ? E_OK : fail_path("cd", p, e);
+}
+
+static err_t cmd_pwd(int argc, char **argv)
+{
+    char path[FS_PATH_MAX];
+
+    (void)argc; (void)argv;
+    if (fs_path_of(fs_cwd(), path, sizeof(path)) != E_OK)
+        return E_NAMETOOLONG;
+    kprintf("%s\n", path);
+    return E_OK;
+}
+
+static err_t cmd_mkdir(int argc, char **argv)
+{
+    u32 flags;
+    int first;
+    err_t result = E_OK;
+
+    if (parse_flags(argc, argv, "p", &flags, &first) != E_OK || first >= argc)
+        return usage("mkdir [-p] <dossier>...");
+    for (int i = first; i < argc; i++) {
+        err_t e = (flags & 1) ? fs_mkdir_p(argv[i]) : fs_mkdir(argv[i]);
+
+        if (e != E_OK)
+            result = fail_path("mkdir", argv[i], e);
+    }
+    return result;
+}
+
+static err_t cmd_touch(int argc, char **argv)
+{
+    err_t result = E_OK;
+
+    if (argc < 2)
+        return usage("touch <fichier>...");
+    for (int i = 1; i < argc; i++) {
+        struct fs_node *n;
+        err_t e = fs_create(argv[i], &n);
+
+        if (e != E_OK)
+            result = fail_path("touch", argv[i], e);
+    }
+    return result;
+}
+
+static err_t cmd_rm(int argc, char **argv)
+{
+    u32 flags;
+    int first;
+    err_t result = E_OK;
+
+    if (parse_flags(argc, argv, "r", &flags, &first) != E_OK || first >= argc)
+        return usage("rm [-r] <chemin>...");
+    for (int i = first; i < argc; i++) {
+        err_t e = fs_remove(argv[i], (flags & 1) ? (FS_RM_DIR_OK | FS_RM_RECURSIVE) : 0);
+
+        if (e != E_OK)
+            result = fail_path("rm", argv[i], e);
+    }
+    return result;
+}
+
+static err_t cmd_rmdir(int argc, char **argv)
+{
+    err_t result = E_OK;
+
+    if (argc < 2)
+        return usage("rmdir <dossier>...");
+    for (int i = 1; i < argc; i++) {
+        struct fs_node *n;
+        err_t e = fs_lookup(argv[i], &n);
+
+        if (e == E_OK && n->type != FS_DIR)
+            e = E_NOTDIR;
+        if (e == E_OK)
+            e = fs_remove(argv[i], FS_RM_DIR_OK);
+        if (e != E_OK)
+            result = fail_path("rmdir", argv[i], e);
+    }
+    return result;
+}
+
+static err_t cmd_cp(int argc, char **argv)
+{
+    err_t e;
+
+    if (argc != 3)
+        return usage("cp <source> <destination>");
+    e = fs_copy(argv[1], argv[2]);
+    return e == E_OK ? E_OK : fail_path("cp", e == E_NOENT || e == E_ISDIR ? argv[1] : argv[2], e);
+}
+
+static err_t cmd_mv(int argc, char **argv)
+{
+    err_t e;
+
+    if (argc != 3)
+        return usage("mv <source> <destination>");
+    e = fs_rename(argv[1], argv[2]);
+    return e == E_OK ? E_OK : fail_path("mv", e == E_NOENT || e == E_BUSY ? argv[1] : argv[2], e);
+}
+
+static void tree_print(const struct fs_node *dir, int level, u32 *dirs, u32 *files)
+{
+    for (const struct fs_node *c = dir->child; c; c = c->next) {
+        for (int i = 0; i < level; i++)
+            kprintf("    ");
+        kprintf("+-- ");
+        print_entry_name(c);
+        kprintf("\n");
+        if (c->type == FS_DIR) {
+            (*dirs)++;
+            tree_print(c, level + 1, dirs, files);
+        } else {
+            (*files)++;
+        }
+    }
+}
+
+static err_t cmd_tree(int argc, char **argv)
+{
+    struct fs_node *n;
+    const char *target = argc >= 2 ? argv[1] : ".";
+    u32 dirs = 0, files = 0;
+    err_t e;
+
+    if (argc > 2)
+        return usage("tree [dossier]");
+    e = fs_lookup(target, &n);
+    if (e == E_OK && n->type != FS_DIR)
+        e = E_NOTDIR;
+    if (e != E_OK)
+        return fail_path("tree", target, e);
+
+    color(VGA_LIGHT_CYAN);
+    kprintf("%s\n", n == fs_root() ? "/" : target);
+    color(VGA_LIGHT_GREY);
+    tree_print(n, 0, &dirs, &files);
+    kprintf("%u dossier(s), %u fichier(s)\n", dirs, files);
+    return E_OK;
+}
+
+static err_t cmd_df(int argc, char **argv)
+{
+    struct fs_stats st;
+
+    (void)argc; (void)argv;
+    fs_get_stats(&st);
+    kprintf("Systeme de fichiers en RAM (perdu a l'extinction)\n");
+    kprintf("  fichiers : %u\n", st.files);
+    kprintf("  dossiers : %u (racine comprise)\n", st.dirs);
+    kprintf("  contenu  : %u octets\n", st.bytes);
+    kprintf("  limites  : %u elements, %u Kio par fichier\n", FS_NODES_MAX, FS_FILE_MAX / 1024);
+    return E_OK;
+}
+
+static err_t cmd_hexdump(int argc, char **argv)
+{
+    struct fs_node *n;
+    u32 limit = 256, count;
+    err_t e;
+
+    if (argc < 2 || argc > 3 || (argc == 3 && cmdline_parse_u32(argv[2], &limit) != E_OK))
+        return usage("hexdump <fichier> [octets]");
+    e = fs_lookup(argv[1], &n);
+    if (e == E_OK && n->type != FS_FILE)
+        e = E_ISDIR;
+    if (e != E_OK)
+        return fail_path("hexdump", argv[1], e);
+
+    count = n->size < limit ? n->size : limit;
+    for (u32 off = 0; off < count; off += 16) {
+        kprintf("%08x ", off);
+        for (u32 i = 0; i < 16; i++) {
+            if (i == 8)
+                kprintf(" ");
+            if (off + i < count)
+                kprintf(" %02x", n->data[off + i]);
+            else
+                kprintf("   ");
+        }
+        kprintf("  |");
+        for (u32 i = 0; i < 16 && off + i < count; i++) {
+            u8 c = n->data[off + i];
+
+            kprintf("%c", c >= 32 && c < 127 ? c : '.');
+        }
+        kprintf("|\n");
+    }
+    if (count < n->size)
+        kprintf("... %u octet(s) de plus\n", n->size - count);
+    return E_OK;
+}
+
+/* ------------------------------------------------------------------ */
+/* Exécution d'une ligne, redirection                                  */
+/* ------------------------------------------------------------------ */
+
+struct capture {
+    char *buf;
+    u32   len, cap;
+    int   overflow;
+    int   nomem;
+};
+
+static void capture_sink(char c, void *ctx)
+{
+    struct capture *cp = ctx;
+
+    if (cp->overflow || cp->nomem)
+        return;
+    if (cp->len == cp->cap) {
+        u32 newcap = cp->cap ? cp->cap * 2 : 1024;
+        char *nb;
+
+        if (newcap > CAPTURE_MAX) {
+            cp->overflow = 1;
+            return;
+        }
+        nb = kmalloc(newcap);
+        if (!nb) {
+            cp->nomem = 1;
+            return;
+        }
+        if (cp->len)
+            memcpy(nb, cp->buf, cp->len);
+        kfree(cp->buf);
+        cp->buf = nb;
+        cp->cap = newcap;
+    }
+    cp->buf[cp->len++] = c;
+}
+
+static err_t run_command(int argc, char **argv)
+{
+    for (int i = 0; i < COMMAND_COUNT; i++) {
         if (strcmp(commands[i].name, argv[0]) == 0) {
             err_t e = commands[i].fn(argc, argv);
 
             if (e != E_OK && e != E_REPORTED) {
                 color(VGA_LIGHT_RED);
-                kprintf("%s : echec (%s)\n", argv[0], err_str(e));
+                keprintf("%s : echec (%s)\n", argv[0], err_str(e));
                 color(VGA_LIGHT_GREY);
             }
+            return e;
+        }
+    }
+    color(VGA_LIGHT_RED);
+    keprintf("Commande inconnue : %s", argv[0]);
+    color(VGA_LIGHT_GREY);
+    keprintf("  (tapez help)\n");
+    return E_REPORTED;
+}
+
+static int is_redirect_token(const char *s)
+{
+    return strcmp(s, ">") == 0 || strcmp(s, ">>") == 0;
+}
+
+static void execute(char *line)
+{
+    char *argv[MAX_ARGS + 1];
+    u8 quoted[MAX_ARGS + 1];
+    int argc = cmdline_split_ex(line, argv, MAX_ARGS, quoted);
+    const char *target = NULL;
+    int append = 0;
+    struct fs_node *node = NULL;
+    struct capture cap;
+    err_t e;
+
+    if (argc < 0) {
+        fail_msg(argc == E_2BIG ? "Trop d'arguments (maximum 8)." : "Guillemet non ferme.");
+        return;
+    }
+    if (argc == 0)
+        return;
+
+    /* Redirection : uniquement en fin de ligne :  commande ... > fichier */
+    if (argc >= 2 && !quoted[argc - 2] && is_redirect_token(argv[argc - 2])) {
+        target = argv[argc - 1];
+        append = argv[argc - 2][1] == '>';
+        argc -= 2;
+        argv[argc] = NULL;
+        if (argc == 0) {
+            fail_msg("Commande manquante avant la redirection.");
+            return;
+        }
+    }
+    for (int i = 0; i < argc; i++) {
+        if (!quoted[i] && is_redirect_token(argv[i])) {
+            fail_msg("Redirection invalide : ecrire  commande > fichier  (en fin de ligne).");
             return;
         }
     }
 
-    color(VGA_LIGHT_RED);
-    kprintf("Commande inconnue : %s", argv[0]);
+    if (!target) {
+        run_command(argc, argv);
+        color(VGA_LIGHT_GREY);
+        return;
+    }
+
+    /* Le fichier est créé AVANT la commande : erreur claire si le chemin est faux. */
+    e = fs_create(target, &node);
+    if (e != E_OK) {
+        fail_path("redirection", target, e);
+        return;
+    }
+
+    memset(&cap, 0, sizeof(cap));
+    raw_output = 1;
+    kprintf_redirect(capture_sink, &cap);
+    run_command(argc, argv);
+    kprintf_redirect(NULL, NULL);
+    raw_output = 0;
     color(VGA_LIGHT_GREY);
-    kprintf("  (tapez help)\n");
+
+    if (cap.nomem) {
+        fail_msg("Memoire insuffisante : sortie perdue.");
+    } else {
+        e = append ? fs_append(node, cap.buf, cap.len) : fs_write(node, cap.buf, cap.len);
+        if (e != E_OK)
+            fail_path("redirection", target, e);
+        else if (cap.overflow)
+            fail_msg("Sortie tronquee a 128 Kio.");
+    }
+    kfree(cap.buf);
 }
 
 /* ------------------------------------------------------------------ */
@@ -374,8 +870,16 @@ static void execute(char *line)
 
 static void prompt(void)
 {
+    char path[FS_PATH_MAX];
+
+    if (fs_path_of(fs_cwd(), path, sizeof(path)) != E_OK)
+        memcpy(path, "?", 2);
     color(VGA_LIGHT_GREEN);
     kprintf("phoenos");
+    color(VGA_LIGHT_GREY);
+    kprintf(":");
+    color(VGA_LIGHT_CYAN);
+    kprintf("%s", path);
     color(VGA_LIGHT_GREY);
     kprintf("> ");
 }
@@ -395,43 +899,125 @@ static void replace_line(char *line, usize *len, const char *text)
     kprintf("%s", line);
 }
 
-/* Complétion du nom de commande avec Tab (uniquement pour le premier mot). */
-static void complete(char *line, usize *len)
+static void append_text(char *line, usize *len, const char *text, usize n)
 {
-    const int n = COMMAND_COUNT;
+    for (usize i = 0; i < n && *len + 1 < LINE_MAX; i++) {
+        line[(*len)++] = text[i];
+        kprintf("%c", text[i]);
+    }
+    line[*len] = '\0';
+}
+
+static int starts_with(const char *s, const char *prefix, usize plen)
+{
+    return strlen(s) >= plen && memcmp(s, prefix, plen) == 0;
+}
+
+/* Complétion du nom de commande (premier mot). */
+static void complete_command(char *line, usize *len)
+{
     int matches = 0, last = -1;
 
-    for (usize i = 0; i < *len; i++)
-        if (line[i] == ' ' || line[i] == '\t')
-            return;
-
-    for (int i = 0; i < n; i++) {
-        if (strlen(commands[i].name) >= *len && memcmp(commands[i].name, line, *len) == 0) {
+    for (int i = 0; i < COMMAND_COUNT; i++) {
+        if (starts_with(commands[i].name, line, *len)) {
             matches++;
             last = i;
         }
     }
-
     if (matches == 1) {
-        const char *rest = commands[last].name + *len;
-        usize add = strlen(rest);
+        const char *name = commands[last].name;
 
-        if (*len + add + 1 < LINE_MAX) {
-            memcpy(line + *len, rest, add);
-            line[*len + add] = ' ';
-            line[*len + add + 1] = '\0';
-            kprintf("%s ", rest);
-            *len += add + 1;
-        }
+        append_text(line, len, name + *len, strlen(name) - *len);
+        append_text(line, len, " ", 1);
     } else if (matches > 1) {
         kprintf("\n");
-        for (int i = 0; i < n; i++)
-            if (strlen(commands[i].name) >= *len && memcmp(commands[i].name, line, *len) == 0)
+        for (int i = 0; i < COMMAND_COUNT; i++)
+            if (starts_with(commands[i].name, line, *len))
                 kprintf("%s  ", commands[i].name);
         kprintf("\n");
         prompt();
         kprintf("%s", line);
     }
+}
+
+/* Complétion d'un chemin (dernier mot) dans le système de fichiers. */
+static void complete_path(char *line, usize *len, usize word_start)
+{
+    const char *word = line + word_start;
+    usize wlen = *len - word_start, split = 0, blen, common = 0;
+    char dirpart[FS_PATH_MAX];
+    const char *base;
+    struct fs_node *dir = NULL, *last = NULL;
+    int matches = 0;
+
+    if (wlen >= FS_PATH_MAX)
+        return;
+    for (usize i = 0; i < wlen; i++) {
+        if (word[i] == '"')
+            return;
+        if (word[i] == '/')
+            split = i + 1;
+    }
+    memcpy(dirpart, word, split);
+    dirpart[split] = '\0';
+    base = word + split;
+    blen = wlen - split;
+
+    if (split == 0)
+        dir = fs_cwd();
+    else if (fs_lookup(dirpart, &dir) != E_OK || dir->type != FS_DIR)
+        return;
+
+    for (struct fs_node *c = dir->child; c; c = c->next) {
+        usize nl = strlen(c->name);
+
+        if (!starts_with(c->name, base, blen))
+            continue;
+        if (matches == 0) {
+            common = nl;
+        } else {
+            usize k = 0;
+
+            while (k < common && k < nl && c->name[k] == last->name[k])
+                k++;
+            common = k;
+        }
+        matches++;
+        last = c;
+    }
+
+    if (matches == 1) {
+        append_text(line, len, last->name + blen, strlen(last->name) - blen);
+        append_text(line, len, last->type == FS_DIR ? "/" : " ", 1);
+    } else if (matches > 1) {
+        if (common > blen) {
+            append_text(line, len, last->name + blen, common - blen);
+            return;
+        }
+        kprintf("\n");
+        for (const struct fs_node *c = dir->child; c; c = c->next) {
+            if (starts_with(c->name, base, blen)) {
+                print_entry_name(c);
+                kprintf("  ");
+            }
+        }
+        kprintf("\n");
+        prompt();
+        kprintf("%s", line);
+    }
+}
+
+static void complete(char *line, usize *len)
+{
+    usize word_start = 0;
+
+    for (usize i = 0; i < *len; i++)
+        if (line[i] == ' ' || line[i] == '\t')
+            word_start = i + 1;
+    if (word_start == 0)
+        complete_command(line, len);
+    else
+        complete_path(line, len, word_start);
 }
 
 /* Lit une ligne au clavier. Renvoie quand l'utilisateur appuie sur Entrée. */
