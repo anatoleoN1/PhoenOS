@@ -15,8 +15,10 @@
 
     .section .bss
     .align 16
+    .global stack_bottom
 stack_bottom:
     .skip 16384                             /* pile de 16 Kio */
+    .global stack_top
 stack_top:
 
     .section .text
@@ -25,11 +27,13 @@ stack_top:
 _start:
     cli
     movl $stack_top, %esp
+    xorl %ebp, %ebp                         /* fin de la chaîne de frames (trace d'appel) */
     pushl $0                                /* EFLAGS propres */
     popf
     pushl %ebx                              /* pointeur sur les infos multiboot */
     pushl %eax                              /* magic fourni par le bootloader */
     call kernel_main
+    call kernel_main_returned               /* ne devrait jamais arriver : panique */
 .Lhang:
     cli
     hlt

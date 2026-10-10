@@ -7,6 +7,8 @@
 #include "io.h"
 #include "vga.h"
 #include "kprintf.h"
+#include "panic.h"
+#include "log.h"
 
 static const char *const exception_names[32] = {
     "Division par zero",              /*  0 #DE */
@@ -38,15 +40,21 @@ static const char *const exception_names[32] = {
     "Reserve"                         /* 31 */
 };
 
+static const char *const selector_table[4] = { "GDT", "IDT", "LDT", "IDT" };
+
 static irq_handler_t irq_handlers[16];
 static volatile u32 breakpoint_hits;
 
-void irq_install_handler(u8 irq, irq_handler_t handler)
+err_t irq_install_handler(u8 irq, irq_handler_t handler)
 {
-    if (irq >= 16)
-        return;
+    if (irq >= 16 || !handler)
+        return E_INVAL;
+    if (irq_handlers[irq])
+        return E_BUSY;
+
     irq_handlers[irq] = handler;
     pic_unmask(irq);
+    return E_OK;
 }
 
 u32 isr_breakpoint_count(void)
@@ -54,52 +62,85 @@ u32 isr_breakpoint_count(void)
     return breakpoint_hits;
 }
 
-static void panic_screen(const struct regs *r)
+/* Explique en français ce que signifie l'exception et son code d'erreur. */
+static void describe_cause(const struct regs *r)
 {
-    u32 cr2;
+    u32 e = r->err_code;
 
-    cpu_cli();
-    vga_set_color(VGA_WHITE, VGA_RED);
-    vga_clear();
-
-    kprintf("\n  PhoenOS - PANIQUE NOYAU\n\n");
-    kprintf("  Exception %u : %s\n", r->int_no, exception_names[r->int_no]);
-    kprintf("  Code d'erreur : %x\n\n", r->err_code);
-
-    kprintf("  EAX=%x  EBX=%x  ECX=%x  EDX=%x\n", r->eax, r->ebx, r->ecx, r->edx);
-    kprintf("  ESI=%x  EDI=%x  EBP=%x\n", r->esi, r->edi, r->ebp);
-    kprintf("  EIP=%x  CS=%x  EFLAGS=%x\n", r->eip, r->cs, r->eflags);
-
-    if (r->int_no == 14) {
+    switch (r->int_no) {
+    case 0:
+        kprintf("  Cause : division par zero ou quotient trop grand\n");
+        break;
+    case 6:
+        kprintf("  Cause : instruction invalide a l'adresse %x\n", r->eip);
+        break;
+    case 8:
+        kprintf("  Cause : une exception s'est produite pendant le traitement d'une autre\n");
+        kprintf("          (souvent : pile corrompue ou IDT/GDT invalide)\n");
+        break;
+    case 13:
+        if (e)
+            kprintf("  Cause : selecteur invalide (table %s, index %u%s)\n",
+                    selector_table[(e >> 1) & 3], e >> 3, (e & 1) ? ", externe" : "");
+        else
+            kprintf("  Cause : violation de protection (instruction privilegiee,\n"
+                    "          segment ou acces interdit)\n");
+        break;
+    case 14: {
+        u32 cr2;
         __asm__ volatile ("movl %%cr2, %0" : "=r"(cr2));
-        kprintf("  Adresse fautive (CR2) : %x\n", cr2);
+        kprintf("  Cause : %s a l'adresse %x (%s)\n",
+                (e & 2) ? "ecriture" : "lecture", cr2,
+                (e & 1) ? "droits insuffisants" : "page absente");
+        break;
     }
-
-    kprintf("\n  Systeme arrete. Redemarrez la machine.\n");
-
-    for (;;)
-        cpu_hlt();
+    default:
+        break;
+    }
 }
 
-/* Appelé depuis isr_common (isr.S) avec un pointeur sur les registres sauvés. */
+static void panic_exception(const struct regs *r)
+{
+    panic_begin("Exception du processeur");
+
+    kprintf("  Exception %u : %s\n", r->int_no, exception_names[r->int_no]);
+    kprintf("  Code d'erreur : %x\n", r->err_code);
+    describe_cause(r);
+
+    kprintf("\n  EAX=%x  EBX=%x  ECX=%x  EDX=%x\n", r->eax, r->ebx, r->ecx, r->edx);
+    kprintf("  ESI=%x  EDI=%x  EBP=%x  ESP=%x\n", r->esi, r->edi, r->ebp, r->esp_pusha);
+    kprintf("  EIP=%x  CS=%x  EFLAGS=%x\n", r->eip, r->cs, r->eflags);
+
+    if (r->esp_pusha < (u32)stack_bottom || r->esp_pusha > (u32)stack_top)
+        kprintf("\n  ATTENTION : ESP hors de la pile du noyau (debordement probable)\n");
+
+    panic_backtrace(r->ebp, r->eip);
+    panic_end();
+}
+
+/* Appelé depuis isr_common (isr_stubs.S) avec un pointeur sur les registres sauvés. */
 void isr_handler(struct regs *r)
 {
+    u8 irq;
+
     if (r->int_no < IRQ_BASE) {
         if (r->int_no == 3) {         /* point d'arret : non fatal */
             breakpoint_hits++;
             return;
         }
-        panic_screen(r);
+        panic_exception(r);
         return;
     }
 
-    u8 irq = (u8)(r->int_no - IRQ_BASE);
+    irq = (u8)(r->int_no - IRQ_BASE);
 
     if (pic_is_spurious(irq))
         return;
 
     if (irq_handlers[irq])
         irq_handlers[irq](r);
+    else
+        klog(LOG_WARN, "IRQ %u recue sans handler", (u32)irq);
 
     pic_eoi(irq);
 }

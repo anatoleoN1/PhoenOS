@@ -1,10 +1,23 @@
 /*
  * PhoenOS - kprintf.c
- * Mini printf du noyau (sans libc).
+ * Mini printf du noyau (sans libc). Écrit à l'écran ET sur le port série.
  */
-#include <stdarg.h>
 #include "kprintf.h"
 #include "vga.h"
+#include "serial.h"
+
+static void out(char c)
+{
+    vga_putc(c);
+    /* Le port série ne transporte que de l'ASCII : les accents CP437 deviennent '?' */
+    serial_putc((u8)c >= 0x80 ? '?' : c);
+}
+
+static void out_str(const char *s)
+{
+    while (*s)
+        out(*s++);
+}
 
 static void put_unsigned(u32 value, u32 base)
 {
@@ -19,33 +32,30 @@ static void put_unsigned(u32 value, u32 base)
         value /= base;
     }
     while (i--)
-        vga_putc(buf[i]);
+        out(buf[i]);
 }
 
-void kprintf(const char *fmt, ...)
+void kvprintf(const char *fmt, va_list ap)
 {
-    va_list ap;
-    va_start(ap, fmt);
-
     for (; *fmt; fmt++) {
         if (*fmt != '%') {
-            vga_putc(*fmt);
+            out(*fmt);
             continue;
         }
 
         switch (*++fmt) {
         case 's': {
             const char *s = va_arg(ap, const char *);
-            vga_puts(s ? s : "(null)");
+            out_str(s ? s : "(null)");
             break;
         }
         case 'c':
-            vga_putc((char)va_arg(ap, int));
+            out((char)va_arg(ap, int));
             break;
         case 'd': {
             i32 v = va_arg(ap, i32);
             if (v < 0) {
-                vga_putc('-');
+                out('-');
                 put_unsigned((u32)(-(v + 1)) + 1u, 10);
             } else {
                 put_unsigned((u32)v, 10);
@@ -56,21 +66,26 @@ void kprintf(const char *fmt, ...)
             put_unsigned(va_arg(ap, u32), 10);
             break;
         case 'x':
-            vga_puts("0x");
+            out_str("0x");
             put_unsigned(va_arg(ap, u32), 16);
             break;
         case '%':
-            vga_putc('%');
+            out('%');
             break;
         case '\0':
-            va_end(ap);
             return;
         default:
-            vga_putc('%');
-            vga_putc(*fmt);
+            out('%');
+            out(*fmt);
             break;
         }
     }
+}
 
+void kprintf(const char *fmt, ...)
+{
+    va_list ap;
+    va_start(ap, fmt);
+    kvprintf(fmt, ap);
     va_end(ap);
 }

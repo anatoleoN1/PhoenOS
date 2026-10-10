@@ -1,16 +1,28 @@
 # PhoenOS - Makefile
-# Cibles : make        -> compile le noyau (build/phoenos.bin)
-#          make test-fault -> démo de l'écran de panique (division par zéro)
-#          make iso    -> génère l'image bootable PhoenOS.iso
-#          make run    -> lance l'ISO dans QEMU
-#          make check  -> vérifie que le noyau est un binaire Multiboot valide
-#          make clean
+#
+# Construction :
+#   make              compile le noyau (build/phoenos.bin)
+#   make check        vérifie que le noyau est un binaire Multiboot valide
+#   make iso          génère l'image bootable PhoenOS.iso
+#   make clean
+#
+# Exécution (QEMU) :
+#   make run          lance l'ISO ; le journal du noyau s'affiche aussi dans le terminal
+#   make serial       idem sans fenêtre graphique (utile sans affichage, ex. WSL Windows 10)
+#   make debug        comme run + journal des exceptions CPU dans qemu.log
+#
+# Diagnostic :
+#   make symbol ADDR=0x100abc   traduit une adresse de la trace d'appel en fonction/ligne
+#   make test-div0 | test-gp | test-panic | test-assert
+#                                déclenche volontairement une erreur pour voir l'écran de panique
 
 CC      := gcc
 LD      := ld
-CFLAGS  := -m32 -std=gnu11 -O2 -Wall -Wextra -Werror \
+QEMU    := qemu-system-i386
+CFLAGS  := -m32 -std=gnu11 -O2 -g -Wall -Wextra -Werror \
            -ffreestanding -fno-stack-protector -fno-pic -fno-pie \
-           -fno-builtin -nostdlib -mno-sse -mno-mmx $(EXTRA_CFLAGS)
+           -fno-builtin -fno-omit-frame-pointer -nostdlib -mno-sse -mno-mmx \
+           $(EXTRA_CFLAGS)
 ASFLAGS := -m32
 LDFLAGS := -m elf_i386 -T linker.ld -nostdlib -z noexecstack
 
@@ -20,9 +32,10 @@ OBJ     := $(patsubst src/%.c,build/%.o,$(SRC_C)) \
            $(patsubst src/%.S,build/%.o,$(SRC_S))
 
 KERNEL  := build/phoenos.bin
-ISO     := phoenos-0.0.2.iso
+ISO     := phoenos-0.0.3.iso
+TESTS   := test-div0 test-gp test-panic test-assert
 
-.PHONY: all iso run check test-fault clean
+.PHONY: all iso run serial debug check symbol clean $(TESTS)
 
 all: $(KERNEL)
 
@@ -46,17 +59,29 @@ iso: $(KERNEL)
 	grub-mkrescue -o $(ISO) build/isodir
 	@echo ">> $(ISO) pret"
 
+# -no-reboot : en cas de triple faute, QEMU s'arrête au lieu de redémarrer en boucle.
 run: iso
-	qemu-system-i386 -cdrom $(ISO)
+	$(QEMU) -cdrom $(ISO) -serial stdio -no-reboot
+
+serial: iso
+	$(QEMU) -cdrom $(ISO) -display none -serial stdio -no-reboot
+
+debug: iso
+	$(QEMU) -cdrom $(ISO) -serial stdio -no-reboot -d int,cpu_reset -D qemu.log
+	@echo ">> Journal QEMU : qemu.log (chercher : grep -n 'v=0\|Triple' qemu.log)"
 
 check: $(KERNEL)
 	grub-file --is-x86-multiboot $(KERNEL) && echo "Multiboot OK"
 
-# Provoque volontairement une division par zéro pour voir l'écran de panique.
-test-fault:
+symbol: $(KERNEL)
+	@test -n "$(ADDR)" || { echo "Usage : make symbol ADDR=0x100abc"; exit 1; }
+	addr2line -f -p -e $(KERNEL) $(ADDR)
+
+# Chaque test est recompilé à froid (le drapeau change le code), puis nettoyé.
+$(TESTS): test-%:
 	$(MAKE) clean
-	$(MAKE) run EXTRA_CFLAGS=-DTEST_FAULT
+	-$(MAKE) run EXTRA_CFLAGS=-DTEST_$(shell echo $* | tr a-z A-Z)
 	$(MAKE) clean
 
 clean:
-	rm -rf build $(ISO)
+	rm -rf build $(ISO) qemu.log

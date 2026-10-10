@@ -4,14 +4,18 @@
  */
 #include "types.h"
 #include "vga.h"
+#include "serial.h"
 #include "kprintf.h"
+#include "log.h"
+#include "panic.h"
 #include "io.h"
 #include "gdt.h"
 #include "isr.h"
 #include "pic.h"
 #include "pit.h"
+#include "keyboard.h"
 
-#define PHOENOS_VERSION            "0.0.2"
+#define PHOENOS_VERSION            "0.0.3"
 #define MULTIBOOT_BOOTLOADER_MAGIC 0x2BADB002
 #define MBI_FLAG_MEM               (1u << 0)
 
@@ -41,32 +45,52 @@ static void status(int good, const char *msg)
     kprintf("%s\n", msg);
 }
 
-#ifdef TEST_FAULT
-/* make test-fault : provoque volontairement une division par zéro (#DE). */
-static void trigger_fault(void)
+/*
+ * Tests de panique volontaires : make test-div0 | test-gp | test-panic | test-assert
+ * (sans option, cette fonction ne fait rien).
+ */
+static void run_selected_test(void)
 {
+#if defined(TEST_DIV0)
+    kprintf("\nTEST : division par zero dans 2 secondes...\n");
+    pit_sleep_ms(2000);
     __asm__ volatile (
         "xorl %%edx, %%edx\n\t"
         "movl $1, %%eax\n\t"
         "xorl %%ecx, %%ecx\n\t"
         "divl %%ecx"
         : : : "eax", "ecx", "edx");
-}
+#elif defined(TEST_GP)
+    kprintf("\nTEST : chargement d'un selecteur invalide dans 2 secondes...\n");
+    pit_sleep_ms(2000);
+    __asm__ volatile ("movw $0x99, %%ax\n\tmovw %%ax, %%ds" : : : "eax");
+#elif defined(TEST_PANIC)
+    kprintf("\nTEST : PANIC() dans 2 secondes...\n");
+    pit_sleep_ms(2000);
+    PANIC("Test de panique volontaire (code %d)", 42);
+#elif defined(TEST_ASSERT)
+    kprintf("\nTEST : ASSERT() dans 2 secondes...\n");
+    pit_sleep_ms(2000);
+    ASSERT(pit_ticks() == 0);
 #endif
+}
 
 void kernel_main(u32 magic, const struct multiboot_info *mbi)
 {
+    err_t e;
+
+    serial_init();
     vga_init();
+    stack_guard_init();
     banner();
 
     kprintf("PhoenOS %s - noyau x86 (32 bits)\n\n", PHOENOS_VERSION);
 
-    status(1, "Pilote VGA texte initialise");
+    status(1, "Pilote VGA texte et port serie COM1 initialises");
 
-    if (magic != MULTIBOOT_BOOTLOADER_MAGIC) {
-        status(0, "Magic Multiboot invalide : demarre via GRUB");
-        return;
-    }
+    if (magic != MULTIBOOT_BOOTLOADER_MAGIC)
+        PANIC("Magic Multiboot invalide (%x) : demarrez via GRUB", magic);
+    ASSERT(mbi != NULL);
     status(1, "Demarre par un bootloader Multiboot");
 
     if (mbi->flags & MBI_FLAG_MEM) {
@@ -83,18 +107,17 @@ void kernel_main(u32 magic, const struct multiboot_info *mbi)
     idt_init();
     pic_init();
     pit_init(100);
+
+    e = keyboard_init();
+    if (e != E_OK)
+        PANIC("Initialisation du clavier impossible : %s", err_str(e));
+
     cpu_sti();
-    status(1, "IDT, PIC et timer (100 Hz) initialises");
+    status(1, "IDT, PIC, timer (100 Hz) et clavier AZERTY initialises");
 
     /* Auto-test de l'IDT : un point d'arret doit être traité sans planter. */
     __asm__ volatile ("int3");
     status(isr_breakpoint_count() == 1, "Exceptions CPU : point d'arret traite");
-
-#ifdef TEST_FAULT
-    kprintf("\nTEST : division par zero dans 2 secondes...\n");
-    pit_sleep_ms(2000);
-    trigger_fault();
-#endif
 
     /* Auto-test du timer : 3 secondes comptées. */
     kprintf("       Timer :");
@@ -105,8 +128,17 @@ void kernel_main(u32 magic, const struct multiboot_info *mbi)
     kprintf("\n");
     status(pit_ticks() >= 300, "Timer PIT fonctionnel");
 
-    kprintf("\nProchaine etape : clavier PS/2, puis gestion de la memoire.\n");
+    klog(LOG_INFO, "Demarrage termine en %u ms", pit_uptime_ms());
 
-    for (;;)
-        cpu_hlt();
+    run_selected_test();
+
+    kprintf("\nProchaine etape : gestion de la memoire, puis mini-shell.\n");
+    kprintf("Clavier AZERTY pret, tapez du texte :\n> ");
+
+    for (;;) {
+        u8 c = keyboard_getc();
+        kprintf("%c", c);
+        if (c == '\n')
+            kprintf("> ");
+    }
 }

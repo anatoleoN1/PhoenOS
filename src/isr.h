@@ -2,10 +2,11 @@
 #define PHOENOS_ISR_H
 
 #include "types.h"
+#include "error.h"
 
 /*
  * État du processeur sauvegardé à l'entrée d'une interruption.
- * L'ordre correspond à la pile construite dans isr.S (noyau en ring 0 :
+ * L'ordre correspond à la pile construite dans isr_stubs.S (noyau en ring 0 :
  * le CPU ne pousse ni ESP ni SS).
  */
 struct regs {
@@ -20,8 +21,11 @@ typedef void (*irq_handler_t)(struct regs *r);
 
 void idt_init(void);
 
-/* Installe un handler pour l'IRQ n (0-15) et la démasque. */
-void irq_install_handler(u8 irq, irq_handler_t handler);
+/*
+ * Installe un handler pour l'IRQ n (0-15) et la démasque.
+ * E_INVAL : IRQ hors limites ou handler nul ; E_BUSY : IRQ déjà prise.
+ */
+err_t irq_install_handler(u8 irq, irq_handler_t handler);
 
 /* Nombre de breakpoints (int3) traités : sert d'auto-test de l'IDT. */
 u32 isr_breakpoint_count(void);

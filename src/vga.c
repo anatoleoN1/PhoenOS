@@ -1,12 +1,16 @@
 /*
  * PhoenOS - vga.c
- * Pilote texte VGA 80x25 (mémoire vidéo en 0xB8000).
+ * Pilote texte VGA 80x25 (mémoire vidéo en 0xB8000) avec curseur matériel.
  */
 #include "vga.h"
+#include "io.h"
 
 #define VGA_WIDTH   80
 #define VGA_HEIGHT  25
 #define VGA_MEMORY  ((volatile u16 *)0xB8000)
+
+#define VGA_CRTC_INDEX 0x3D4
+#define VGA_CRTC_DATA  0x3D5
 
 static usize row, col;
 static u8 color;
@@ -14,6 +18,16 @@ static u8 color;
 static inline u16 entry(char c, u8 attr)
 {
     return (u16)(u8)c | ((u16)attr << 8);
+}
+
+static void cursor_update(void)
+{
+    u16 pos = (u16)(row * VGA_WIDTH + col);
+
+    outb(VGA_CRTC_INDEX, 14);
+    outb(VGA_CRTC_DATA, (u8)(pos >> 8));
+    outb(VGA_CRTC_INDEX, 15);
+    outb(VGA_CRTC_DATA, (u8)(pos & 0xFF));
 }
 
 void vga_set_color(enum vga_color fg, enum vga_color bg)
@@ -26,6 +40,7 @@ void vga_clear(void)
     for (usize i = 0; i < VGA_WIDTH * VGA_HEIGHT; i++)
         VGA_MEMORY[i] = entry(' ', color);
     row = col = 0;
+    cursor_update();
 }
 
 void vga_init(void)
@@ -46,22 +61,48 @@ static void scroll(void)
     row = VGA_HEIGHT - 1;
 }
 
+static void newline(void)
+{
+    col = 0;
+    if (++row == VGA_HEIGHT)
+        scroll();
+}
+
 void vga_putc(char c)
 {
-    if (c == '\n') {
+    switch (c) {
+    case '\n':
+        newline();
+        break;
+    case '\r':
         col = 0;
-        if (++row == VGA_HEIGHT)
-            scroll();
-        return;
+        break;
+    case '\b':
+        if (col > 0) {
+            col--;
+        } else if (row > 0) {
+            row--;
+            col = VGA_WIDTH - 1;
+        }
+        VGA_MEMORY[row * VGA_WIDTH + col] = entry(' ', color);
+        break;
+    case '\t':
+        do {
+            VGA_MEMORY[row * VGA_WIDTH + col] = entry(' ', color);
+            if (++col == VGA_WIDTH) {
+                newline();
+                break;
+            }
+        } while (col % 4);
+        break;
+    default:
+        VGA_MEMORY[row * VGA_WIDTH + col] = entry(c, color);
+        if (++col == VGA_WIDTH)
+            newline();
+        break;
     }
 
-    VGA_MEMORY[row * VGA_WIDTH + col] = entry(c, color);
-
-    if (++col == VGA_WIDTH) {
-        col = 0;
-        if (++row == VGA_HEIGHT)
-            scroll();
-    }
+    cursor_update();
 }
 
 void vga_puts(const char *s)

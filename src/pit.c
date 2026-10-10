@@ -5,6 +5,7 @@
 #include "pit.h"
 #include "isr.h"
 #include "io.h"
+#include "panic.h"
 
 #define PIT_BASE_HZ  1193182u
 #define PIT_CMD      0x43
@@ -17,11 +18,13 @@ static void pit_irq(struct regs *r)
 {
     (void)r;
     ticks++;
+    stack_guard_check();            /* détecte un débordement de pile */
 }
 
 void pit_init(u32 hz)
 {
     u32 divisor;
+    err_t e;
 
     if (hz < 19)       hz = 19;         /* le diviseur tient sur 16 bits */
     if (hz > 1000)     hz = 1000;
@@ -32,12 +35,20 @@ void pit_init(u32 hz)
     outb(PIT_CH0, (u8)(divisor & 0xFF));
     outb(PIT_CH0, (u8)((divisor >> 8) & 0xFF));
 
-    irq_install_handler(0, pit_irq);
+    e = irq_install_handler(0, pit_irq);
+    if (e != E_OK)
+        PANIC("Impossible d'installer le handler du timer : %s", err_str(e));
 }
 
 u32 pit_ticks(void)
 {
     return ticks;
+}
+
+u32 pit_uptime_ms(void)
+{
+    u32 t = ticks;
+    return (t / frequency) * 1000 + ((t % frequency) * 1000) / frequency;
 }
 
 void pit_sleep_ms(u32 ms)
