@@ -29,6 +29,16 @@ void keprintf(const char *fmt, ...)         __attribute__((format(printf, 1, 2))
 typedef void (*kprintf_sink_fn)(char c, void *ctx);
 void kprintf_redirect(kprintf_sink_fn fn, void *ctx);
 
+/*
+ * 0.6.3 : sortie d'un programme (appel systeme write). Le shell s'en sert pour effacer la ligne en cours de saisie
+ * avant (phase 0) et la redessiner apres (phase 1, `last` = dernier caractere ecrit) : un programme en arriere-plan
+ * n'ecrit plus "au milieu" de ce que vous tapez.
+ */
+extern void (*kprintf_task_hook)(int phase, char last);
+
+/* Ecriture "silencieuse" : visible a l'ecran/serie mais pas gardee dans dmesg (redessin de la ligne de saisie). */
+void kprintf_quiet(int on);
+
 /* Réaffiche tout ce que le noyau a écrit depuis le démarrage (derniers 8 Kio). */
 void dmesg_print(void);
 

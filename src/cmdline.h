@@ -6,6 +6,7 @@
 
 /*
  * Découpe `line` (modifiée sur place) en arguments séparés par des espaces.
+ * Hors guillemets, ";" et "&" sont toujours des arguments à eux seuls (séparateurs de commandes), même collés.
  * Les guillemets doubles regroupent plusieurs mots : echo "a   b"  -> 1 argument.
  * Renvoie le nombre d'arguments (argv[argc] = NULL), E_2BIG si trop d'arguments
  * (> max), ou E_INVAL si un guillemet n'est pas fermé.

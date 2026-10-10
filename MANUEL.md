@@ -1,4 +1,4 @@
-# Manuel de PhoenOS 0.6.2
+# Manuel de PhoenOS 0.6.3
 
 > Généré à partir de `initrd/docs/manuel.txt` (lisible dans PhoenOS avec `man`).
 
@@ -31,7 +31,12 @@ Console serie (sans fenetre)
   Dans ce mode le defilement de l'ecran est celui de votre terminal (molette, Maj+PageHaut).
 Guillemets
   "a  b" regroupe plusieurs mots en un seul argument : echo "a   b" c
-  Maximum 16 arguments par ligne (tubes compris).
+  Maximum 16 arguments par commande (tubes compris), 32 mots par ligne.
+Plusieurs commandes sur une ligne (0.6.3)
+  cmd1 ; cmd2          l'une apres l'autre (un echec n'arrete pas la suite)
+  cmd1 & cmd2 &        les deux en arriere-plan, sans copier-coller : ticker A 5 400 & ticker B 5 300 &
+  cmd1 & cmd2          cmd1 en arriere-plan, cmd2 au premier plan
+  ; et & peuvent etre colles aux mots (ls;pwd) ; entre guillemets ce sont de simples lettres : echo "a;b"
 Redirection
   commande > fichier     ecrit la sortie dans le fichier (cree ou remplace)
   commande >> fichier    ajoute la sortie a la fin du fichier
@@ -192,10 +197,12 @@ Differences avec Unix : pas de droits ni de proprietaires (les dates existent, v
   Un programme lance normalement garde le clavier : le shell attend sa fin (Ctrl+C l'arrete).
   Ajoutez & en fin de ligne pour le lancer en ARRIERE-PLAN : le shell rend la main aussitot.
     ticker A 5 400 &      ticker B 5 300 &      ps      kill 2
+  Plusieurs sur une seule ligne : ticker A 5 400 & ticker B 5 300 & ps   (voir "man general")
   Ce qui change pour un programme en arriere-plan :
    - il n'a pas de clavier : lire l'entree standard donne tout de suite la fin de fichier ;
-   - il affiche sur le meme ecran (les lignes se melangent) ; a sa fin le noyau ecrit
-     "[numero] nom termine" ;
+   - il affiche sur le meme ecran, mais sans casser ce que vous tapez (0.6.3) : la ligne en cours est
+     effacee puis redessinee sous sa sortie (sauf si elle depasse une ligne d'ecran) ; a sa fin le noyau
+     ecrit "[numero] nom termine" ;
    - & ne se combine pas avec les tubes (|) ni les redirections (>) ; pas de & pour les commandes
      integrees (seulement run, exe ou un nom de programme).
   Ordonnanceur : tourniquet, au plus 7 programmes en meme temps, 16 Kio de pile noyau chacun.

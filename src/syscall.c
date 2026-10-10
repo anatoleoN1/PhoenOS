@@ -67,12 +67,16 @@ static int user_string(const struct uproc *p, u32 addr, char *dst, u32 max)
 
 static void out_bytes(const u8 *d, u32 n, int to_error)
 {
+    if (kprintf_task_hook && n)
+        kprintf_task_hook(0, 0);
     for (u32 i = 0; i < n; i++) {
         if (to_error)
             keprintf("%c", d[i]);
         else
             kprintf("%c", d[i]);
     }
+    if (kprintf_task_hook && n)
+        kprintf_task_hook(1, (char)d[n - 1]);
 }
 
 /* Lit une ligne au clavier (avec echo et retour arriere). 0 : Ctrl+D sur ligne vide ; -1 : Ctrl+C. */

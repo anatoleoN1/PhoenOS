@@ -6,36 +6,55 @@
 #include "cmdline.h"
 #include "string.h"
 
+/* Mots-separateurs : ";" et "&" hors guillemets sont toujours des mots a eux seuls, meme colles
+ * a un autre mot (ticker A&ticker B& ; ls;pwd). Ils pointent sur ces textes constants. */
+static char sep_semi[] = ";";
+static char sep_amp[]  = "&";
+
 int cmdline_split_ex(char *line, char **argv, int max, u8 *quoted)
 {
     int argc = 0;
     char *p = line;
+    char pending = 0;                           /* separateur colle a la fin du mot precedent */
 
     for (;;) {
-        while (*p == ' ' || *p == '\t')
-            p++;
-        if (*p == '\0')
-            break;
+        if (!pending) {
+            while (*p == ' ' || *p == '\t')
+                p++;
+            if (*p == '\0')
+                break;
+        }
         if (argc >= max)
             return E_2BIG;
 
-        if (*p == '"') {
+        if (pending || *p == ';' || *p == '&') {
+            char c = pending ? pending : *p++;
+
+            pending = 0;
+            if (quoted)
+                quoted[argc] = 0;
+            argv[argc++] = c == ';' ? sep_semi : sep_amp;
+        } else if (*p == '"') {
             if (quoted)
                 quoted[argc] = 1;
             argv[argc++] = ++p;
             while (*p && *p != '"')
                 p++;
             if (*p == '\0')
-                return E_INVAL;                 /* guillemet non fermé */
+                return E_INVAL;                 /* guillemet non ferme */
             *p++ = '\0';
         } else {
             if (quoted)
                 quoted[argc] = 0;
             argv[argc++] = p;
-            while (*p && *p != ' ' && *p != '\t')
+            while (*p && *p != ' ' && *p != '\t' && *p != ';' && *p != '&')
                 p++;
-            if (*p)
+            if (*p == ';' || *p == '&') {
+                pending = *p;
                 *p++ = '\0';
+            } else if (*p) {
+                *p++ = '\0';
+            }
         }
     }
 

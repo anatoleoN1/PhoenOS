@@ -48,6 +48,14 @@ void aspace_activate_kernel(void) { }
 static u32 kdir[1024] __attribute__((aligned(4096)));
 static struct uproc P;
 
+static int hook_begin, hook_end;
+static char hook_last;
+static void test_hook(int phase, char last)
+{
+    if (phase == 0) hook_begin++;
+    else { hook_end++; hook_last = last; }
+}
+
 static int strstr_(const char *h, const char *n)
 {
     for (; *h; h++) {
@@ -232,6 +240,15 @@ int test_main(void)
     /* ---- divers ---- */
     CHECK(SYS(SYS_GETPID, 0, 0, 0) == (i32)P.pid);
     CHECK(SYS(SYS_UPTIME, 0, 0, 0) == 4242);
+    /* ---- 0.6.3 : le shell est prevenu avant/apres chaque ecriture d'un programme sur la console ---- */
+    memcpy(umem + 800, "hop\n", 4);
+    kprintf_task_hook = test_hook;
+    CHECK(SYS(SYS_WRITE, 1, A(800), 4) == 4);
+    CHECK(hook_begin == 1 && hook_end == 1 && hook_last == '\n');
+    CHECK(SYS(SYS_WRITE, 1, A(800), 3) == 3 && hook_last == 'p');
+    CHECK(SYS(SYS_WRITE, 1, A(800), 0) == 0 && hook_begin == 2);               /* longueur nulle : pas d'appel */
+    kprintf_task_hook = NULL;
+
     /* ---- journal : log(niveau, texte) ---- */
     {
         char tag[DLOG_TAG_MAX], msg[DLOG_MSG_MAX + 2];

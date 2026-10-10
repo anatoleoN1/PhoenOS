@@ -33,6 +33,7 @@
 
 #define LINE_MAX 256
 #define MAX_ARGS 16
+#define MAX_TOKENS 32                    /* mots d'une ligne entiere (plusieurs commandes) */
 #define MAX_STAGES 4                     /* commandes reliees par des tubes */
 #define SCROLL_STEP 12                   /* lignes par appui sur PageHaut / PageBas */
 #define CAPTURE_MAX (128u * 1024)       /* sortie maximale d'une commande redirigée */
@@ -1884,11 +1885,9 @@ static void run_stage(int argc, char **argv, struct capture *cap)
     color(VGA_LIGHT_GREY);
 }
 
-static void execute(char *line)
+/* Une commande (avec ses tubes et sa redirection). bg : suivie de & (programme en arriere-plan). */
+static void execute_tokens(int argc, char **argv, u8 *quoted, int bg)
 {
-    char *argv[MAX_ARGS + 1];
-    u8 quoted[MAX_ARGS + 1];
-    int argc = cmdline_split_ex(line, argv, MAX_ARGS, quoted);
     int starts[MAX_STAGES], counts[MAX_STAGES], stages = 0, s = 0;
     const char *target = NULL;
     int append = 0;
@@ -1897,21 +1896,16 @@ static void execute(char *line)
     char *held = NULL;                          /* sortie du tube precedent (a liberer) */
     err_t e;
 
-    if (argc < 0) {
-        fail_msg(argc == E_2BIG ? "Trop d'arguments (maximum 16)." : "Guillemet non ferme.");
-        return;
-    }
     if (argc == 0)
         return;
+    if (argc > MAX_ARGS) {
+        fail_msg("Trop d'arguments (maximum 16).");
+        return;
+    }
+    argv[argc] = NULL;
 
     /* Arriere-plan :  programme ... &  */
-    if (!quoted[argc - 1] && strcmp(argv[argc - 1], "&") == 0) {
-        argc--;
-        argv[argc] = NULL;
-        if (argc == 0) {
-            fail_msg("Commande manquante avant &.");
-            return;
-        }
+    if (bg) {
         for (int i = 0; i < argc; i++)
             if (!quoted[i] && (is_redirect_token(argv[i]) || strcmp(argv[i], "|") == 0)) {
                 fail_msg("& ne se combine pas avec les tubes ni les redirections.");
@@ -2020,9 +2014,46 @@ static void execute(char *line)
     }
 }
 
+/*
+ * Une ligne peut contenir plusieurs commandes (0.6.3) :
+ *   cmd1 ; cmd2     l'une apres l'autre            cmd1 & cmd2 &    toutes en arriere-plan
+ *   cmd1 & cmd2     cmd1 en arriere-plan, cmd2 au premier plan
+ * Un echec n'arrete pas la suite. ";" et "&" hors guillemets separent (meme colles : ls;pwd).
+ */
+static void execute(char *line)
+{
+    char *argv[MAX_TOKENS + 1];
+    u8 quoted[MAX_TOKENS + 1];
+    int argc = cmdline_split_ex(line, argv, MAX_TOKENS, quoted);
+    int start = 0;
+
+    if (argc < 0) {
+        fail_msg(argc == E_2BIG ? "Ligne trop longue (maximum 32 mots)." : "Guillemet non ferme.");
+        return;
+    }
+    for (int i = 0; i <= argc; i++) {
+        char sep = 0;
+
+        if (i < argc && !quoted[i] && (strcmp(argv[i], ";") == 0 || strcmp(argv[i], "&") == 0))
+            sep = argv[i][0];
+        else if (i < argc)
+            continue;
+        if (i == start) {                       /* commande vide : ";;" ou fin de ligne ignores, "&" seul refuse */
+            if (sep == '&')
+                fail_msg("Commande manquante avant &.");
+        } else {
+            argv[i] = NULL;
+            execute_tokens(i - start, argv + start, quoted + start, sep == '&');
+        }
+        start = i + 1;
+    }
+}
+
 /* ------------------------------------------------------------------ */
 /* Saisie d'une ligne                                                  */
 /* ------------------------------------------------------------------ */
+
+static usize prompt_cols;                       /* largeur de l'invite, en colonnes */
 
 static void prompt(void)
 {
@@ -2038,6 +2069,44 @@ static void prompt(void)
     kprintf("%s", path);
     color(VGA_LIGHT_GREY);
     kprintf("> ");
+    prompt_cols = 7 + 1 + strlen(path) + 2;     /* "phoenos" ":" chemin "> " */
+}
+
+/* ---- Saisie en cours, pour que la sortie des programmes d'arriere-plan ne la casse pas (0.6.3) ---- */
+static const char *edit_buf;                    /* ligne en cours de saisie, NULL si on n'est pas en saisie */
+static const usize *edit_lenp;
+static int edit_redraw;                         /* 1 : ligne effacee, a redessiner apres un retour a la ligne */
+
+static void edit_redraw_now(void)
+{
+    kprintf_quiet(1);
+    prompt();
+    kprintf("%s", edit_buf);
+    kprintf_quiet(0);
+    edit_redraw = 0;
+}
+
+static void task_out_hook(int phase, char last)
+{
+    if (!edit_buf)
+        return;                                 /* pas de saisie en cours : rien a proteger */
+    if (phase == 0) {
+        usize cols = prompt_cols + *edit_lenp;
+
+        if (edit_redraw)
+            return;                             /* deja efface, la sortie precedente n'a pas fini sa ligne */
+        if (cols >= 79)
+            return;                             /* ligne repliee sur l'ecran : on ne sait pas l'effacer proprement */
+        kprintf_quiet(1);
+        kprintf("\r");
+        for (usize i = 0; i < cols; i++)
+            kprintf(" ");
+        kprintf("\r");
+        kprintf_quiet(0);
+        edit_redraw = 1;
+    } else if (edit_redraw && last == '\n') {
+        edit_redraw_now();
+    }
 }
 
 static void erase_line(usize len)
@@ -2177,10 +2246,25 @@ static void complete(char *line, usize *len)
 }
 
 /* Lit une ligne au clavier. Renvoie quand l'utilisateur appuie sur Entrée. */
+static void read_line_inner(char *line, usize *len_out, usize *len);
+
 static void read_line(char *line, usize *len_out)
 {
-    char draft[LINE_MAX];
     usize len = 0;
+
+    line[0] = '\0';
+    edit_buf = line;
+    edit_lenp = &len;
+    edit_redraw = 0;
+    read_line_inner(line, len_out, &len);
+    edit_buf = NULL;
+    edit_lenp = NULL;
+}
+
+static void read_line_inner(char *line, usize *len_out, usize *lenp)
+{
+    char draft[LINE_MAX];
+#define len (*lenp)
 
     line[0] = draft[0] = '\0';
     history_add(&hist, "");                     /* remet la navigation à la fin */
@@ -2189,6 +2273,10 @@ static void read_line(char *line, usize *len_out)
         int key = keyboard_getc();
 
         DTRACE("key", "touche %#x", (u32)key);
+        if (edit_redraw) {                      /* un programme a ecrit sans finir sa ligne : on passe a la suivante */
+            kprintf("\n");
+            edit_redraw_now();
+        }
         if (key == KEY_PGUP || key == 2) {      /* page precedente : PageHaut, Ctrl+B (voir man general) */
             vga_scroll_view(SCROLL_STEP);
             continue;
@@ -2266,6 +2354,8 @@ static void read_line(char *line, usize *len_out)
     }
 }
 
+#undef len
+
 void shell_run(void)
 {
     char line[LINE_MAX];
@@ -2273,6 +2363,7 @@ void shell_run(void)
     usize len;
 
     history_init(&hist);
+    kprintf_task_hook = task_out_hook;
 
     for (;;) {
         prompt();

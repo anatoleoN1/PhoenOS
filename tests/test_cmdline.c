@@ -36,6 +36,20 @@ int test_main(void)
     CHECK(split("echo \"non ferme", a, 8) == E_INVAL);
     CHECK(split("1 2 3 4 5 6 7 8", a, 8) == 8 && !strcmp(a[7], "8") && a[8] == NULL);
     CHECK(split("1 2 3 4 5 6 7 8 9", a, 8) == E_2BIG);
+    /* --- separateurs ; et & (0.6.3) --- */
+    CHECK(split("a ; b & c", a, 8) == 5 && !strcmp(a[1], ";") && !strcmp(a[3], "&") && !strcmp(a[4], "c"));
+    CHECK(split("a;b", a, 8) == 3 && !strcmp(a[0], "a") && !strcmp(a[1], ";") && !strcmp(a[2], "b"));
+    CHECK(split("ticker A 3&ticker B 3&", a, 12) == 8 && !strcmp(a[2], "3") && !strcmp(a[3], "&")
+          && !strcmp(a[4], "ticker") && !strcmp(a[7], "&") && a[8] == NULL);
+    CHECK(split(";;&", a, 8) == 3 && !strcmp(a[0], ";") && !strcmp(a[2], "&"));
+    CHECK(split("echo \"a;b&c\" d", a, 8) == 3 && !strcmp(a[1], "a;b&c"));         /* guillemets : texte normal */
+    CHECK(split("a;b;c;d", a, 6) == E_2BIG);
+    {
+        u8 q[8];
+        char buf[] = "echo \";\" ;";
+
+        CHECK(cmdline_split_ex(buf, a, 8, q) == 3 && q[1] == 1 && q[2] == 0);       /* ";" entre guillemets est marque */
+    }
     CHECK(split("caf\x82 \x85", a, 8) == 2);                    /* caractères accentués (CP437) */
 
     /* --- nombres --- */

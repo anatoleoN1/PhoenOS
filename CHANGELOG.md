@@ -5,6 +5,13 @@ z = correctif ou petite amélioration. Chaque version est livrée testée automa
 les chemins de démarrage réels (GRUB, ISO, anneau 3, activation de la pagination) ne sont
 vérifiables que sur une vraie machine ou sous QEMU : ils sont validés par vos essais.
 
+## 0.6.3 — Plusieurs commandes par ligne
+- `cmdline` : `;` et `&` hors guillemets sont des mots à part entière (même collés). Le shell découpe la ligne en
+  commandes : `;` séquentiel, `&` arrière-plan (`execute` → `execute_tokens`) ; 32 mots par ligne, 16 par commande.
+- Affichage : `kprintf_task_hook` prévient le shell avant/après chaque écriture d'un programme ; la ligne de saisie
+  est effacée puis redessinée (`kprintf_quiet` : le redessin n'entre pas dans `dmesg`).
+- Tests : séparateurs (cmdline), enchaînements et saisie interrompue (shell), crochet d'écriture (appels système).
+
 ## 0.6.2 — Système de debug
 - `src/dlog.c` : journal de débogage (anneau de 1024 lignes + port 0xE9), niveaux trace/debug/info/warn/error ;
   `kprintf` rendu réentrant (`kvsnprintf`) pour pouvoir journaliser depuis les interruptions.

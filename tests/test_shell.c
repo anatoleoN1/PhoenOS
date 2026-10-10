@@ -149,6 +149,7 @@ void test_panic(const char *fmt, ...)
 static int keys[8192];
 static int nkeys, next_key;
 
+#define KEY_BG_OUTPUT 0x7001
 static void key(int k) { keys[nkeys++] = k; }
 static void type(const char *s) { while (*s) key((u8)*s++); }
 
@@ -158,6 +159,14 @@ int keyboard_getc(void)
     if (next_key == snapshot_at) {
         memcpy(snap, outbuf, outlen);
         snaplen = outlen;
+    }
+    while (next_key < nkeys && keys[next_key] == KEY_BG_OUTPUT) {   /* un programme d'arriere-plan ecrit pendant la saisie */
+        next_key++;
+        if (kprintf_task_hook) {
+            kprintf_task_hook(0, 0);
+            kprintf("BGSORTIE\n");
+            kprintf_task_hook(1, '\n');
+        }
     }
     if (next_key < nkeys)
         return keys[next_key++];
@@ -200,7 +209,7 @@ static void verify(void)
     CHECK(count("  1  sleep 250") == 0 || count("  1  ") >= 1); /* history : numerotation */
     CHECK(count("gris clair") == 1 && count("blanc") == 1);     /* colors */
     CHECK(count(" 10   vert clair") == 1);                      /* %2d correct dans colors */
-    CHECK(count("PhoenOS 0.6.2") == 1);                         /* version */
+    CHECK(count("PhoenOS 0.6.3") == 1);                         /* version */
     CHECK(count("<bg hello argc=3 hello a b>") == 1 && count("<bg hello argc=1 hello>") == 1);
     CHECK(count("[7] hello en arriere-plan (ps pour la liste, kill 7 pour l'arreter)") == 2);
     CHECK(count("& : seulement pour les programmes") == 1);
@@ -264,6 +273,14 @@ static void verify(void)
     CHECK(count_end("usage : date [-s]") == 1);
     CHECK(count_end("      5       5      22 \n") == 1);              /* cat | wc : 5 lignes, 5 mots, 25 octets */
     CHECK(count_end("\n      5 /t.txt\n") == 1);                    /* wc -l */
+    CHECK(count_end("\nun63\ndeux63\ntrois63\n") == 1);              /* plusieurs commandes sur une ligne */
+    CHECK(count_end("\np63\nq63\n") == 1);
+    CHECK(count_end("\na;b&c\n") == 1);
+    CHECK(count_end("\napres63\n") == 1);
+    CHECK(count_end("<hello argc=2 hello y63>\n") == 1);
+    CHECK(count_end("BGSORTIE\nphoenos:/> ec") == 1);                /* la saisie "ec" est redessinee apres la sortie */
+    CHECK(count_end("\rBGSORTIE") == 0 || count_end("\r") >= 1);
+    CHECK(count_end("\nfini63\n") == 1);
     
     CHECK(count_end("\nun\ndeux\n") == 1);                         /* head -2 */
     CHECK(count_end("\nDeux\nun\n") == 1);                          /* tail -2 */
@@ -546,6 +563,14 @@ int test_main(void)
     type("exe nofile\n");
     type("exe\n");
     type("poeinfo /long.txt\n");
+    type("echo un63 ; echo deux63 ; echo trois63\n");                  /* 0.6.3 : plusieurs commandes par ligne */
+    type("echo p63;echo q63\n");                                       /* separateurs colles */
+    type("echo \"a;b&c\"\n");                                          /* entre guillemets : pas un separateur */
+    type(";\n");
+    type("echo ;;; echo apres63\n");
+    type("run hello x63 & run hello y63\n");                          /* x en arriere-plan, y au premier plan */
+    type("echo z63 &\n");                                              /* & sur une commande interne : refuse */
+    type("ec"); key(KEY_BG_OUTPUT); type("ho fini63\n");              /* sortie d'arriere-plan en pleine saisie */
     type("log add essai-journal\n");
     type("log -t user\n");
     type("log level\n");

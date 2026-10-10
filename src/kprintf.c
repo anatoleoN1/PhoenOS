@@ -15,7 +15,16 @@ static u32  dmesg_total;                /* nombre d'octets écrits depuis le dé
 /* Redirection de la sortie (shell : commande > fichier) */
 static kprintf_sink_fn sink;
 static void *sink_ctx;
+void (*kprintf_task_hook)(int phase, char last);
+static int quiet;                       /* > 0 : pas de copie dans dmesg */
 static int bypass;                      /* > 0 : keprintf en cours, on ignore la redirection */
+
+void kprintf_quiet(int on)
+{
+    quiet += on ? 1 : -1;
+    if (quiet < 0)
+        quiet = 0;
+}
 
 void kprintf_redirect(kprintf_sink_fn fn, void *ctx)
 {
@@ -48,7 +57,8 @@ static void console_out(char c)
         sink(c, sink_ctx);
         return;
     }
-    dmesg_buf[dmesg_total++ % DMESG_SIZE] = c;
+    if (!quiet)
+        dmesg_buf[dmesg_total++ % DMESG_SIZE] = c;
     vga_putc(c);
     /* Le port série ne transporte que de l'ASCII : les accents CP437 deviennent '?' */
     serial_putc((u8)c >= 0x80 ? '?' : c);

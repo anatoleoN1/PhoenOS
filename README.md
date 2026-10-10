@@ -30,7 +30,7 @@ make clean
 Pour tester sur une vraie machine : écrire `phoenos-0.1.0.iso` sur une clé USB
 (`sudo dd if=phoenos-0.1.0.iso of=/dev/sdX bs=4M status=progress`, en vérifiant bien `sdX`).
 
-## Ce qu'on doit voir au démarrage (v0.6.2)
+## Ce qu'on doit voir au démarrage (v0.6.3)
 
 Des lignes `[ OK ]` pour : VGA + port série, Multiboot, GDT, IDT/PIC/timer/clavier,
 exceptions (point d'arrêt traité), **mémoire physique, tas du noyau et leurs auto-tests**,
@@ -73,6 +73,14 @@ QEMU s'arrête au lieu de redémarrer, et `qemu.log` contient la dernière excep
 Limites connues : un débordement de pile est détecté après coup (canari testé à chaque tick du
 timer) mais peut provoquer une triple faute avant ; la protection complète demande un TSS dédié
 pour la double faute (prévu plus tard).
+
+## Nouveautés de la 0.6.3 — Lancer plusieurs choses d'un coup
+
+- Plusieurs commandes sur une ligne : `ticker A 5 400 & ticker B 5 300 & ps` (fini le copier-coller), `cmd1 ; cmd2`
+  (l'une après l'autre), `cmd1 & cmd2` (cmd1 en arrière-plan, cmd2 devant). `;` et `&` marchent même sans espaces
+  (`ls;pwd`) ; entre guillemets ils restent du texte. Limites : 16 arguments par commande, 32 mots par ligne.
+- La sortie d'un programme d'arrière-plan ne casse plus ce que vous tapez : la ligne en cours est effacée puis
+  redessinée sous la sortie (si elle tient sur une ligne d'écran).
 
 ## Nouveautés de la 0.6.2 — Système de debug complet
 
