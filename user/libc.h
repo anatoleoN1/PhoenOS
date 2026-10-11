@@ -435,6 +435,7 @@ static inline const char *err_text(int e)
     case -17: return "adresse interdite";
     case -18: return "pas un de vos enfants";
     case -19: return "attente interrompue";
+    case -20: return "bibliotheque absente ou invalide";
     default:  return "erreur";
     }
 }

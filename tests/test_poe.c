@@ -86,7 +86,7 @@ int test_main(void)
     memcpy(work, buf, len); work[96 + 100] ^= 1;
     CHECK(poe_parse(work, len, &info) == POE_BAD_CRC && !strcmp(info.name, "calc"));   /* infos lisibles quand meme */
     CHECK(parse_mut(len, 20, 0, 4) == POE_BAD_CRC);
-    CHECK(parse_mut(len, 8, 2, 4) == POE_NEEDS_NEWER);                     /* API trop recente */
+    CHECK(parse_mut(len, 8, POE_API_LEVEL + 1, 4) == POE_NEEDS_NEWER);                     /* API trop recente */
     CHECK(parse_mut(len, 8, 0xFFFFFFFFu, 4) == POE_NEEDS_NEWER);
     CHECK(parse_mut(len, 8, 0, 4) == POE_OK);                              /* API 0 : tout va bien */
     CHECK(parse_mut(len, 6, POE_NEEDS_GUI, 2) == POE_NEEDS_FEATURE);
@@ -127,6 +127,78 @@ int test_main(void)
         CHECK(ok > 0);
     }
 
-    out("  format .poe verifie : vraie application, 35 corruptions d'en-tete, debordements, CRC, exigences, 20000 en-tetes aleatoires\n");
+    /* ---- format 2 (0.8.0) : description et bibliotheques, cree par mkpoe -d -l puis par poe_build ---- */
+    {
+        static u8 v2[1 << 16], o2[1 << 16];
+        struct poe_spec sp;
+        const char *why = NULL;
+        u32 n2;
+        long m = file("user/app2.poe", v2, sizeof v2);
+
+        CHECK(m > 208 && poe_parse(v2, (u32)m, &info) == POE_OK && info.format == 2);
+        CHECK(!strcmp(info.name, "app2") && !strcmp(info.description, "Une application complete") && info.nneeds == 2);
+        CHECK(!strcmp(info.needs[0], "maths") && !strcmp(info.needs[1], "texte") && info.min_api == 2);
+        CHECK(info.payload == v2 + 208 && info.payload_len == (u32)en && !memcmp(info.payload, elf, (usize)en));
+        CHECK(poe_parse(buf, len, &info) == POE_OK && info.format == 1 && info.nneeds == 0 && info.description[0] == 0);   /* l'ancien format se lit toujours */
+        for (u32 cut = 0; cut < 208; cut += 7)
+            CHECK(poe_parse(v2, cut, &info) == (cut >= 4 ? POE_TRUNCATED : POE_NOT_POE));
+        CHECK(poe_parse(v2, 207, &info) == POE_TRUNCATED);
+        /* cases de bibliotheques abimees */
+        memcpy(work, v2, (usize)m); work[144] = 0;
+        CHECK(poe_parse(work, (u32)m, &info) == POE_BAD_HEADER);                       /* un trou avant la suite */
+        memcpy(work, v2, (usize)m); memcpy(work + 160, "maths", 6);
+        CHECK(poe_parse(work, (u32)m, &info) == POE_BAD_HEADER);                       /* doublon */
+        memcpy(work, v2, (usize)m); work[144] = 'M';
+        CHECK(poe_parse(work, (u32)m, &info) == POE_BAD_HEADER);                       /* nom invalide */
+        memcpy(work, v2, (usize)m); memset(work + 144, 'a', 16);
+        CHECK(poe_parse(work, (u32)m, &info) == POE_BAD_HEADER);                       /* sans 0 final */
+        memcpy(work, v2, (usize)m); work[96] = 7;
+        CHECK(poe_parse(work, (u32)m, &info) == POE_BAD_HEADER);                       /* description : caractere de controle */
+        memcpy(work, v2, (usize)m); memset(work + 96, 'd', 48);
+        CHECK(poe_parse(work, (u32)m, &info) == POE_BAD_HEADER);                       /* description sans 0 final */
+        memcpy(work, v2, (usize)m); work[12] = 100; work[13] = 0;
+        CHECK(poe_parse(work, (u32)m, &info) == POE_BAD_HEADER);                       /* programme dans l'en-tete de 208 octets */
+        memcpy(work, v2, (usize)m); work[4] = 3;
+        CHECK(poe_parse(work, (u32)m, &info) == POE_BAD_HEADER);                       /* format 3 inconnu */
+        /* poe_build : les memes regles que mkpoe */
+        memset(&sp, 0, sizeof sp);
+        sp.name = "x"; sp.version = "1"; sp.author = "a";
+        n2 = poe_build(&sp, elf, (u32)en, o2, sizeof o2, &why);
+        CHECK(n2 == 96 + (u32)en && poe_parse(o2, n2, &info) == POE_OK && info.format == 1 && info.min_api == 1);
+        sp.description = "d"; sp.needs[0] = "m"; sp.nneeds = 1;
+        n2 = poe_build(&sp, elf, (u32)en, o2, sizeof o2, &why);
+        CHECK(n2 == 208 + (u32)en && poe_parse(o2, n2, &info) == POE_OK && info.format == 2 && info.nneeds == 1 && info.min_api == 2);
+        sp.min_api = 1;
+        n2 = poe_build(&sp, elf, (u32)en, o2, sizeof o2, &why);
+        CHECK(n2 && poe_parse(o2, n2, &info) == POE_OK && info.min_api == 1);          /* niveau d'API force */
+        sp.min_api = 0; sp.needs[0] = "Maj";
+        CHECK(poe_build(&sp, elf, (u32)en, o2, sizeof o2, &why) == 0 && why);
+        sp.needs[0] = "m"; sp.needs[1] = "m"; sp.nneeds = 2;
+        CHECK(poe_build(&sp, elf, (u32)en, o2, sizeof o2, &why) == 0);                 /* doublon */
+        sp.nneeds = 5;
+        CHECK(poe_build(&sp, elf, (u32)en, o2, sizeof o2, &why) == 0);
+        sp.nneeds = 1; sp.name = "";
+        CHECK(poe_build(&sp, elf, (u32)en, o2, sizeof o2, &why) == 0);                 /* nom vide */
+        sp.name = "x"; sp.flags = 0x80;
+        CHECK(poe_build(&sp, elf, (u32)en, o2, sizeof o2, &why) == 0);                 /* drapeau inconnu */
+        sp.flags = 0;
+        CHECK(poe_build(&sp, elf, (u32)en, o2, 100, &why) == 0);                       /* tampon trop petit */
+        CHECK(poe_build(&sp, (const u8 *)"pas un elf, vraiment pas, du tout du tout du tout du tout", 60, o2, sizeof o2, &why) == 0);
+        {   /* 20000 en-tetes de format 2 abimes : jamais de plantage */
+            u32 x = 4242;
+
+            for (int i = 0; i < 20000; i++) {
+                memcpy(work, v2, (usize)m);
+                for (int k = 0; k < 3; k++) {
+                    x = x * 1103515245u + 12345u;
+                    work[(x >> 8) % 208] = (u8)(x >> 16);
+                }
+                if (poe_parse(work, (u32)m, &info) == POE_OK)
+                    CHECK(info.payload >= work + 208 && info.payload + info.payload_len <= work + m && info.nneeds <= POE_MAX_NEEDS);
+            }
+        }
+    }
+
+    out("  format .poe verifie : vraie application, 35 corruptions d'en-tete, debordements, CRC, exigences, 20000 en-tetes aleatoires, format 2 (description, bibliotheques), poe_build\n");
     return 0;
 }

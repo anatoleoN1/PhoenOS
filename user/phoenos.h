@@ -12,7 +12,7 @@ typedef unsigned char uchar;
 
 enum { SYS_EXIT = 1, SYS_READ = 3, SYS_WRITE = 4, SYS_OPEN = 5, SYS_CLOSE = 6, SYS_WAITPID = 7, SYS_UNLINK = 10, SYS_TIME = 13,
        SYS_GETPID = 20, SYS_KILL = 37, SYS_BRK = 45, SYS_GETPPID = 64, SYS_SCHED_YIELD = 158,
-       SYS_LOG = 199, SYS_SLEEP_MS = 200, SYS_UPTIME = 201, SYS_SPAWN = 202 };
+       SYS_LOG = 199, SYS_SLEEP_MS = 200, SYS_UPTIME = 201, SYS_SPAWN = 202, SYS_PSL = 203 };
 
 static inline int syscall3(int n, int a, int b, int c)
 {
@@ -54,6 +54,17 @@ static inline int  waitpid(int pid, int *code, int options)     { return syscall
 static inline int  kill(int pid, int sig)                       { return syscall3(SYS_KILL, pid, sig, 0); }
 static inline int  getppid(void)                                { return syscall3(SYS_GETPPID, 0, 0, 0); }
 static inline void yield(void)                                  { syscall3(SYS_SCHED_YIELD, 0, 0, 0); }
+/*
+ * Bibliotheques partagees (0.8.0, voir man bibliotheques).
+ *   psl_sym(lib, sym)   charge la bibliotheque /lib/<lib>.psl si besoin et renvoie l'adresse de la fonction ou variable
+ *                       `sym` qu'elle exporte, ou NULL si la bibliotheque ou le symbole n'existe pas ; sym NULL : adresse
+ *                       de base. psl_addr donne le meme resultat mais avec le code d'erreur (negatif) en cas d'echec.
+ *   Un programme .poe qui declare ses bibliotheques (poepack -l) les a deja : psl_sym ne fait alors que chercher le symbole.
+ */
+enum { E_NOLIB = -20 };
+static inline int psl_addr(const char *lib, const char *sym)    { return syscall3(SYS_PSL, (int)lib, (int)sym, 0); }
+static inline void *psl_sym(const char *lib, const char *sym)   { int a = psl_addr(lib, sym); return a > 0 ? (void *)a : (void *)0; }
+
 /* Tas : brk(0) donne la fin du tas, brk(adresse) la deplace et renvoie la nouvelle fin (inchangee si refuse). */
 static inline uint brk_to(uint addr)                            { return (uint)syscall3(SYS_BRK, (int)addr, 0, 0); }
 

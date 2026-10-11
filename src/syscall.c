@@ -6,6 +6,7 @@
  */
 #include "user.h"
 #include "aspace.h"
+#include "libmgr.h"
 #include "fs.h"
 #include "kprintf.h"
 #include "keyboard.h"
@@ -321,6 +322,21 @@ static i32 sys_brk(struct uproc *p, u32 want)
     return (i32)want;
 }
 
+/* psl(nom, symbole) : l'adresse du symbole d'une bibliotheque (chargee a la demande) ; symbole NULL : son adresse de base. */
+static i32 sys_psl(struct uproc *p, u32 name_addr, u32 sym_addr)
+{
+    char name[20], sym[20];
+    u32 addr = 0;
+    err_t e;
+
+    if (user_string(p, name_addr, name, sizeof name) != 0)
+        return E_FAULT;
+    if (sym_addr && user_string(p, sym_addr, sym, sizeof sym) != 0)
+        return E_FAULT;
+    e = libmgr_resolve(p, name, sym_addr ? sym : NULL, &addr);
+    return e == E_OK ? (i32)addr : e;
+}
+
 /* Copie un texte du programme (fin = 0) : longueur, ou E_FAULT / E_2BIG si plus de `cap` octets. */
 static i32 copy_arg(const struct uproc *p, u32 addr, char *dst, u32 cap)
 {
@@ -421,6 +437,7 @@ static const char *sys_name(u32 nr)
     case SYS_GETPPID:  return "getppid";
     case SYS_SCHED_YIELD: return "yield";
     case SYS_SPAWN:    return "spawn";
+    case SYS_PSL:      return "psl";
     default:           return "?";
     }
 }
@@ -464,6 +481,7 @@ i32 syscall_dispatch(struct uproc *p, u32 nr, u32 a, u32 b, u32 c)
     case SYS_OPEN:
     case SYS_UNLINK:
     case SYS_SPAWN:
+    case SYS_PSL:
         if (user_string(p, a, txt, sizeof txt) != 0)
             strcpy(txt, "?");
         DTRACE("sys", "[%u %s] %s(\"%s\", %#x) = %d%s%s", p->pid, p->name, sys_name(nr), txt, b, r,
@@ -520,6 +538,8 @@ static i32 dispatch(struct uproc *p, u32 nr, u32 a, u32 b, u32 c)
         return sys_brk(p, a);
     case SYS_SPAWN:
         return sys_spawn(p, a, b);
+    case SYS_PSL:
+        return sys_psl(p, a, b);
     case SYS_WAITPID:
         return sys_waitpid(p, a, b, c);
     case SYS_KILL:

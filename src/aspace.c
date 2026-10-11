@@ -53,7 +53,7 @@ err_t aspace_map(struct aspace *a, u32 lo, u32 hi, int writable)
         u32 f;
 
         if (a->pt[i] & PAGE_P) {
-            if (writable)
+            if (writable && !(a->pt[i] & ASPACE_SHARED))
                 a->pt[i] |= PAGE_RW;
             continue;
         }
@@ -76,6 +76,27 @@ err_t aspace_map(struct aspace *a, u32 lo, u32 hi, int writable)
     return E_OK;
 }
 
+err_t aspace_map_shared(struct aspace *a, u32 va, u32 frame)
+{
+    u32 i;
+
+    if (!a->pt || (va & (PAGE_SIZE - 1)) || (frame & (PAGE_SIZE - 1)) || !frame || !zone_ok(va, va + PAGE_SIZE))
+        return E_INVAL;
+    i = (va - ASPACE_BASE) >> 12;
+    if (a->pt[i] & PAGE_P)
+        return E_BUSY;
+    a->pt[i] = frame | PAGE_P | PAGE_US | ASPACE_SHARED;
+    a->pages++;
+    return E_OK;
+}
+
+/* Rend le cadre d'une entree, sauf s'il est partage (il appartient a la bibliotheque). */
+static void release_entry(u32 e)
+{
+    if (!(e & ASPACE_SHARED))
+        pmm_free_frame(e & ~(PAGE_SIZE - 1));
+}
+
 err_t aspace_unmap(struct aspace *a, u32 lo, u32 hi)
 {
     if (!a->pt || !zone_ok(lo, hi))
@@ -83,7 +104,7 @@ err_t aspace_unmap(struct aspace *a, u32 lo, u32 hi)
     for (u32 i = (lo - ASPACE_BASE) >> 12; i < (hi - ASPACE_BASE + PAGE_SIZE - 1) >> 12; i++) {
         if (!(a->pt[i] & PAGE_P))
             continue;
-        pmm_free_frame(a->pt[i] & ~(PAGE_SIZE - 1));
+        release_entry(a->pt[i]);
         a->pt[i] = 0;
         a->pages--;
     }
@@ -97,7 +118,7 @@ err_t aspace_protect(struct aspace *a, u32 lo, u32 hi, int writable)
     for (u32 i = (lo - ASPACE_BASE) >> 12; i < (hi - ASPACE_BASE + PAGE_SIZE - 1) >> 12; i++) {
         if (!(a->pt[i] & PAGE_P))
             continue;
-        if (writable)
+        if (writable && !(a->pt[i] & ASPACE_SHARED))
             a->pt[i] |= PAGE_RW;
         else
             a->pt[i] &= ~PAGE_RW;
@@ -127,7 +148,7 @@ void aspace_destroy(struct aspace *a)
     if (a->pt) {
         for (u32 i = 0; i < ASPACE_PAGES; i++)
             if (a->pt[i] & PAGE_P)
-                pmm_free_frame(a->pt[i] & ~(PAGE_SIZE - 1));
+                release_entry(a->pt[i]);
         pmm_free_frame((u32)a->pt);
     }
     if (a->dir)
@@ -146,8 +167,8 @@ err_t aspace_put(struct aspace *a, u32 va, const u8 *src, u32 n)
         u32 off = va & (PAGE_SIZE - 1);
         u32 take = PAGE_SIZE - off;
 
-        if (!(e & PAGE_P))
-            return E_FAULT;
+        if (!(e & PAGE_P) || (e & ASPACE_SHARED))
+            return E_FAULT;                                    /* page partagee : jamais ecrite de l'exterieur */
         if (take > end - va)
             take = end - va;
         if (src) {

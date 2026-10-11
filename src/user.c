@@ -13,6 +13,7 @@
 #include "fs.h"
 #include "poe.h"
 #include "aspace.h"
+#include "libmgr.h"
 #include "paging.h"
 #include "pmm.h"
 #include "kheap.h"
@@ -69,6 +70,15 @@ static int user_ok;
 static const u8 *pending_in;
 static u32 pending_in_len;
 static int pending_in_set;
+static char pending_needs[POE_MAX_NEEDS][POE_LIBNAME_MAX];     /* bibliotheques du prochain programme (user_set_needs) */
+static int pending_nneeds;
+
+void user_set_needs(char needs[][POE_LIBNAME_MAX], int n)
+{
+    pending_nneeds = 0;
+    for (int i = 0; i < n && i < POE_MAX_NEEDS; i++)
+        strcpy(pending_needs[pending_nneeds++], needs[i]);
+}
 
 err_t user_init(void)
 {
@@ -148,6 +158,7 @@ static err_t build_stack(u8 *mem, int argc, char **argv, u32 *esp)
 }
 
 _Static_assert(USER_BASE == ASPACE_BASE && USER_END == ASPACE_END, "zone des programmes = une table de pages");
+_Static_assert(PSL_LIB_HI == USER_END - USER_STACK_SIZE && PSL_LIB_LO > USER_BASE, "zone des bibliotheques : juste sous la pile");
 
 static err_t load_put(void *ctx, u32 va, const u8 *src, u32 n)
 {
@@ -203,6 +214,7 @@ static void user_cleanup(void *owner)
 {
     struct utask *u = owner;
 
+    libmgr_detach_all(&u->proc);                /* rend les bibliotheques (la derniere libere les pages partagees) */
     aspace_destroy(&u->space);
     kfree(u);
 }
@@ -269,11 +281,15 @@ static err_t user_spawn(const u8 *image, u32 size, const char *name, int argc, c
     int nseg = 0;
     u32 entry, esp, image_end = USER_BASE;
     u32 stack_lo = USER_END - USER_STACK_SIZE;
+    char needs[POE_MAX_NEEDS][POE_LIBNAME_MAX];
+    int nneeds = pending_nneeds;
     err_t e;
 
+    memcpy(needs, pending_needs, sizeof needs);     /* consomme les bibliotheques en attente, quoi qu'il arrive */
+    pending_nneeds = 0;
     if (!user_ok || !paging_enabled() || !sched_ready())
         return E_NOSYS;
-    e = elf_segments(image, size, USER_BASE, stack_lo, segs, &nseg, &entry);   /* valide avant de rien reserver */
+    e = elf_segments(image, size, USER_BASE, PSL_LIB_LO, segs, &nseg, &entry);   /* valide avant de rien reserver */
     if (e != E_OK)
         return e;
     u = kmalloc(sizeof *u);
@@ -290,7 +306,7 @@ static err_t user_spawn(const u8 *image, u32 size, const char *name, int argc, c
     if (e == E_OK)
         e = aspace_map(&u->space, stack_lo, USER_END, 1);
     if (e == E_OK)
-        e = elf_load_with(image, size, load_put, &u->space, USER_BASE, stack_lo, &entry);
+        e = elf_load_with(image, size, load_put, &u->space, USER_BASE, PSL_LIB_LO, &entry);
     if (e == E_OK)
         e = build_stack(stack_tmp, argc, argv, &esp);
     if (e == E_OK)
@@ -309,8 +325,18 @@ static err_t user_spawn(const u8 *image, u32 size, const char *name, int argc, c
             image_end = segs[i].hi;
     user_proc_reset(&u->proc, name);
     u->proc.as = &u->space;
+    for (int i = 0; i < nneeds && e == E_OK; i++)
+        e = libmgr_attach(&u->proc, needs[i]);
+    if (e == E_BUSY || e == E_2BIG)
+        e = E_NOLIB;                            /* plages qui se chevauchent / trop de bibliotheques */
+    if (e != E_OK) {
+        libmgr_detach_all(&u->proc);
+        aspace_destroy(&u->space);
+        kfree(u);
+        return e;
+    }
     u->proc.heap_lo = u->proc.heap_cur = (image_end + 0xFFFu) & ~0xFFFu;     /* le tas commence apres le programme (code, donnees, bss) */
-    u->proc.heap_hi = stack_lo - USER_HEAP_GUARD;
+    u->proc.heap_hi = PSL_LIB_LO - USER_HEAP_GUARD;      /* le tas s'arrete avant la zone des bibliotheques */
     if (u->proc.heap_hi < u->proc.heap_lo)
         u->proc.heap_hi = u->proc.heap_lo;
     if (bg) {
@@ -401,6 +427,7 @@ err_t user_spawn_child(struct uproc *parent, const char *path, int argc, char **
             return E_NOEXEC;
         image = info.payload;
         size = info.payload_len;
+        user_set_needs(info.needs, info.nneeds);
     }
     e = user_spawn(image, size, argc > 0 ? argv[0] : path, argc, argv, 1, 0, &u);
     if (e != E_OK)

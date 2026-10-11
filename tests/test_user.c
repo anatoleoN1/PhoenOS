@@ -75,7 +75,7 @@ static i32 sc(u32 nr, u32 a, u32 b, u32 c)
 
 /* ---- les programmes simules ---- */
 enum { K_EXIT7, K_YIELD3, K_SLEEP100, K_SPAWNWAIT, K_ORPHAN, K_FOREVER, K_SLEEP30, K_SLEEP60, K_WAITANY, K_NOHANG,
-       K_ERRORS, K_BRK, K_MANY, K_SELFKILL, K_BRKFULL, K_TREE, K_COUNT };
+       K_ERRORS, K_BRK, K_MANY, K_SELFKILL, K_BRKFULL, K_TREE, K_LIB, K_COUNT };
 
 static struct {
     i32 kid, w, code, again;                            /* spawnwait */
@@ -88,6 +88,7 @@ static struct {
     i32 many_spawned, many_err, many_reaped;
     i32 yields;
     i32 tree_kid, tree_kid2, tree_w;
+    i32 lib[10]; u32 lib_pages, lib_nlibs; int lib_ro, lib_rw;
 } R;
 
 static void prog(int k)
@@ -230,6 +231,25 @@ static void prog(int k)
         R.tree_kid2 = sc(SYS_SPAWN, UA(0x110), 0, 0);
         R.w = sc(SYS_WAITPID, (u32)R.tree_kid, 0, 0);           /* attend pour toujours : seul kill peut l'arreter */
         break;
+    case K_LIB: {
+        struct uproc *p = user_current();
+
+        strcpy(UM(0x100), "maths"); strcpy(UM(0x110), "maths_pgcd"); strcpy(UM(0x120), "inconnu");
+        strcpy(UM(0x130), "absente"); strcpy(UM(0x140), "texte"); strcpy(UM(0x150), "texte_mots");
+        R.lib_nlibs = p->nlibs; R.lib_pages = p->as->pages;
+        R.lib_ro = aspace_check(p->as, 0x700000, 16, 0) && !aspace_check(p->as, 0x700000, 1, 1);
+        R.lib_rw = aspace_check(p->as, 0x701000, 4, 1);
+        R.lib[0] = sc(SYS_PSL, UA(0x100), 0, 0);                    /* base de maths (deja chargee ou chargee a la demande) */
+        R.lib[1] = sc(SYS_PSL, UA(0x100), UA(0x110), 0);
+        R.lib[2] = sc(SYS_PSL, UA(0x100), UA(0x120), 0);            /* symbole inconnu */
+        R.lib[3] = sc(SYS_PSL, UA(0x130), 0, 0);                    /* bibliotheque absente */
+        R.lib[4] = sc(SYS_PSL, 0x10, 0, 0);                         /* nom : pointeur invalide */
+        R.lib[5] = sc(SYS_PSL, UA(0x100), 0x10, 0);                 /* symbole : pointeur invalide */
+        R.lib[6] = sc(SYS_PSL, UA(0x140), UA(0x150), 0);            /* texte : peut etre chargee a la demande */
+        R.lib[7] = (i32)p->nlibs;
+        sc(SYS_EXIT, 0, 0, 0);
+        break;
+    }
     case K_SELFKILL:
         sc(SYS_KILL, (u32)sc(SYS_GETPID, 0, 0, 0), 9, 0);
         R.yields = 99;                                           /* ne doit jamais s'executer */
@@ -438,7 +458,7 @@ int test_main(void)
     {
         u32 lo = (u32)R.brk[0], hi = (u32)R.brk[8];
 
-        CHECK(lo == 0x403000 && hi == 0x7EF000);                /* apres le segment ; limite = pile (0x7F0000) - 1 page de garde */
+        CHECK(lo == 0x403000 && hi == 0x6FF000);                /* apres le segment ; limite = pile (0x7F0000) - 1 page de garde */
         CHECK((u32)R.brk[1] == lo + 10000 && R.pages[1] == R.pages[0] + 3 && R.checks[0] && !R.checks[1]);
         CHECK((u32)R.brk[2] == lo + 100 && R.pages[2] == R.pages[0] + 1 && !R.checks[2]);    /* pages rendues */
         CHECK((u32)R.brk[3] == lo + 100 && (u32)R.brk[4] == lo + 100 && (u32)R.brk[5] == lo + 100);   /* refus : inchange */
@@ -480,6 +500,60 @@ int test_main(void)
     /* ---- les programmes lances avec & annoncent leur fin sur l'ecran ; les enfants d'un programme, non ---- */
     CHECK(shows("termine (code 7)") && shows("k6") == 0);
 
-    out("  programmes qui en lancent d'autres verifies : spawn, waitpid (pid, -1, WNOHANG), orphelins, kill, brk, erreurs, table pleine, fuites\n");
+    /* ---- bibliotheques .psl (0.8.0) : donnees par l'en-tete .poe (user_set_needs) ou a la demande (appel psl) ---- */
+    {
+        struct fs_node *f;
+        static u8 lf[1 << 17];
+        const char *names[2] = { "maths", "texte" };
+        static char needs[2][POE_LIBNAME_MAX];
+        u32 before, k2;
+
+        fs_mkdir("/lib");
+        for (k2 = 0; k2 < 2; k2++) {
+            char host[24] = "lib/", path[24] = "/lib/";
+            long r;
+            int fd;
+
+            strcpy(host + 4, names[k2]); strcpy(host + 4 + strlen(names[k2]), ".psl");
+            strcpy(path + 5, names[k2]); strcpy(path + 5 + strlen(names[k2]), ".psl");
+            fd = (int)sys3(5, (long)host, 0, 0);
+            r = fd < 0 ? -1 : sys3(3, fd, (long)lf, sizeof lf);
+            CHECK(r > 0 && fs_create(path, &f) == E_OK && fs_write(f, lf, (u32)r) == E_OK);
+            sys3(6, fd, 0, 0);
+        }
+        settle();
+        before = pmm_free_frames();
+        /* a la demande : le programme appelle psl() */
+        memset(&R.lib, 0, sizeof R.lib);
+        CHECK(run_k(K_LIB, &code) && code == 0);
+        CHECK(R.lib_nlibs == 0 && !R.lib_ro);                                   /* rien au depart */
+        CHECK(R.lib[0] == 0x700000 && R.lib[1] == 0x700000 && R.lib[2] == E_NOENT && R.lib[3] == E_NOLIB);
+        CHECK(R.lib[4] == E_FAULT && R.lib[5] == E_FAULT && (u32)R.lib[6] >= 0x710000 && (u32)R.lib[6] < 0x712000 && R.lib[7] == 2);
+        settle();
+        CHECK(pmm_free_frames() == before);                                      /* rendu a la fin du programme */
+        { const char *nm; u32 a, b, c2, d; CHECK(libmgr_info(0, &nm, &a, &b, &c2, &d) == 0); }
+        /* donnees par l'en-tete : deja la des le premier instruction du programme */
+        strcpy(needs[0], "maths"); strcpy(needs[1], "texte");
+        user_set_needs(needs, 2);
+        memset(&R.lib, 0, sizeof R.lib);
+        CHECK(run_k(K_LIB, &code) && code == 0);
+        CHECK(R.lib_nlibs == 2 && R.lib_ro && R.lib_rw);
+        CHECK(R.lib[0] == 0x700000 && (u32)R.lib[6] >= 0x710000 && (u32)R.lib[6] < 0x712000 && R.lib[7] == 2);   /* deja chargees : meme resultat, rien en plus */
+        settle();
+        CHECK(pmm_free_frames() == before);
+        /* bibliotheque absente : le lancement echoue proprement, rien ne fuit, les "needs" sont consommes */
+        strcpy(needs[0], "maths"); strcpy(needs[1], "absente");
+        user_set_needs(needs, 2);
+        CHECK(run_k(K_LIB, &code) == 0);
+        settle();
+        CHECK(pmm_free_frames() == before);
+        { const char *nm; u32 a, b, c2, d; CHECK(libmgr_info(0, &nm, &a, &b, &c2, &d) == 0); }
+        memset(&R.lib, 0, sizeof R.lib);
+        CHECK(run_k(K_LIB, &code) && code == 0 && R.lib_nlibs == 0);            /* le lancement suivant n'herite de rien */
+        settle();
+        CHECK(pmm_free_frames() == before);
+    }
+
+    out("  programmes qui en lancent d autres + bibliotheques .psl verifies : spawn, waitpid (pid, -1, WNOHANG), orphelins, kill, brk, erreurs, table pleine, fuites\n");
     return 0;
 }

@@ -300,6 +300,13 @@ int test_main(void)
     CHECK(SYS(999, 0, 0, 0) == E_NOSYS);
     CHECK(SYS(0, 0, 0, 0) == E_NOSYS);
 
+    /* ---- 0.8.0 : psl(nom, symbole) ---- */
+    strcpy((char *)umem + 2500, "maths"); strcpy((char *)umem + 2520, "maths_pgcd");
+    CHECK(SYS(SYS_PSL, 0, 0, 0) == E_FAULT && SYS(SYS_PSL, A(2500), 0x100000, 0) == E_FAULT);    /* pointeurs invalides */
+    CHECK(SYS(SYS_PSL, A(2500), A(2520), 0) == E_NOSYS);                    /* sans espace d'adressage : pas de bibliotheques */
+    memset((char *)umem + 2600, 'x', 40);
+    CHECK(SYS(SYS_PSL, A(2600), 0, 0) == E_FAULT);                          /* nom sans fin dans 19 octets */
+
     /* ---- 0.7.0 : spawn, waitpid, kill, getppid, yield (le noyau valide les pointeurs puis transmet) ---- */
     strcpy((char *)umem + 2000, "/bin/x"); strcpy((char *)umem + 2020, "arg-un"); strcpy((char *)umem + 2040, "arg-deux");
     { u32 av[3] = { A(2020), A(2040), 0 }; memcpy(umem + 2100, av, sizeof av); }

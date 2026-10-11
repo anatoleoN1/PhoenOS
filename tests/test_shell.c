@@ -114,10 +114,17 @@ err_t user_spawn_bg(const u8 *img, u32 size, const char *name, int argc, char **
 
 /* faux noyau utilisateur : « execute » un fichier commencant par FAKEELF en affichant ses arguments */
 static const u8 *fake_in; static u32 fake_in_len; static int fake_in_set;
+void user_set_needs(char needs[][POE_LIBNAME_MAX], int n) { (void)needs; (void)n; }
+int  libmgr_info(int i, const char **name, u32 *refs, u32 *lo, u32 *hi, u32 *shared)
+{
+    if (i) return 0;
+    *name = "maths"; *refs = 2; *lo = 0x700000; *hi = 0x702000; *shared = 1;
+    return 1;
+}
 void user_set_stdin(const u8 *b, u32 l, int set) { fake_in = b; fake_in_len = l; fake_in_set = set; }
 err_t user_exec(const u8 *img, u32 size, const char *name, int argc, char **argv, struct user_result *res)
 {
-    if (size < 7 || memcmp(img, "FAKEELF", 7))
+    if (size < 7 || (memcmp(img, "FAKEELF", 7) && memcmp(img, "\x7f" "ELF", 4)))
         return E_NOEXEC;
     kprintf("<%s argc=%d", name, argc);
     for (int i = 0; i < argc; i++)
@@ -219,7 +226,7 @@ static void verify(void)
     CHECK(count("  1  sleep 250") == 0 || count("  1  ") >= 1); /* history : numerotation */
     CHECK(count("gris clair") == 1 && count("blanc") == 1);     /* colors */
     CHECK(count(" 10   vert clair") == 1);                      /* %2d correct dans colors */
-    CHECK(count("PhoenOS 0.7.1") == 1);                         /* version */
+    CHECK(count("PhoenOS 0.8.0") == 1);                         /* version */
     CHECK(count("<bg hello argc=3 hello a b>") == 1 && count("<bg hello argc=1 hello>") == 1);
     CHECK(count("[7] hello en arriere-plan (ps pour la liste, kill 7 pour l'arreter)") == 2);
     CHECK(count("& : seulement pour les programmes") == 1);
@@ -238,7 +245,7 @@ static void verify(void)
     CHECK(count("usage : man [commande]") == 1);
     CHECK(count("    1  hello\n    2  more\n    3  hello\n    4  more\n") == 1);
     CHECK(count("usage : cat [-n] [fichier...]") == 1);
-    CHECK(count("6 dossier(s)\n") == 1 && count("tree -d") == 1);
+    CHECK(count("7 dossier(s)\n") == 1 && count("tree -d") == 1);
     CHECK(scroll_total == 36 && scroll_resets > 100);           /* +12 +12 -12 ; toute autre touche ramene en bas */
     CHECK(count("\napres-defilement\n") == 1);
     CHECK(count("FAKE DISK 9000  16 Mio") == 2);
@@ -271,7 +278,7 @@ static void verify(void)
     CHECK(count("b/  f.txt  g.txt  ") == 1);                    /* ls apres cp */
     CHECK(count("cat g.txt \n") == 1);                          /* Tab complete g<Tab> en g.txt */
     CHECK(count("00000000  68 65 6c 6c 6f") == 1 && count("... 6 octet(s) de plus") == 1);   /* hexdump */
-    CHECK(count("5 dossier(s), 10 fichier(s)") == 1);            /* tree / */
+    CHECK(count("6 dossier(s), 13 fichier(s)") == 1);            /* tree / */
     CHECK(count("Redirection : cmd") == 3);                /* help, puis cat h.txt (help redirige) */
     CHECK(count("Commandes (Tab complete") == 3);               /* help redirige + cat : sortie bien capturee */
     CHECK(count("PANIQUE") == 0);
@@ -324,13 +331,33 @@ static void verify(void)
     CHECK(count_end("\nL1\n") >= 1);                                /* more fichier > fichier : copie sans invite */
     CHECK(count_end("apres-more\n") >= 1 && count_end("apres-more2\n") >= 1 && count_end("apres-more3\n") >= 1);
     CHECK(count_end("<fake argc=3 fake a b>\n") == 1 && count_end("<fake argc=1 fake>\n") == 1 && count_end("<fake argc=2 fake z>\n") == 1);
-    CHECK(count_end("Application    : fake 1.2\n") == 1 && count_end("Auteur         : Moi\n") == 2);
-    CHECK(count_end("Etat           : valide\n") == 1 && count_end("somme de controle exacte") == 1);
+    CHECK(count_end("Application    : fake 1.2\n") == 1 && count_end("Auteur         : Moi\n") == 5);
+    CHECK(count_end("Etat           : valide\n") == 5 && count_end("somme de controle exacte") == 3);
     CHECK(count_end("/apps/bad.poe : programme abime") == 1 && count_end("somme de controle FAUSSE") == 1);
     CHECK(count_end("/apps/gui.poe : exige une fonction pas encore disponible") == 1);
     CHECK(count_end("exe : /long.txt n'est pas une application .poe") == 1);
     CHECK(count_end("exe: nofile: introuvable") == 1 && count_end("usage : exe <application>") == 1);
-    CHECK(count_end("/long.txt : ce n'est pas une application .poe") == 1);
+    CHECK(count_end("/long.txt : ce n'est pas une application .poe") == 2);
+    /* 0.8.0 : bibliotheques et .poe complets */
+    CHECK(count_end("  maths      1.0      0x700000-0x702000  Test maths\n") == 2 && count_end("En memoire : maths (2 programmes, 1 pages de code partagees)") == 2);
+    CHECK(count_end("Exports (5)    : maths_pgcd maths_racine maths_fibo maths_appels maths_nom\n") == 1);
+    CHECK(count_end("psl: /lib/nope.psl: introuvable") == 1 && count_end("usage : psl [bibliotheque]") == 1);
+    CHECK(count_end("/lib/texte2.psl cree : texte2 3.1, 2 exports, ") == 1 && count_end("Description    : Textes de test") == 1);
+    CHECK(count_end("pslpack : symbole a exporter introuvable") == 1 && count_end("pslpack : nom : 1 a 15 caracteres") == 1);
+    CHECK(count_end("pslpack : le fichier n'est pas un ELF") == 1 && count_end("usage : pslpack -n nom") == 1);
+    CHECK(count_end("/apps/mine.poe cree : mine 1.5, 272 octets (format 2)") == 1 && count_end("/apps/simple.poe cree : simple 1, 160 octets (format 1)") == 1);
+    CHECK(count_end("Bibliotheques  : maths (presente) texte2 (presente)") == 1 && count_end("Format         : 2") == 1 && count_end("Format         : 1") == 3);
+    CHECK(count_end("poepack : bibliotheque indiquee deux fois") == 1 && count_end("poepack : le programme n'est pas un fichier ELF") == 1);
+    CHECK(count_end("poepack: /bin/nofile: introuvable") == 1 && count_end("usage : poepack -n nom") == 1);
+    CHECK(count_end("/apps/alib.poe : bibliotheque \"absente\" absente de /lib") == 1);      /* refus AVANT de lancer */
+    CHECK(count_end("<mine argc=2 mine q>") == 1 && count_end("<alib") == 0);
+    CHECK(count_end("/extrait.elf : 64 octets extraits de /apps/mine.poe") == 1 && count_end("poeunpack : /long.txt : ce n'est pas une application .poe") == 1);
+    {
+        struct fs_node *a, *b;
+
+        CHECK(fs_lookup("/extrait.elf", &a) == E_OK && fs_lookup("/bin/fakeelf", &b) == E_OK && a->size == b->size && !memcmp(a->data, b->data, a->size));   /* intact */
+        CHECK(fs_lookup("/lib/texte3.psl", &a) == E_NOENT && fs_lookup("/lib/x.psl", &a) == E_NOENT && fs_lookup("/apps/bad2.poe", &a) == E_NOENT);   /* rien cree en cas d'echec */
+    }
     CHECK(count_end("Redemarrage...") == 1);
     CHECK(count_end("Sauvegarde des fichiers sur le disque... ok (generation 3)") == 1);
     {                                                           /* la sauvegarde automatique est bien sur le « disque » */
@@ -402,6 +429,23 @@ int test_main(void)
                 strcpy((char *)poe + 24, apps[i].name); strcpy((char *)poe + 56, "1.2"); strcpy((char *)poe + 72, "Moi");
                 memcpy(poe + 96, "FAKEELF!", 8);
                 fs_create(apps[i].path, &f); fs_write(f, poe, sizeof poe);
+            }
+        }
+        {   /* 0.8.0 : un faux ELF, et de vraies bibliotheques .psl / ELF lies par ld (voir tests/run.sh) */
+            static u8 fakeelf[64], big[1 << 16];
+            static const char *const hosts[] = { "lib/maths.psl", "lib/texte.elf" };
+            static const char *const dests[] = { "/lib/maths.psl", "/texte.elf" };
+
+            memset(fakeelf, 0, sizeof fakeelf);
+            memcpy(fakeelf, "\x7f" "ELF", 4); strcpy((char *)fakeelf + 8, "contenu-elf");
+            fs_create("/bin/fakeelf", &f); fs_write(f, fakeelf, sizeof fakeelf);
+            fs_mkdir("/lib");
+            for (int i = 0; i < 2; i++) {
+                long fd = sys3(5, (long)hosts[i], 0, 0), r = fd < 0 ? -1 : sys3(3, fd, (long)big, sizeof big);
+
+                if (r <= 0) { out("  fichier de test introuvable : "); out(hosts[i]); out("\n"); test_fails++; continue; }
+                fs_create(dests[i], &f); fs_write(f, big, (u32)r);
+                sys3(6, fd, 0, 0);
             }
         }
         fs_mkdir("/docs");
@@ -583,6 +627,32 @@ int test_main(void)
     type("exe nofile\n");
     type("exe\n");
     type("poeinfo /long.txt\n");
+    type("psl\n");                                              /* 0.8.0 : bibliotheques */
+    type("psl maths\n");
+    type("psl nope\n");
+    type("psl /x y\n");
+    type("pslpack -n texte2 -v 3.1 -a Moi -d \"Textes de test\" -e texte_mots -e texte_inverser /texte.elf /lib/texte2.psl\n");
+    type("pslpack -n texte3 -v 3.1 -a Moi -e inexistant /texte.elf /lib/texte3.psl\n");
+    type("pslpack -n Texte -v 1 -a Moi -e texte_mots /texte.elf /lib/x.psl\n");
+    type("pslpack /texte.elf\n");
+    type("pslpack -n z -v 1 -a Moi -e texte_mots /long.txt /lib/z.psl\n");
+    type("psl texte2\n");
+    type("psl\n");
+    type("poepack -n mine -v 1.5 -a Moi -d \"Mon appli\" -l maths -l texte2 fakeelf /apps/mine.poe\n");
+    type("poeinfo mine\n");
+    type("poepack -n simple -v 1 -a Moi /bin/fakeelf /apps/simple.poe\n");
+    type("poeinfo simple\n");
+    type("poepack -n bad2 -v 1 -a Moi -l maths -l maths fakeelf /apps/bad2.poe\n");
+    type("poepack -n bad3 -v 1 -a Moi /long.txt /apps/bad3.poe\n");
+    type("poepack -n bad4 -v 1 -a Moi nofile /apps/bad4.poe\n");
+    type("poepack\n");
+    type("poepack -n alib -v 1 -a Moi -l absente fakeelf /apps/alib.poe\n");
+    type("exe alib\n");                                         /* bibliotheque absente : refuse AVANT de lancer */
+    type("exe mine q\n");                                       /* bibliotheques presentes : lance */
+    type("poeunpack mine /extrait.elf\n");
+    type("poeunpack /long.txt /x.elf\n");
+    type("poeunpack\n");
+    type("poeunpack gui /gui.elf\n");
     type("echo un63 ; echo deux63 ; echo trois63\n");                  /* 0.6.3 : plusieurs commandes par ligne */
     type("echo p63;echo q63\n");                                       /* separateurs colles */
     type("echo \"a;b&c\"\n");                                          /* entre guillemets : pas un separateur */

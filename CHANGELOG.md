@@ -5,6 +5,26 @@ z = correctif ou petite amélioration. Chaque version est livrée testée automa
 les chemins de démarrage réels (GRUB, ISO, anneau 3, activation de la pagination) ne sont
 vérifiables que sur une vraie machine ou sous QEMU : ils sont validés par vos essais.
 
+## 0.8.0 — Applications .poe complètes et bibliothèques partagées .psl
+- **Format .poe version 2** (en-tête de 208 octets) : en plus de nom/version/auteur, une description et jusqu'à 4
+  bibliothèques `.psl` nécessaires. Le format 1 reste lu et créé tel quel ; niveau d'API 2 (`POE_API_LEVEL`).
+- **Créer des .poe** : commandes `poepack` (programme → .poe) et `poeunpack` (.poe → programme) dans PhoenOS ;
+  `mkpoe` accepte `-d` et `-l`. Les deux utilisent le même code (`poe_build`), qui refuse noms invalides, doublons, ELF faux.
+- **Bibliothèques partagées `.psl`** (`/lib/<nom>.psl`, `src/psl.c`, `src/libmgr.c`) : ELF lié à une adresse fixe dans la zone
+  0x700000-0x7F0000, avec table d'exports. Le **code est en un seul exemplaire** en mémoire, partagé en lecture seule par tous les
+  programmes (`aspace_map_shared`, cadres jamais rendus par `aspace_unmap/destroy`) ; les **données sont privées** à chaque
+  programme ; tout est rendu quand le dernier programme s'arrête. Appel système `psl` (203) : adresse d'un symbole,
+  chargement à la demande ; `exe` vérifie les bibliothèques annoncées avant de lancer.
+- Commandes `psl` (liste / détail / état en mémoire) et `pslpack` (ELF → .psl, exports cherchés dans la table des symboles) ;
+  outil `mkpsl` ; `poeinfo` montre description, format et bibliothèques (présentes ou non).
+- Exemples : bibliothèques `maths` et `texte` (`lib/`), programme `utilib` (application .poe qui les déclare).
+- Le tas d'un programme s'arrête maintenant à 0x6FF000 (avant : sous la pile) pour laisser la zone des bibliothèques.
+- Code d'erreur `E_NOLIB` (-20). `user/phoenos.h` : `psl_sym`, `psl_addr`.
+- Tests : `test_libs` (vrais ELF liés par `ld` à leur adresse, emballés par le vrai `mkpsl`, **code exécuté** pour de vrai :
+  partage des cadres, données privées, conflits de plage, mémoire pleine, 30000 en-têtes abîmés, aucune fuite), `test_poe` (format 2,
+  `poe_build`, 20000 en-têtes abîmés), `test_user` (bibliothèques par en-tête et à la demande, échec propre), `test_shell`
+  (poepack, poeunpack, pslpack, psl, poeinfo, exe avec bibliothèque absente).
+
 ## 0.7.1 — Ctrl+C arrête aussi les enfants
 - Corrigé (constaté sur `lance boucle 10`) : Ctrl+C arrêtait `lance` mais son enfant `boucle` continuait seul jusqu'au bout.
   Ctrl+C au premier plan et la commande `kill` arrêtent maintenant le programme **et tous ses descendants**

@@ -24,6 +24,12 @@ struct aspace {
     u32  pages;                                 /* pages mappees */
 };
 
+/*
+ * Pages partagees (0.8.0, bibliotheques .psl) : le cadre appartient a la bibliotheque, pas au programme. Une page
+ * partagee est toujours en lecture seule ; aspace_unmap / aspace_destroy ne rendent JAMAIS son cadre.
+ */
+#define ASPACE_SHARED 0x400u                    /* bit libre du processeur (AVL) dans l'entree de table */
+
 /* Repertoire du noyau (modele des repertoires de programmes). Appele par paging_init. */
 void aspace_set_kernel_dir(const u32 *dir);
 
@@ -36,6 +42,9 @@ err_t aspace_create(struct aspace *a);
  * appel est rendu, l'espace reste comme avant.
  */
 err_t aspace_map(struct aspace *a, u32 lo, u32 hi, int writable);
+
+/* Mappe le cadre `frame` (a la bibliotheque) en lecture seule a `va` (aligne). E_BUSY si la page est deja mappee. */
+err_t aspace_map_shared(struct aspace *a, u32 va, u32 frame);
 
 /*
  * Rend les cadres des pages mappees de [lo, hi) (arrondi aux pages) et les demappe. Les pages absentes sont

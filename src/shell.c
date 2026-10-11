@@ -11,6 +11,8 @@
 #include "sched.h"
 #include "dlog.h"
 #include "poe.h"
+#include "psl.h"
+#include "libmgr.h"
 #include "paging.h"
 #include "shell.h"
 #include "cmdline.h"
@@ -102,6 +104,10 @@ static err_t cmd_date(int argc, char **argv);
 static err_t cmd_run(int argc, char **argv);
 static err_t cmd_exe(int argc, char **argv);
 static err_t cmd_poeinfo(int argc, char **argv);
+static err_t cmd_poepack(int argc, char **argv);
+static err_t cmd_poeunpack(int argc, char **argv);
+static err_t cmd_pslpack(int argc, char **argv);
+static err_t cmd_psl(int argc, char **argv);
 static err_t cmd_head(int argc, char **argv);
 static err_t cmd_tail(int argc, char **argv);
 static err_t cmd_wc(int argc, char **argv);
@@ -130,6 +136,10 @@ static const struct command commands[] = {
     { G_SYS, "date",     "[-s]",         "Date et heure (-s : secondes depuis 1970)",      cmd_date     },
     { G_SYS, "exe",      "<application> [args]", "Lance une application .poe (cherche aussi dans /apps)", cmd_exe },
     { G_SYS, "poeinfo",  "<application>",     "Montre l'en-tete d'une application .poe", cmd_poeinfo },
+    { G_SYS, "poepack",  "-n nom -v version -a auteur [-d texte] [-l lib]... <programme> <sortie.poe>", "Cree une application .poe a partir d'un programme", cmd_poepack },
+    { G_SYS, "poeunpack", "<application> <sortie>", "Extrait le programme d'une application .poe", cmd_poeunpack },
+    { G_SYS, "psl",      "[bibliotheque]", "Liste les bibliotheques partagees (/lib) ou detaille l'une d'elles", cmd_psl },
+    { G_SYS, "pslpack",  "-n nom -v version -a auteur [-d texte] -e symbole... <elf> <sortie.psl>", "Cree une bibliotheque partagee .psl", cmd_pslpack },
     { G_SYS, "run",      "<programme> [args]", "Lance un programme (ex. run /bin/hello ; /bin/ implicite)", cmd_run },
     { G_SYS, "ps",       "",             "Liste les programmes en cours (taches)",         cmd_ps       },
     { G_SYS, "schedlog", "",             "Journal de l'ordonnanceur (diagnostic)",        cmd_schedlog },
@@ -1651,6 +1661,8 @@ static void capture_sink(char c, void *ctx)
     cp->buf[cp->len++] = c;
 }
 
+static err_t lib_check(const char *name, enum psl_status *st);
+
 /* Lance le programme utilisateur `path` (fichier ELF). argv[0] = nom affiche. */
 static err_t exec_program(const char *path, int argc, char **argv)
 {
@@ -1676,6 +1688,19 @@ static err_t exec_program(const char *path, int argc, char **argv)
             color(VGA_LIGHT_GREY);
             return E_REPORTED;
         }
+        for (int i = 0; i < info.nneeds; i++) {             /* les bibliotheques annoncees doivent exister et etre valides */
+            enum psl_status ls = PSL_OK;
+            err_t le = lib_check(info.needs[i], &ls);
+
+            if (le != E_OK) {
+                color(VGA_LIGHT_RED);
+                keprintf("%s : bibliotheque \"%s\" %s\n", path, info.needs[i],
+                         le == E_NOENT ? "absente de /lib" : psl_status_text(ls));
+                color(VGA_LIGHT_GREY);
+                return E_REPORTED;
+            }
+        }
+        user_set_needs(info.needs, info.nneeds);
         image = info.payload;
         size = info.payload_len;
     }
@@ -1697,6 +1722,12 @@ static err_t exec_program(const char *path, int argc, char **argv)
     }
     if (e == E_NOSYS) {
         fail_msg("Programmes utilisateur indisponibles (zone memoire non reservee au demarrage).");
+        return E_REPORTED;
+    }
+    if (e == E_NOLIB) {
+        color(VGA_LIGHT_RED);
+        keprintf("%s : bibliotheques impossibles a donner au programme (plages qui se chevauchent ? voir psl et dmesg)\n", path);
+        color(VGA_LIGHT_GREY);
         return E_REPORTED;
     }
     if (e == E_NOEXEC) {
@@ -1814,11 +1845,297 @@ static err_t cmd_poeinfo(int argc, char **argv)
     kprintf("Fichier        : %s\n", path);
     kprintf("Application    : %s %s\n", info.name, info.version);
     kprintf("Auteur         : %s\n", info.author);
+    if (info.description[0])
+        kprintf("Description    : %s\n", info.description);
+    kprintf("Format         : %d\n", info.format);
+    if (info.nneeds) {
+        kprintf("Bibliotheques  :");
+        for (int i = 0; i < info.nneeds; i++) {
+            enum psl_status ls;
+
+            kprintf(" %s (%s)", info.needs[i], lib_check(info.needs[i], &ls) == E_OK ? "presente" : "ABSENTE ou invalide");
+        }
+        kprintf("\n");
+    }
     kprintf("API requise    : %u (ce PhoenOS : %u)\n", info.min_api, (u32)POE_API_LEVEL);
     kprintf("Exige          : %s%s%s\n", info.flags ? "" : "rien de special",
             (info.flags & POE_NEEDS_GUI) ? "interface graphique " : "", (info.flags & POE_NEEDS_NET) ? "reseau" : "");
     kprintf("Programme      : %u octets, somme de controle %s\n", info.payload_len, s == POE_BAD_CRC ? "FAUSSE" : "exacte");
     kprintf("Etat           : %s\n", poe_status_text(s));
+    return E_OK;
+}
+
+
+/* ---- 0.8.0 : fichiers .poe complets et bibliotheques .psl ---- */
+
+static err_t lib_path(const char *name, char *path, usize size)
+{
+    if (strlen(name) > 15 || size < 32)
+        return E_NAMETOOLONG;
+    strcpy(path, "/lib/");
+    strcpy(path + 5, name);
+    strcpy(path + 5 + strlen(name), ".psl");
+    return E_OK;
+}
+
+/* Bibliotheque /lib/<nom>.psl : E_OK si presente et valide ; E_NOENT absente ; E_NOLIB invalide (*st = raison). */
+static err_t lib_check(const char *name, enum psl_status *st)
+{
+    static struct psl_info info;
+    char path[32];
+    struct fs_node *n;
+
+    *st = PSL_BAD_HEADER;
+    if (lib_path(name, path, sizeof path) != E_OK)
+        return E_NOENT;
+    if (fs_lookup(path, &n) != E_OK || n->type != FS_FILE)
+        return E_NOENT;
+    *st = psl_parse(n->data, n->size, &info);
+    return *st == PSL_OK ? E_OK : E_NOLIB;
+}
+
+/* Lit un fichier entier dans un tampon du tas (a liberer avec kfree). `extra` : octets libres a la suite. */
+static err_t slurp(const char *cmd, const char *path, u8 **buf, u32 *len, u32 extra)
+{
+    struct fs_node *n;
+    err_t e = fs_lookup(path, &n);
+
+    if (e == E_OK && n->type != FS_FILE)
+        e = E_ISDIR;
+    if (e != E_OK)
+        return fail_path(cmd, path, e);
+    *buf = kmalloc(n->size + extra + 1);
+    if (!*buf)
+        return E_NOMEM;
+    memcpy(*buf, n->data, n->size);
+    *len = n->size;
+    return E_OK;
+}
+
+static err_t store(const char *cmd, const char *path, const u8 *data, u32 len)
+{
+    struct fs_node *f;
+    err_t e = fs_create(path, &f);
+
+    if (e == E_EXIST && fs_lookup(path, &f) == E_OK && f->type == FS_FILE)
+        e = E_OK;                                           /* on remplace un fichier existant */
+    if (e == E_OK)
+        e = fs_write(f, data, len);
+    if (e != E_OK)
+        return fail_path(cmd, path, e);
+    return E_OK;
+}
+
+static err_t cmd_poepack(int argc, char **argv)
+{
+    struct poe_spec sp;
+    const char *in = NULL, *outp = NULL, *why = NULL;
+    u8 *elf, *out;
+    u32 elen, n;
+    err_t e;
+
+    memset(&sp, 0, sizeof sp);
+    for (int i = 1; i < argc; i++) {
+        if (!strcmp(argv[i], "-n") && i + 1 < argc) sp.name = argv[++i];
+        else if (!strcmp(argv[i], "-v") && i + 1 < argc) sp.version = argv[++i];
+        else if (!strcmp(argv[i], "-a") && i + 1 < argc) sp.author = argv[++i];
+        else if (!strcmp(argv[i], "-d") && i + 1 < argc) sp.description = argv[++i];
+        else if (!strcmp(argv[i], "-l") && i + 1 < argc) {
+            if (sp.nneeds >= POE_MAX_NEEDS)
+                return fail_msg("poepack : 4 bibliotheques au plus (-l)");
+            sp.needs[sp.nneeds++] = argv[++i];
+        }
+        else if (!strcmp(argv[i], "-g")) sp.flags |= POE_NEEDS_GUI;
+        else if (!strcmp(argv[i], "-r")) sp.flags |= POE_NEEDS_NET;
+        else if (argv[i][0] == '-') return usage("poepack -n nom -v version -a auteur [-d texte] [-l lib]... [-g] [-r] <programme> <sortie.poe>");
+        else if (!in) in = argv[i];
+        else if (!outp) outp = argv[i];
+        else return usage("poepack -n nom -v version -a auteur [-d texte] [-l lib]... [-g] [-r] <programme> <sortie.poe>");
+    }
+    if (!sp.name || !sp.version || !sp.author || !in || !outp)
+        return usage("poepack -n nom -v version -a auteur [-d texte] [-l lib]... [-g] [-r] <programme> <sortie.poe>");
+    if (!strchr(in, '/')) {                                 /* nom seul : /bin */
+        static char full[64];
+
+        if (strlen(in) > 40)
+            return fail_path("poepack", in, E_NAMETOOLONG);
+        strcpy(full, "/bin/");
+        strcpy(full + 5, in);
+        in = full;
+    }
+    e = slurp("poepack", in, &elf, &elen, 0);
+    if (e != E_OK)
+        return e;
+    out = kmalloc(elen + POE2_HEADER_SIZE);
+    if (!out) {
+        kfree(elf);
+        return E_NOMEM;
+    }
+    n = poe_build(&sp, elf, elen, out, elen + POE2_HEADER_SIZE, &why);
+    if (!n) {
+        kfree(elf);
+        kfree(out);
+        color(VGA_LIGHT_RED);
+        keprintf("poepack : %s\n", why ? why : "echec");
+        color(VGA_LIGHT_GREY);
+        return E_REPORTED;
+    }
+    e = store("poepack", outp, out, n);
+    kfree(elf);
+    kfree(out);
+    if (e == E_OK)
+        kprintf("%s cree : %s %s, %u octets (format %d)\n", outp, sp.name, sp.version, n, n > POE_HEADER_SIZE + elen ? 2 : 1);
+    return e;
+}
+
+static err_t cmd_poeunpack(int argc, char **argv)
+{
+    char path[128];
+    struct fs_node *n;
+    struct poe_info info;
+    enum poe_status s;
+    err_t e;
+
+    if (argc != 3)
+        return usage("poeunpack <application>[.poe] <sortie>");
+    e = find_poe(argv[1], path, sizeof path);
+    if (e != E_OK)
+        return fail_path("poeunpack", argv[1], e);
+    fs_lookup(path, &n);
+    s = poe_parse(n->data, n->size, &info);
+    if (s == POE_NOT_POE || s == POE_TRUNCATED || s == POE_BAD_HEADER || s == POE_BAD_CRC) {
+        color(VGA_LIGHT_RED);
+        keprintf("poeunpack : %s : %s\n", path, poe_status_text(s));
+        color(VGA_LIGHT_GREY);
+        return E_REPORTED;
+    }
+    e = store("poeunpack", argv[2], info.payload, info.payload_len);
+    if (e == E_OK)
+        kprintf("%s : %u octets extraits de %s\n", argv[2], info.payload_len, path);
+    return e;
+}
+
+static err_t cmd_pslpack(int argc, char **argv)
+{
+    static struct psl_spec sp;
+    const char *in = NULL, *outp = NULL, *why = NULL;
+    const char *u = "pslpack -n nom -v version -a auteur [-d texte] -e symbole... <elf> <sortie.psl>";
+    u8 *elf, *out;
+    u32 elen, n;
+    err_t e;
+
+    memset(&sp, 0, sizeof sp);
+    for (int i = 1; i < argc; i++) {
+        if (!strcmp(argv[i], "-n") && i + 1 < argc) sp.name = argv[++i];
+        else if (!strcmp(argv[i], "-v") && i + 1 < argc) sp.version = argv[++i];
+        else if (!strcmp(argv[i], "-a") && i + 1 < argc) sp.author = argv[++i];
+        else if (!strcmp(argv[i], "-d") && i + 1 < argc) sp.description = argv[++i];
+        else if (!strcmp(argv[i], "-e") && i + 1 < argc) {
+            if (sp.nexports >= PSL_MAX_EXPORTS)
+                return fail_msg("pslpack : 16 exports au plus (-e)");
+            sp.exports[sp.nexports++].name = argv[++i];
+        }
+        else if (argv[i][0] == '-') return usage(u);
+        else if (!in) in = argv[i];
+        else if (!outp) outp = argv[i];
+        else return usage(u);
+    }
+    if (!sp.name || !sp.version || !sp.author || !in || !outp)
+        return usage(u);
+    e = slurp("pslpack", in, &elf, &elen, 0);
+    if (e != E_OK)
+        return e;
+    out = kmalloc(elen + PSL_HEADER_SIZE);
+    if (!out) {
+        kfree(elf);
+        return E_NOMEM;
+    }
+    n = psl_build(&sp, elf, elen, out, elen + PSL_HEADER_SIZE, &why);
+    if (!n) {
+        kfree(elf);
+        kfree(out);
+        color(VGA_LIGHT_RED);
+        keprintf("pslpack : %s\n", why ? why : "echec");
+        color(VGA_LIGHT_GREY);
+        return E_REPORTED;
+    }
+    e = store("pslpack", outp, out, n);
+    kfree(elf);
+    kfree(out);
+    if (e == E_OK)
+        kprintf("%s cree : %s %s, %d export%s, %u octets\n", outp, sp.name, sp.version, sp.nexports, sp.nexports > 1 ? "s" : "", n);
+    return e;
+}
+
+static void psl_detail(const char *path, const struct psl_info *i, enum psl_status st)
+{
+    kprintf("Fichier        : %s\n", path);
+    kprintf("Bibliotheque   : %s %s\n", i->name, i->version);
+    kprintf("Auteur         : %s\n", i->author);
+    if (i->description[0])
+        kprintf("Description    : %s\n", i->description);
+    kprintf("Plage memoire  : %#x - %#x\n", i->lo, i->hi);
+    kprintf("Programme      : %u octets\n", i->payload_len);
+    kprintf("Exports (%d)    :", i->nexports);
+    for (int k = 0; k < i->nexports; k++)
+        kprintf(" %s", i->exports[k].name);
+    kprintf("\nEtat           : %s\n", psl_status_text(st));
+}
+
+static err_t cmd_psl(int argc, char **argv)
+{
+    static struct psl_info info;
+    char path[32];
+    struct fs_node *dir, *n;
+    const char *name;
+    u32 refs, lo, hi, shared;
+    int any = 0;
+    err_t e;
+
+    if (argc > 2)
+        return usage("psl [bibliotheque]");
+    if (argc == 2) {
+        enum psl_status st;
+
+        if (lib_path(argv[1], path, sizeof path) != E_OK)
+            return fail_path("psl", argv[1], E_NAMETOOLONG);
+        e = fs_lookup(path, &n);
+        if (e != E_OK || n->type != FS_FILE)
+            return fail_path("psl", path, e == E_OK ? E_ISDIR : e);
+        st = psl_parse(n->data, n->size, &info);
+        if (st == PSL_NOT_PSL || st == PSL_TRUNCATED || st == PSL_BAD_HEADER) {
+            color(VGA_LIGHT_RED);
+            keprintf("%s : %s\n", path, psl_status_text(st));
+            color(VGA_LIGHT_GREY);
+            return E_REPORTED;
+        }
+        psl_detail(path, &info, st);
+        return E_OK;
+    }
+    e = fs_lookup("/lib", &dir);
+    if (e == E_OK && dir->type == FS_DIR) {
+        for (n = dir->child; n; n = n->next) {
+            enum psl_status st;
+
+            if (n->type != FS_FILE)
+                continue;
+            st = psl_parse(n->data, n->size, &info);
+            any = 1;
+            if (st == PSL_OK || st == PSL_BAD_IMAGE || st == PSL_BAD_CRC || st == PSL_NEEDS_NEWER)
+                kprintf("  %-10s %-8s %#x-%#x  %s%s\n", info.name, info.version, info.lo, info.hi,
+                        info.description, st == PSL_OK ? "" : " [INVALIDE]");
+            else
+                kprintf("  %-10s [INVALIDE : %s]\n", n->name, psl_status_text(st));
+        }
+    }
+    if (!any)
+        kprintf("Aucune bibliotheque dans /lib.\n");
+    kprintf("En memoire :");
+    for (int i = 0; libmgr_info(i, &name, &refs, &lo, &hi, &shared); i++)
+        kprintf("%s %s (%u programme%s, %u pages de code partagees)", i ? "," : "", name, refs, refs > 1 ? "s" : "", shared);
+    if (!libmgr_info(0, &name, &refs, &lo, &hi, &shared))
+        kprintf(" rien");
+    kprintf("\n");
     return E_OK;
 }
 

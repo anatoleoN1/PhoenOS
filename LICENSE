@@ -1,0 +1,191 @@
+LICENCE PHOENOS 1.0  (PhoenOS License 1.0)
+Copyright (c) 2026 Anatole - PhoenOS (« l'Éditeur d'origine »)
+
+Le texte français fait foi. An English version follows the French text.
+
+======================================================================
+VERSION FRANÇAISE
+======================================================================
+
+PhoenOS est un logiciel gratuit dont le code source est lisible, modifiable
+et redistribuable par tous, à quelques conditions simples qui protègent les
+utilisateurs : savoir ce qu'ils installent, de qui cela vient, et si c'est
+modifié.
+
+1. DÉFINITIONS
+ - « Logiciel » : PhoenOS, son code source, ses programmes, ses outils de
+   construction, sa documentation et ses images, dans toute version publiée
+   par l'Éditeur d'origine.
+ - « Version d'origine » : une version du Logiciel publiée par l'Éditeur
+   d'origine (par exemple « PhoenOS 0.7.1 »).
+ - « Version modifiée » : tout logiciel dérivé du Logiciel dont le code,
+   les programmes, la configuration ou le contenu ont été changés, ajoutés
+   ou retirés, même en partie.
+ - « Identité PhoenOS » : le nom « PhoenOS », le logo, la bannière de
+   démarrage et les images officielles du Logiciel.
+ - « Pilote ou extension tierce » : un pilote, une bibliothèque (.psl), un
+   programme ou une application (.poe) écrit par quelqu'un d'autre que
+   l'Éditeur d'origine, qui s'utilise avec PhoenOS par ses interfaces
+   publiques (appels système, formats de fichiers, interface des pilotes).
+
+2. DROITS ACCORDÉS
+Vous avez le droit, dans le monde entier, gratuitement, sans limite de
+durée, d'utiliser le Logiciel pour tout usage (personnel, scolaire,
+professionnel), de l'étudier, de le copier, de le modifier et de le
+redistribuer, sous réserve des conditions ci-dessous.
+
+3. CONDITIONS DE REDISTRIBUTION (version d'origine ou modifiée)
+ a) Même licence : toute redistribution se fait sous la présente licence,
+    dont le texte complet est joint.
+ b) Gratuité : le Logiciel et ses versions modifiées sont redistribués
+    gratuitement. Vous ne pouvez pas faire payer le droit de le recevoir
+    ou de l'utiliser. (Vous pouvez en revanche facturer un service distinct :
+    installation, assistance, formation, matériel.)
+ c) Mentions conservées : vous conservez les mentions de droit d'auteur et
+    cette licence.
+
+4. CONDITIONS SUPPLÉMENTAIRES POUR UNE VERSION MODIFIÉE
+ a) Nom : une version modifiée porte le nom « PhoenOS <surnom> », où
+    <surnom> est choisi par son auteur (exemples : « PhoenOS Aurore »,
+    « PhoenOS Lycée »). Elle ne peut pas s'appeler « PhoenOS » seul, ni
+    prétendre ou laisser croire qu'elle est la version officielle.
+ b) Mention explicite de la modification : la version modifiée indique,
+    de façon claire et visible (fichier MODIFICATIONS à la racine, page de
+    présentation du projet, et écran ou message de démarrage du système) :
+      - qu'elle est modifiée ;
+      - la version d'origine dont elle dérive (ex. « PhoenOS 0.7.1 ») ;
+      - l'éditeur d'origine (Anatole, PhoenOS) ;
+      - l'éditeur de la version modifiée (nom ou pseudonyme et lien).
+ c) Identité PhoenOS non modifiée : l'image de PhoenOS (logo, bannière,
+    images officielles) est reproduite telle quelle quand elle est montrée ;
+    elle n'est ni altérée, ni remplacée, ni utilisée pour présenter votre
+    propre logo comme celui de PhoenOS. Vous pouvez ajouter votre propre
+    identité à côté, à condition qu'on ne puisse pas la confondre avec la
+    nôtre.
+
+5. PILOTES ET EXTENSIONS TIERCES
+ a) Un pilote ou une extension tierce qui n'embarque pas de code du Logiciel
+    n'est pas une version modifiée : son auteur le publie sous la licence de
+    son choix, et il n'est pas tenu de porter le nom « PhoenOS <surnom> ».
+ b) Le nom « PhoenOS » ne peut pas désigner un pilote ou une extension tierce
+    comme s'il était officiel. Seuls les pilotes publiés par l'Éditeur
+    d'origine sont les « pilotes officiels PhoenOS ».
+ c) Les pilotes et extensions tiers sont utilisés AUX RISQUES ET PÉRILS de
+    l'utilisateur : un pilote s'exécute avec de larges droits sur le matériel
+    et peut le dysfonctionner, perdre des données ou l'endommager. L'Éditeur
+    d'origine ne les examine pas et n'en répond pas.
+
+6. CONTRIBUTIONS
+Sauf accord écrit contraire, toute contribution (code, correctif,
+documentation) que vous envoyez volontairement à l'Éditeur d'origine est
+placée sous la présente licence et peut être intégrée au Logiciel, y compris
+dans ses versions d'origine futures. Vous garantissez avoir le droit de la
+fournir.
+
+7. ABSENCE DE GARANTIE ET RESPONSABILITÉ
+Le Logiciel est fourni « tel quel », sans garantie d'aucune sorte, expresse
+ou implicite (qualité, adaptation à un usage, absence de défaut). Un système
+d'exploitation en développement peut contenir des erreurs qui font perdre des
+données ou endommagent du matériel : sauvegardez vos données et testez dans
+une machine virtuelle. Dans la limite permise par la loi, l'Éditeur d'origine
+et les contributeurs ne sont pas responsables des dommages liés à
+l'utilisation du Logiciel.
+
+8. FIN DE LA LICENCE
+En cas de violation de la présente licence, vos droits prennent fin. Ils sont
+rétablis si vous corrigez la violation dans les 30 jours après en avoir été
+informé (première violation). Les personnes qui ont reçu le Logiciel de vous
+gardent leurs droits tant qu'elles respectent la licence.
+
+9. DROIT APPLICABLE
+La présente licence est régie par le droit français, sans préjudice des
+règles impératives applicables au lieu de résidence d'un consommateur.
+
+======================================================================
+ENGLISH VERSION (courtesy translation; the French text prevails)
+======================================================================
+
+PhoenOS is free software whose source code anyone may read, modify and
+redistribute, under a few simple conditions that protect users: knowing what
+they install, who it comes from, and whether it was modified.
+
+1. DEFINITIONS
+ - "Software": PhoenOS, its source code, programs, build tools,
+   documentation and images, in any version published by the Original
+   Publisher.
+ - "Original Version": a version published by the Original Publisher
+   (e.g. "PhoenOS 0.7.1").
+ - "Modified Version": any software derived from the Software whose code,
+   programs, configuration or content were changed, added or removed, even
+   partially.
+ - "PhoenOS Identity": the name "PhoenOS", the logo, the boot banner and the
+   official images of the Software.
+ - "Third-Party Driver or Extension": a driver, library (.psl), program or
+   application (.poe) written by someone other than the Original Publisher
+   that works with PhoenOS through its public interfaces (system calls, file
+   formats, driver interface).
+
+2. GRANT
+You may, worldwide, free of charge, for an unlimited time, use the Software
+for any purpose (personal, educational, professional), study it, copy it,
+modify it and redistribute it, subject to the conditions below.
+
+3. REDISTRIBUTION CONDITIONS (original or modified)
+ a) Same license: any redistribution is under this license, whose full text
+    must be included.
+ b) Free of charge: the Software and its Modified Versions are redistributed
+    free of charge. You may not charge for the right to receive or use them.
+    (You may charge for a separate service: installation, support, training,
+    hardware.)
+ c) Notices kept: you keep the copyright notices and this license.
+
+4. ADDITIONAL CONDITIONS FOR A MODIFIED VERSION
+ a) Name: a Modified Version is named "PhoenOS <nickname>", where <nickname>
+    is chosen by its author (e.g. "PhoenOS Aurora"). It may not be called
+    "PhoenOS" alone, nor claim or imply that it is the official version.
+ b) Explicit notice of modification: the Modified Version states clearly and
+    visibly (a MODIFICATIONS file at the root, the project's front page, and
+    the system's boot screen or message):
+      - that it is modified;
+      - the Original Version it derives from (e.g. "PhoenOS 0.7.1");
+      - the original publisher (Anatole, PhoenOS);
+      - the publisher of the Modified Version (name or pseudonym and link).
+ c) PhoenOS Identity unmodified: the PhoenOS image (logo, banner, official
+    images) is reproduced as is whenever shown; it is not altered, replaced,
+    or used to present your own logo as PhoenOS's. You may add your own
+    identity beside it, provided it cannot be confused with ours.
+
+5. THIRD-PARTY DRIVERS AND EXTENSIONS
+ a) A Third-Party Driver or Extension that includes no code of the Software
+    is not a Modified Version: its author publishes it under the license of
+    their choice and need not use the name "PhoenOS <nickname>".
+ b) The name "PhoenOS" may not designate a third-party driver or extension as
+    if it were official. Only drivers published by the Original Publisher are
+    "official PhoenOS drivers".
+ c) Third-party drivers and extensions are used AT THE USER'S OWN RISK: a
+    driver runs with broad access to hardware and may malfunction, lose data
+    or damage it. The Original Publisher does not review them and is not
+    responsible for them.
+
+6. CONTRIBUTIONS
+Unless agreed otherwise in writing, any contribution (code, patch,
+documentation) you voluntarily send to the Original Publisher is placed under
+this license and may be included in the Software, including in future
+Original Versions. You warrant that you have the right to provide it.
+
+7. NO WARRANTY; LIABILITY
+The Software is provided "as is", without warranty of any kind, express or
+implied (quality, fitness for a purpose, absence of defects). An operating
+system under development may contain errors that lose data or damage
+hardware: back up your data and test in a virtual machine. To the extent
+permitted by law, the Original Publisher and contributors are not liable for
+damages arising from use of the Software.
+
+8. TERMINATION
+If you violate this license, your rights end. They are reinstated if you cure
+the violation within 30 days of being notified (first violation). People who
+received the Software from you keep their rights as long as they comply.
+
+9. GOVERNING LAW
+This license is governed by French law, without prejudice to mandatory rules
+that apply where a consumer lives.

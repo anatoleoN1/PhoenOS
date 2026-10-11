@@ -1,4 +1,4 @@
-MANUEL DE PHOENOS 0.7.1
+MANUEL DE PHOENOS 0.8.0
 =======================
 Tapez  man            pour la liste des sujets,
        man <sujet>    pour lire un sujet (exemple : man ls).
@@ -109,7 +109,7 @@ Differences avec Unix : pas de droits ni de proprietaires (les dates existent, v
   est en lecture seule. Toute autre adresse l'arrete aussitot : le noyau (faute kern), l'adresse 0
   (faute nul), une page non attribuee (faute vide), son propre code (faute code). Le noyau et le
   shell restent intacts.
-  Limite : 4 Mio d'adresses par programme (code, donnees, tas, pile). Plusieurs programmes tournent
+  Limite : 4 Mio d'adresses par programme (code, donnees, tas, bibliotheques, pile). Plusieurs programmes tournent
   ensemble (man multitache) et peuvent en lancer d'autres (man processus).
   Depuis la 0.4.0 un programme peut aussi CREER, ECRIRE et SUPPRIMER des fichiers (open avec
   options, write, unlink). Les ecritures vont toujours en fin de fichier. Pour garder ces
@@ -117,7 +117,8 @@ Differences avec Unix : pas de droits ni de proprietaires (les dates existent, v
   Appels systeme (int 0x80 : numero dans eax, arguments dans ebx, ecx, edx, resultat dans eax ;
   negatif = erreur) : exit 1, read 3, write 4, open 5 (options O_WRONLY, O_RDWR, O_CREAT, O_TRUNC, O_APPEND), close 6, unlink 10, time 13,
   getpid 20, sleep_ms 200, uptime_ms 201 ; depuis la 0.7.0 : waitpid 7, kill 37, brk 45, getppid 64,
-  yield 158, spawn 202 (man processus). Seuls sleep_ms, uptime_ms, log (199) et spawn sont propres a PhoenOS.
+  yield 158, spawn 202 (man processus) ; depuis la 0.8.0 : psl 203 (man bibliotheques). Seuls sleep_ms, uptime_ms, log (199),
+  spawn et psl sont propres a PhoenOS.
   Ecrire un programme : user/phoenos.h (mini-bibliotheque), user/hello.c (exemple) ; tout
   fichier user/nom.c devient /bin/nom. Code de sortie : main renvoie un entier (0 = succes) ;
   un code non nul est signale par le shell.
@@ -539,14 +540,77 @@ Differences avec Unix : pas de droits ni de proprietaires (les dates existent, v
 == exe  - lance une application .poe
   Syntaxe : exe <application>[.poe] [arguments...]
   Une application .poe est un programme emballe avec une etiquette (nom, version, auteur,
-  exigences). exe la cherche telle quelle, avec ".poe", puis dans /apps. Avant de la lancer,
-  PhoenOS verifie l'etiquette et la somme de controle, et refuse proprement ce qu'il ne sait
-  pas encore faire (interface graphique, reseau, systeme trop ancien).
+  description, exigences, bibliotheques). exe la cherche telle quelle, avec ".poe", puis dans
+  /apps. Avant de la lancer, PhoenOS verifie l'etiquette et la somme de controle, verifie que
+  les bibliotheques .psl annoncees existent dans /lib et sont valides (sinon il le dit et ne
+  lance rien), et refuse proprement ce qu'il ne sait pas encore faire (interface graphique,
+  reseau, systeme trop ancien).
   Taper simplement le nom (calc) marche aussi si /apps/calc.poe existe.
-  Voir aussi poeinfo.  Exemple : exe calc 2+3
+  Voir aussi poeinfo, poepack, bibliotheques.  Exemple : exe calc 2+3      exe utilib
 
 == poeinfo  - etiquette d'une application .poe
   Syntaxe : poeinfo <application>[.poe]
-  Affiche nom, version, auteur, exigences, taille et etat (valide, abimee, trop recente...).
-  Exemple : poeinfo calc
+  Affiche nom, version, auteur, description, format (1 ou 2), bibliotheques necessaires (et si
+  elles sont presentes), exigences, taille et etat (valide, abimee, trop recente...).
+  Exemple : poeinfo calc      poeinfo utilib
+
+== poepack  - cree une application .poe (0.8.0)
+  Syntaxe : poepack -n nom -v version -a auteur [-d texte] [-l biblio]... [-g] [-r] <programme> <sortie.poe>
+  Emballe un programme (fichier ELF ; un nom sans / est cherche dans /bin) dans une application
+  .poe avec son etiquette. -d : une phrase de presentation (47 caracteres au plus). -l : une
+  bibliotheque .psl dont l'application a besoin (jusqu'a 4, noms de /lib sans .psl) ; elles seront
+  chargees automatiquement au lancement. -g / -r : l'application exige l'interface graphique / le reseau
+  (PhoenOS la refusera tant que ce n'est pas disponible). Sans -d ni -l, le fichier est au format 1
+  (96 octets d'en-tete) ; avec l'un des deux, au format 2 (208 octets). Les deux se lisent.
+  Un fichier existant de meme nom est remplace. Rien n'est cree si une verification echoue.
+  Exemples : poepack -n mon -v 1.0 -a Moi hello /apps/mon.poe
+             poepack -n calcul -v 1.0 -a Moi -d "Calculs" -l maths /bin/hello /apps/calcul.poe
+  Sur la machine de developpement, l'outil mkpoe (tools/mkpoe.c) fait la meme chose.
+
+== poeunpack  - extrait le programme d'une application .poe (0.8.0)
+  Syntaxe : poeunpack <application>[.poe] <sortie>
+  Ecrit dans <sortie> le programme ELF contenu dans l'application (le contraire de poepack).
+  Refuse un .poe tronque ou dont la somme de controle est fausse.  Exemple : poeunpack calc /calc.elf
+
+== psl  - bibliotheques partagees (0.8.0)
+  Syntaxe : psl [bibliotheque]
+  Sans argument : liste les bibliotheques de /lib (nom, version, plage d'adresses, description) et
+  celles qui sont chargees en memoire (nombre de programmes qui les utilisent, pages de code
+  partagees). Avec un nom : detail (auteur, plage, taille, symboles exportes, etat). Voir man bibliotheques.
+  Exemples : psl      psl maths
+
+== pslpack  - cree une bibliotheque .psl (0.8.0)
+  Syntaxe : pslpack -n nom -v version -a auteur [-d texte] -e symbole... <elf> <sortie.psl>
+  Emballe un ELF lie pour la zone des bibliotheques (voir man bibliotheques) en .psl. Chaque -e
+  nomme une fonction ou variable a exporter (cherchee dans la table des symboles de l'ELF, qui ne
+  doit donc pas etre "strip" ; 16 au plus, 15 caracteres A-Z a-z 0-9 _). Le nom (a-z 0-9 _ -) doit
+  etre celui du fichier : /lib/<nom>.psl. PhoenOS verifie le resultat : adresses dans la zone
+  0x700000-0x7F0000, segments qui ne partagent pas de page, exports dans la bibliotheque.
+  Exemple : pslpack -n texte -v 1.0 -a Moi -e texte_mots /texte.elf /lib/texte.psl
+
+== bibliotheques  - bibliotheques partagees .psl (0.8.0)
+  Une bibliotheque est un fichier /lib/<nom>.psl : un programme ELF avec une etiquette et la liste
+  des fonctions et variables qu'il offre (ses "exports"). Elle est liee a une ADRESSE FIXE dans la
+  zone 0x700000-0x7F0000 de l'espace de chaque programme (pas de relocation : chaque bibliotheque
+  a sa propre plage ; deux bibliotheques dont les plages se chevauchent ne vont pas ensemble).
+  Partage : le code (et les constantes) n'existe qu'en UN exemplaire en memoire, en lecture seule, pour
+  tous les programmes qui l'utilisent. Les donnees (variables globales) sont recopiees pour chaque
+  programme : une bibliotheque ne change jamais ce que voit un autre programme. Quand le dernier
+  programme qui l'utilise s'arrete, la memoire est rendue.
+  Comment un programme l'obtient :
+    - par son en-tete .poe : poepack -l maths ... (chargee avant la premiere instruction)
+    - ou a la demande : psl_sym("maths", "maths_pgcd") renvoie l'adresse d'une fonction (appel
+      systeme 203 ; NULL si la bibliotheque ou le symbole n'existe pas). Voir user/phoenos.h.
+  Les 2 exemples fournis : maths (pgcd, racine, fibo, appels, nom) a 0x700000, texte (longueur,
+  maj, inverser, mots) a 0x710000 ; le programme utilib (exe utilib) les utilise toutes les deux.
+  Ecrire une bibliotheque : un fichier lib/<nom>.c (sans libc), lie avec user/psl.ld et
+  -Wl,--defsym=LIB_BASE=0x7X0000 ; "make iso" la met dans /lib. Limites : 8 bibliotheques en memoire,
+  8 par programme, 256 Kio de code partage et 512 Kio de fichier chacune. Les bibliotheques ne
+  peuvent pas en appeler d'autres. Le tas d'un programme s'arrete maintenant a 0x6FF000.
+
+== utilib  - utilise les bibliotheques maths et texte (0.8.0)
+  Syntaxe : exe utilib [a [b]]
+  Programme d'exemple (application .poe qui declare maths et texte) : pgcd, racine, Fibonacci, mots
+  d'une phrase, majuscules, inverse, et le compteur d'appels a maths propre a CE programme. Lancez-en
+  deux ensemble (exe utilib &) puis psl : le code de maths est partage. Voir man bibliotheques.
 

@@ -64,10 +64,13 @@ done
 echo "bonjour
 deux" > "$B/user/data.txt"
 # 0.5.0 : l'outil mkpoe (compile pour de vrai) emballe des programmes en applications .poe
-if ! gcc -Wall -Wextra -Werror -iquote "$ROOT/src" "$ROOT/tools/mkpoe.c" "$ROOT/src/crc32.c" -o "$B/mkpoe" 2> "$B/mkpoe.err"; then
+if ! sh "$ROOT/tools/build-hosttool.sh" "$B/mkpoe" "$ROOT/tools/mkpoe.c" poe.c crc32.c 2> "$B/mkpoe.err"; then
     echo "  ECHEC de compilation : mkpoe"; cat "$B/mkpoe.err"; UFAIL=1
 else
     "$B/mkpoe" -n calc -v 9.8.7 -a "Equipe Test" "$B/user/calc" "$B/user/calc.poe" > /dev/null || UFAIL=1
+    "$B/mkpoe" -n app2 -v 2.0 -a "Equipe Test" -d "Une application complete" -l maths -l texte "$B/user/calc" "$B/user/app2.poe" > /dev/null || UFAIL=1
+    "$B/mkpoe" -n bad -v 1 -a T -l MAJ "$B/user/calc" "$B/user/bad.poe" > /dev/null 2>&1 && { echo "  ECHEC : mkpoe accepte une bibliotheque invalide"; UFAIL=1; }
+    "$B/mkpoe" -n dup -v 1 -a T -l maths -l maths "$B/user/calc" "$B/user/bad.poe" > /dev/null 2>&1 && { echo "  ECHEC : mkpoe accepte deux fois la meme bibliotheque"; UFAIL=1; }
     "$B/mkpoe" -n gui -v 1.0 -a Test -g "$B/user/hello" "$B/user/gui.poe" > /dev/null || UFAIL=1
     "$B/mkpoe" -n net -v 1.0 -a Test -r "$B/user/hello" "$B/user/net.poe" > /dev/null || UFAIL=1
 fi
@@ -165,16 +168,42 @@ ucheck "calc fin de fichier" "calc>" "$(printf '5' | "$U/calc")"
 "$U/primes" 999999 >/dev/null 2>&1; [ $? -eq 1 ] || { echo "  ECHEC (code de sortie de primes)"; UFAIL=1; }
 if [ $UFAIL -eq 0 ]; then echo "  14 programmes compiles et executes (arguments, entree, fichiers, fautes) => OK"; else echo "  => ECHEC"; FAILED=1; fi
 
+# 0.8.0 : bibliotheques partagees .psl : vrais ELF lies a leur adresse (user/psl.ld), emballes par le vrai outil mkpsl
+mkdir -p "$B/lib"
+LFAIL=0
+if ! sh "$ROOT/tools/build-hosttool.sh" "$B/mkpsl" "$ROOT/tools/mkpsl.c" psl.c poe.c elf.c crc32.c 2> "$B/mkpsl.err"; then
+    echo "  ECHEC de compilation : mkpsl"; cat "$B/mkpsl.err"; LFAIL=1
+else
+    lib_build() {   # nom base source exports...
+        n=$1; base=$2; src=$3; shift 3
+        gcc $UCF -T "$ROOT/user/psl.ld" -Wl,--defsym=LIB_BASE=$base -Wl,--build-id=none "$src" -o "$B/lib/$n.elf" 2> "$B/lib/$n.err" || { cat "$B/lib/$n.err"; LFAIL=1; return; }
+        ex=""; for e in "$@"; do ex="$ex -e $e"; done
+        "$B/mkpsl" -n $n -v 1.0 -a "Equipe Test" -d "Test $n" $ex "$B/lib/$n.elf" "$B/lib/$n.psl" > /dev/null || LFAIL=1
+    }
+    lib_build maths 0x700000 "$ROOT/lib/maths.c" maths_pgcd maths_racine maths_fibo maths_appels maths_nom
+    lib_build texte 0x710000 "$ROOT/lib/texte.c" texte_longueur texte_maj texte_inverser texte_mots
+    lib_build clash 0x701000 "$ROOT/lib/texte.c" texte_mots
+    # refus a la creation : adresse hors de la zone, symbole absent, nom invalide
+    gcc $UCF -T "$ROOT/user/psl.ld" -Wl,--defsym=LIB_BASE=0x500000 -Wl,--build-id=none "$ROOT/lib/texte.c" -o "$B/lib/far.elf" || LFAIL=1
+    "$B/mkpsl" -n far -v 1 -a T -e texte_mots "$B/lib/far.elf" "$B/lib/far.psl" > /dev/null 2>&1 && { echo "  ECHEC : mkpsl accepte une adresse hors zone"; LFAIL=1; }
+    "$B/mkpsl" -n texte -v 1 -a T -e inexistant "$B/lib/texte.elf" "$B/lib/x.psl" > /dev/null 2>&1 && { echo "  ECHEC : mkpsl accepte un symbole absent"; LFAIL=1; }
+    "$B/mkpsl" -n Texte -v 1 -a T -e texte_mots "$B/lib/texte.elf" "$B/lib/x.psl" > /dev/null 2>&1 && { echo "  ECHEC : mkpsl accepte un nom invalide"; LFAIL=1; }
+    gcc $UCF -T "$ROOT/user/user.ld" -Wl,--build-id=none -I"$ROOT/user" "$ROOT/user/utilib.c" "$ROOT/user/crt0.c" -o "$B/user/utilib" || LFAIL=1
+    "$B/mkpoe" -n utilib -v 1.0 -a T -d "demo" -l maths -l texte "$B/user/utilib" "$B/user/utilib.poe" > /dev/null || LFAIL=1
+fi
+[ $LFAIL -eq 0 ] || FAILED=1
+
 # Les ELF reels, pour le chargeur
 run elf 0 test_elf.c elf.c string.c
 run poe 0 test_poe.c poe.c elf.c crc32.c string.c
+run bibliotheques 0 test_libs.c libmgr.c psl.c poe.c elf.c crc32.c aspace.c paging.c fs.c pmm.c kheap.c dlog.c kprintf.c string.c
 run pagination 0 test_paging.c paging.c pmm.c string.c
 run journal-debug 0 test_dlog.c dlog.c kprintf.c string.c
 run ordonnanceur-clavier 0 test_sched_kbd.c sched.c switch.S keyboard.c kheap.c pmm.c string.c
 run ordonnanceur 0 test_sched.c sched.c switch.S kheap.c pmm.c string.c
-run programmes-multiples 0 test_user.c sched.c switch.S syscall.c aspace.c elf.c fs.c poe.c crc32.c dlog.c kprintf.c pmm.c kheap.c string.c rtc.c
+run programmes-multiples 0 test_user.c sched.c switch.S syscall.c libmgr.c psl.c aspace.c elf.c fs.c poe.c crc32.c dlog.c kprintf.c pmm.c kheap.c string.c rtc.c
 run espaces-adressage 0 test_aspace.c aspace.c paging.c pmm.c string.c
-run appels-systeme 0 test_syscall.c syscall.c dlog.c aspace.c fs.c kprintf.c pmm.c kheap.c string.c rtc.c
+run appels-systeme 0 test_syscall.c syscall.c libmgr.c psl.c poe.c elf.c crc32.c dlog.c aspace.c fs.c kprintf.c pmm.c kheap.c string.c rtc.c
 run ecran-defilement 0 -DVGA_TEST_MEMORY=test_vga test_vga.c vga.c string.c
 run kprintf             0   test_kprintf.c kprintf.c string.c
 run fichiers 0 test_fs.c fs.c pmm.c kheap.c string.c
@@ -195,7 +224,7 @@ ligne2" ] && echo "  => OK" || { echo "  => ECHEC (contenu extrait different)"; 
         echo "  => ECHEC : tar refuse l'archive"; cat "$B/snapshot.err"; FAILED=1
     fi
 fi
-SH="test_shell.c shell.c dlog.c poe.c cmdline.c kprintf.c pmm.c kheap.c string.c fs.c initrd.c persist.c ata.c crc32.c tarw.c rtc.c"
+SH="test_shell.c shell.c dlog.c poe.c psl.c elf.c cmdline.c kprintf.c pmm.c kheap.c string.c fs.c initrd.c persist.c ata.c crc32.c tarw.c rtc.c"
 run shell-session       0   -DMODE=0 $SH
 run shell-crash-panic   100 -DMODE=1 $SH
 run shell-crash-assert  100 -DMODE=2 $SH
@@ -210,7 +239,7 @@ for c in $cmds $progs; do
     grep -q "^== $c " "$ROOT/initrd/docs/manuel.txt" || { echo "  commande ou programme sans page de manuel : $c"; FAILED=1; }
 done
 for c in $(sed -n 's/^== \([a-z]*\) .*/\1/p' "$ROOT/initrd/docs/manuel.txt"); do
-    case " $cmds $progs general fichiers stockage programmes multitache processus " in *" $c "*) ;; *) echo "  page de manuel sans commande : $c"; FAILED=1;; esac
+    case " $cmds $progs general fichiers stockage programmes multitache processus bibliotheques " in *" $c "*) ;; *) echo "  page de manuel sans commande : $c"; FAILED=1;; esac
 done
 echo "  manuel verifie : $(echo $cmds | wc -w) commandes et $(echo $progs | wc -w) programmes documentes"
 

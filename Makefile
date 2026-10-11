@@ -58,6 +58,17 @@ USER_CFLAGS := -m32 -std=gnu11 -O2 -Wall -Wextra -Werror -ffreestanding -fno-sta
                -fno-builtin -fno-omit-frame-pointer -mno-sse -mno-mmx -nostdlib -static
 USER_PROGS  := $(patsubst user/%.c,%,$(filter-out user/crt0.c,$(wildcard user/*.c)))
 USER_ELFS   := $(addprefix build/user/,$(addsuffix .elf,$(USER_PROGS)))
+
+# Bibliotheques partagees (lib/*.c, 0.8.0) : chacune liee a SA plage de la zone des bibliotheques (0x700000-0x7F0000),
+# emballee en /lib/<nom>.psl par mkpsl. Les symboles exportes sont ceux qui commencent par <nom>_.
+LIBS        := $(patsubst lib/%.c,%,$(wildcard lib/*.c))
+LIB_BASE_maths := 0x700000
+LIB_BASE_texte := 0x710000
+LIB_ELFS    := $(addprefix build/lib/,$(addsuffix .elf,$(LIBS)))
+
+build/lib/%.elf: lib/%.c user/psl.ld
+	mkdir -p build/lib
+	$(CC) $(USER_CFLAGS) -T user/psl.ld -Wl,--defsym=LIB_BASE=$(LIB_BASE_$*) -Wl,--build-id=none -Wl,-z,noexecstack $< -o $@
 TESTS   := test-div0 test-gp test-panic test-assert test-doublefree test-heapcorrupt
 
 .PHONY: all iso run run-sdl run-gtk serial debug debug-window debug-sdl debug-gtk logs logs-clean check symbol test clean newdisk $(TESTS)
@@ -80,7 +91,7 @@ build/user/%.elf: user/%.c user/crt0.c user/phoenos.h user/user.ld
 	mkdir -p build/user
 	$(CC) $(USER_CFLAGS) -T user/user.ld -Wl,--build-id=none -Wl,-z,noexecstack $< user/crt0.c -o $@
 
-iso: $(KERNEL) $(USER_ELFS)
+iso: $(KERNEL) $(USER_ELFS) $(LIB_ELFS)
 	rm -rf build/isodir
 	mkdir -p build/isodir/boot/grub
 	cp $(KERNEL) build/isodir/boot/phoenos.bin
@@ -90,8 +101,14 @@ iso: $(KERNEL) $(USER_ELFS)
 	mkdir -p build/initrd/bin
 	for p in $(USER_PROGS); do cp build/user/$$p.elf build/initrd/bin/$$p; done
 	mkdir -p build/initrd/apps
-	gcc -Wall -iquote src tools/mkpoe.c src/crc32.c -o build/mkpoe
+	sh tools/build-hosttool.sh build/mkpoe tools/mkpoe.c poe.c crc32.c
 	for p in $(USER_PROGS); do build/mkpoe -n $$p -v $(VERSION) -a PhoenOS build/user/$$p.elf build/initrd/apps/$$p.poe >/dev/null; done
+	sh tools/build-hosttool.sh build/mkpsl tools/mkpsl.c psl.c poe.c elf.c crc32.c
+	mkdir -p build/initrd/lib
+	for l in $(LIBS); do build/mkpsl -n $$l -v $(VERSION) -a PhoenOS -d "Bibliotheque d'exemple $$l" \
+	    $$(nm build/lib/$$l.elf | sed -n "s/^[0-9a-f]* [TDRB] \($${l}_[A-Za-z0-9_]*\)$$/-e \1/p") build/lib/$$l.elf build/initrd/lib/$$l.psl >/dev/null; done
+	build/mkpoe -n utilib -v $(VERSION) -a PhoenOS -d "Exemple : utilise maths et texte" -l maths -l texte \
+	    build/user/utilib.elf build/initrd/apps/utilib.poe >/dev/null
 	tar --format=ustar --owner=0 --group=0 --numeric-owner -cf build/isodir/boot/initrd.tar -C build/initrd .
 	grub-mkrescue -o $(ISO) build/isodir
 	@echo ">> $(ISO) pret"

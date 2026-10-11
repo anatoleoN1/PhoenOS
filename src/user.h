@@ -4,6 +4,7 @@
 #include "types.h"
 #include "error.h"
 #include "isr.h"
+#include "poe.h"
 
 struct fs_node;
 struct aspace;
@@ -24,6 +25,7 @@ struct aspace;
 #define USER_ARGS_BYTES 4096
 #define USER_HEAP_GUARD 0x1000u         /* page jamais mappee entre le tas et la pile : un debordement fait une faute */
 #define WNOHANG         1
+#define PSL_PER_PROC    8               /* bibliotheques .psl utilisables en meme temps par un programme */
 
 /* Numeros d'appels systeme : ceux de Linux i386 pour les appels communs (eax, ebx, ecx, edx). */
 enum {
@@ -43,7 +45,8 @@ enum {
     SYS_LOG      = 199,  /* log(niveau, texte) : ecrit dans le journal du systeme (propre a PhoenOS ; 199 = appel sans effet sous Linux) */
     SYS_SLEEP_MS = 200,  /* sleep_ms(ms)    propre a PhoenOS */
     SYS_UPTIME   = 201,  /* uptime_ms()     propre a PhoenOS */
-    SYS_SPAWN    = 202   /* spawn(chemin, argv) : lance un programme enfant, renvoie son numero (propre a PhoenOS) */
+    SYS_SPAWN    = 202,  /* spawn(chemin, argv) : lance un programme enfant, renvoie son numero (propre a PhoenOS) */
+    SYS_PSL      = 203   /* psl(nom, symbole) : charge la bibliotheque /lib/<nom>.psl si besoin, renvoie l'adresse du symbole (NULL : son adresse de base) (propre a PhoenOS) */
 };
 
 struct user_fd {
@@ -63,6 +66,8 @@ struct uproc {
     struct aspace *as;                  /* ses pages reellement mappees (NULL : seule la fenetre compte, tests) */
     u32  ppid;                          /* programme qui l'a lance (0 : le shell) */
     u32  heap_lo, heap_cur, heap_hi;    /* tas (brk) : debut, fin actuelle, limite ; heap_hi == 0 : pas de tas */
+    u8   nlibs;                         /* bibliotheques .psl utilisees (indices du gestionnaire, libmgr.h) */
+    u8   libs[PSL_PER_PROC];
     struct user_fd fd[USER_MAX_FDS];
     const u8 *in;                       /* entree standard issue d'un tube (sinon in_set == 0) */
     u32  in_len, in_pos;
@@ -74,6 +79,9 @@ struct uproc {
 /* Noyau : reserve la zone. E_BUSY / E_NOMEM : les programmes seront indisponibles. */
 err_t user_init(void);
 int   user_available(void);
+
+/* Bibliotheques .psl que le prochain programme lance doit recevoir (celles de l'en-tete .poe) ; consommees par ce lancement. */
+void user_set_needs(char needs[][POE_LIBNAME_MAX], int n);
 
 /* Entree standard du prochain programme : sortie du tube precedent (set = 0 : clavier). */
 void user_set_stdin(const u8 *buf, u32 len, int set);
