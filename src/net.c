@@ -34,7 +34,9 @@ static struct {
     u32 dhcp_offer_ip, dhcp_server, dhcp_mask, dhcp_gw, dhcp_dns, dhcp_lease;
     int dhcp_got_ack, dhcp_got_nak;
     /* DNS en cours */
-    int dns_wait; u16 dns_id; int dns_done; err_t dns_err; u32 dns_ip;
+    int dns_wait; u16 dns_id; int dns_done; err_t dns_err; u32 dns_ip, dns_ttl;
+    struct { char name[NET_DNS_NAME_MAX]; u32 ip, expire; int valid; } dcache[NET_DNS_CACHE_MAX];
+    int dcache_next;
 } N;
 
 static u8 txb[NET_FRAME_MAX];
@@ -441,6 +443,7 @@ err_t net_dhcp(u32 timeout_ms)
             N.st.ip = N.dhcp_offer_ip; N.st.mask = N.dhcp_mask; N.st.gw = N.dhcp_gw;
             N.st.dns = N.dhcp_dns; N.st.lease_s = N.dhcp_lease;
             N.st.configured = 1;
+            net_dns_flush();                            /* le serveur DNS a peut-etre change */
             result = E_OK;
             break;
         }
@@ -505,12 +508,116 @@ static void dns_parse(const u8 *p, u32 len)
         if ((u32)i + rdl > len) break;
         if (type == 1 && cls == 1 && rdl == 4) {
             N.dns_ip = get32(p + i);
+            N.dns_ttl = get32(p + i - 6);
             N.dns_err = E_OK;
             return;
         }
         i += rdl;                       /* CNAME et autres : suivants */
     }
     N.dns_err = E_NOENT;
+}
+
+/* ---- cache DNS ---- */
+static char lc(char c) { return c >= 'A' && c <= 'Z' ? (char)(c + 32) : c; }
+
+static void trim_dot_len(const char *n, u32 *len);
+
+static int name_eq(const char *a, const char *b)
+{
+    u32 la, lb;
+
+    trim_dot_len(a, &la);
+    trim_dot_len(b, &lb);
+    if (la != lb)
+        return 0;
+    for (u32 i = 0; i < la; i++)
+        if (lc(a[i]) != lc(b[i]))
+            return 0;
+    return 1;
+}
+
+static void trim_dot_len(const char *n, u32 *len)
+{
+    *len = (u32)strlen(n);
+    if (*len && n[*len - 1] == '.')
+        (*len)--;
+}
+
+static int cache_find(const char *name)
+{
+    u32 now = net_now_ms();
+
+    for (int i = 0; i < NET_DNS_CACHE_MAX; i++)
+        if (N.dcache[i].valid) {
+            if ((i32)(now - N.dcache[i].expire) >= 0) {
+                N.dcache[i].valid = 0;
+                continue;
+            }
+            if (name_eq(N.dcache[i].name, name))
+                return i;
+        }
+    return -1;
+}
+
+static void cache_put(const char *name, u32 ip, u32 ttl)
+{
+    u32 len;
+    int slot = -1;
+
+    trim_dot_len(name, &len);
+    if (ttl == 0 || len == 0 || len >= NET_DNS_NAME_MAX)
+        return;
+    if (ttl > 3600)
+        ttl = 3600;
+    for (int i = 0; i < NET_DNS_CACHE_MAX && slot < 0; i++)
+        if (N.dcache[i].valid && name_eq(N.dcache[i].name, name))
+            slot = i;
+    for (int i = 0; i < NET_DNS_CACHE_MAX && slot < 0; i++)
+        if (!N.dcache[i].valid)
+            slot = i;
+    if (slot < 0) {
+        slot = N.dcache_next;
+        N.dcache_next = (N.dcache_next + 1) % NET_DNS_CACHE_MAX;
+    }
+    memcpy(N.dcache[slot].name, name, len);
+    N.dcache[slot].name[len] = 0;
+    N.dcache[slot].ip = ip;
+    N.dcache[slot].expire = net_now_ms() + ttl * 1000u;
+    N.dcache[slot].valid = 1;
+}
+
+void net_dns_flush(void)
+{
+    for (int i = 0; i < NET_DNS_CACHE_MAX; i++)
+        N.dcache[i].valid = 0;
+}
+
+int net_dns_cache_count(void)
+{
+    int n = 0;
+    u32 now = net_now_ms();
+
+    for (int i = 0; i < NET_DNS_CACHE_MAX; i++)
+        if (N.dcache[i].valid && (i32)(now - N.dcache[i].expire) < 0)
+            n++;
+    return n;
+}
+
+int net_dns_cache_get(int idx, char *name, u32 *ip, u32 *secs_left)
+{
+    u32 now = net_now_ms();
+    int k = 0;
+
+    for (int i = 0; i < NET_DNS_CACHE_MAX; i++)
+        if (N.dcache[i].valid && (i32)(now - N.dcache[i].expire) < 0) {
+            if (k++ == idx) {
+                strcpy(name, N.dcache[i].name);
+                *ip = N.dcache[i].ip;
+                *secs_left = (N.dcache[i].expire - now) / 1000u;
+                return 1;
+            }
+        }
+    return 0;
 }
 
 err_t net_resolve(const char *name, u32 *ip)
@@ -531,6 +638,15 @@ err_t net_resolve(const char *name, u32 *ip)
         return E_IO;
     if (N.dns_wait)
         return E_BUSY;
+    {
+        int c = cache_find(name);
+
+        if (c >= 0) {
+            N.st.dns_hits++;
+            *ip = N.dcache[c].ip;
+            return E_OK;
+        }
+    }
     memset(q, 0, sizeof q);
     N.dns_id = (u16)(N.dns_id + 0x1D3B + net_now_ms());
     put16(q, N.dns_id);
@@ -560,11 +676,12 @@ err_t net_resolve(const char *name, u32 *ip)
     e = next_hop_mac(N.st.dns, mac, 3000);
     if (e != E_OK)
         return e;
-    N.dns_wait = 1; N.dns_done = 0; N.dns_err = E_TIMEOUT;
+    N.dns_wait = 1; N.dns_done = 0; N.dns_err = E_TIMEOUT; N.dns_ttl = 0;
     t0 = net_now_ms();
     for (int tries = 0; tries < 3 && !N.dns_done; tries++) {
         u32 t1 = net_now_ms();
 
+        N.st.dns_queries++;
         udp_send_raw(mac, N.st.ip, N.st.dns, DNS_SRC_PORT, PORT_DNS, q, n);
         while (!N.dns_done && net_now_ms() - t1 < 1500) {
             net_poll();
@@ -580,6 +697,7 @@ err_t net_resolve(const char *name, u32 *ip)
     if (N.dns_err != E_OK)
         return N.dns_err;
     *ip = N.dns_ip;
+    cache_put(name, N.dns_ip, N.dns_ttl);
     return E_OK;
 }
 

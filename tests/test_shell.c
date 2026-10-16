@@ -240,7 +240,7 @@ static void verify(void)
     CHECK(count("  1  sleep 250") == 0 || count("  1  ") >= 1); /* history : numerotation */
     CHECK(count("gris clair") == 1 && count("blanc") == 1);     /* colors */
     CHECK(count(" 10   vert clair") == 1);                      /* %2d correct dans colors */
-    CHECK(count("PhoenOS 0.9.0") == 1);                         /* version */
+    CHECK(count("PhoenOS 0.9.1") == 1);                         /* version */
     CHECK(count("<bg hello argc=3 hello a b>") == 1 && count("<bg hello argc=1 hello>") == 1);
     CHECK(count("[7] hello en arriere-plan (ps pour la liste, kill 7 pour l'arreter)") == 2);
     CHECK(count("& : seulement pour les programmes") == 1);
@@ -362,7 +362,7 @@ static void verify(void)
     CHECK(count_end("Aucun peripherique PCI detecte.") == 1 && count_end("usage : lspci") == 1);
     CHECK(count_end("e1000    0.9.0  ethernet  officiel") == 1 && count_end("aucun peripherique correspondant") == 1);
     CHECK(count_end("eth0  pilote fake  MAC 02:00:00:00:00:09  lien actif") == 2 && count_end("pas d'adresse (essayez : net up)") == 2);
-    CHECK(count_end("net: DHCP : delai depasse") == 1 && count_end("usage : net [up]") == 1 && count_end("usage : ping <adresse|nom>") == 1);
+    CHECK(count_end("net: DHCP : delai depasse") == 1 && count_end("usage : net [up]") == 1 && count_end("usage : ping <adresse|nom>") == 1 && count_end("usage : dns <nom> | -l | -f") == 1 && count_end("Cache DNS vide.") == 1 && count_end("0 nom(s) en cache") == 1);
     CHECK(count_end("reseau non configure (net up)") == 2 && count_end("ping: 999.1.1.1") == 1 && count_end("seq=1 erreur d'entree/sortie") == 2 && count_end("10.1.2.3 : 10.1.2.3") == 1);
     CHECK(count_end("/apps/mine.poe cree : mine 1.5, 272 octets (format 2)") == 1 && count_end("/apps/simple.poe cree : simple 1, 160 octets (format 1)") == 1);
     CHECK(count_end("Bibliotheques  : maths (presente) texte2 (presente)") == 1 && count_end("Format         : 2") == 1 && count_end("Format         : 1") == 3);
@@ -660,6 +660,8 @@ int test_main(void)
     type("ping 10.0.2.2\n");
     type("ping 999.1.1.1\n");
     type("dns\n");
+    type("dns -l\n");
+    type("dns -f\n");
     type("dns exemple.test\n");
     type("dns 10.1.2.3\n");
     type("psl\n");                                              /* 0.8.0 : bibliotheques */

@@ -5,7 +5,7 @@ Il démarre avec GRUB, tourne dans QEMU (ou sur une vraie machine), et vise un s
 sobre et soigné, qui fonctionne quelle que soit la puissance du PC.
 
 > ⚠️ **Projet en développement (0.x).** Testez-le dans une machine virtuelle et sauvegardez vos données.
-> Version actuelle : **0.9.0** · [Télécharger une version](../../releases) · [Licence PhoenOS 1.1](LICENSE)
+> Version actuelle : **0.9.1** · [Télécharger une version](../../releases) · [Licence PhoenOS 1.1](LICENSE)
 
 ## Télécharger
 
@@ -16,16 +16,16 @@ Vous voulez la 0.3.0, la 0.0.2 ou la 0.6.3 ? Ouvrez [Releases](../../releases), 
 Essayer une ISO dans QEMU :
 
 ```sh
-qemu-system-i386 -cdrom phoenos-0.9.0.iso -serial stdio -m 128
+qemu-system-i386 -cdrom phoenos-0.9.1.iso -serial stdio -m 128
 ```
 
-## Ce que PhoenOS sait faire (0.9.0)
+## Ce que PhoenOS sait faire (0.9.1)
 
 - **Noyau 32 bits** : GDT/IDT, interruptions, minuterie 100 Hz, mémoire physique et tas du noyau, **pagination** avec noyau protégé.
 - **Multitâche** : ordonnanceur à tourniquet, un espace d'adressage par programme, programmes en anneau 3 isolés les uns des autres.
 - **Programmes complets** : un programme peut en lancer d'autres (`spawn`), les attendre (`waitpid`), les arrêter (`kill`), et dispose d'un tas (`brk`, `malloc`).
 - **Applications et bibliothèques** : fichiers `.poe` complets (`poepack`, `poeunpack`, `poeinfo`) et **bibliothèques partagées `.psl`** (`psl`, `pslpack`) dont le code n'existe qu'en un exemplaire en mémoire.
-- **Réseau** : bus PCI, cadre des pilotes, **pilote officiel e1000** (Intel PRO/1000), ARP, IPv4, ping, DHCP, DNS (`lspci`, `drivers`, `net`, `ping`, `dns`). Pas encore de TCP ni de Wi-Fi.
+- **Réseau** : bus PCI, cadre des pilotes, **pilote officiel e1000** (Intel PRO/1000), ARP, IPv4, ping, DHCP, DNS avec cache (`lspci`, `drivers`, `net`, `ping`, `dns`). Pas encore de TCP ni de Wi-Fi.
 - **Fichiers** : système de fichiers en RAM, initrd, disque ATA avec sauvegarde (PhoenFS, deux emplacements avec CRC).
 - **Shell** : historique, complétion, tubes, redirections, plusieurs commandes par ligne (`;` et `&`), manuel intégré (`man`).
 - **Programmes fournis** : calculatrice, carnet de notes, nombres premiers, copie, `ticker`, `boucle`, `lance`, `essaim`, `tas`…

@@ -184,7 +184,7 @@ static const struct command commands[] = {
     { G_NET, "drivers",  "",             "Liste les pilotes du noyau (officiels) et leur etat", cmd_drivers },
     { G_NET, "net",      "[up]",         "Etat du reseau ; up : demande une adresse (DHCP)", cmd_net },
     { G_NET, "ping",     "<adresse|nom>", "Envoie un ping (ICMP) et mesure le temps de reponse", cmd_ping },
-    { G_NET, "dns",      "<nom>",        "Cherche l'adresse IPv4 d'un nom",                cmd_dns      },
+    { G_NET, "dns",      "<nom> | -l | -f", "Adresse IPv4 d'un nom (-l : cache, -f : vider le cache)",                cmd_dns      },
     { G_TXT, "echo",     "[-n] [texte...]", "Affiche son texte (\"entre guillemets\" permis)", cmd_echo },
     { G_TXT, "head",     "[-N] [fichier]", "Affiche les N premieres lignes (10 par defaut)", cmd_head },
     { G_TXT, "tail",     "[-N] [fichier]", "Affiche les N dernieres lignes (10 par defaut)", cmd_tail },
@@ -1204,21 +1204,42 @@ static err_t cmd_ping(int argc, char **argv)
 
 static err_t cmd_dns(int argc, char **argv)
 {
-    u32 ip;
-    char a[16];
+    u32 ip, hits;
+    char a[16], nm[NET_DNS_NAME_MAX];
+    struct net_status st;
     err_t e;
 
+    if (argc == 2 && strcmp(argv[1], "-f") == 0) {
+        net_dns_flush();
+        kprintf("Cache DNS vide.\n");
+        return E_OK;
+    }
+    if (argc == 2 && strcmp(argv[1], "-l") == 0) {
+        u32 secs;
+
+        for (int i = 0; net_dns_cache_get(i, nm, &ip, &secs); i++) {
+            net_ip_str(ip, a);
+            kprintf(" %-30s %-16s encore %u s\n", nm, a, secs);
+        }
+        net_get_status(&st);
+        kprintf("%d nom(s) en cache, %u reponse(s) servie(s) par le cache, %u question(s) au serveur.\n",
+                net_dns_cache_count(), st.dns_hits, st.dns_queries);
+        return E_OK;
+    }
     if (argc != 2)
-        return usage("dns <nom>");
+        return usage("dns <nom> | -l | -f");
     if (!net_dev())
         return fail_msg("dns: aucune carte reseau.");
+    net_get_status(&st);
+    hits = st.dns_hits;
     e = net_resolve(argv[1], &ip);
     if (e != E_OK) {
         kprintf("dns: %s : %s\n", argv[1], e == E_NOENT ? "nom inconnu" : e == E_IO ? "reseau non configure (net up)" : err_str(e));
         return E_REPORTED;
     }
+    net_get_status(&st);
     net_ip_str(ip, a);
-    kprintf("%s : %s\n", argv[1], a);
+    kprintf("%s : %s%s\n", argv[1], a, st.dns_hits != hits ? "  (cache)" : "");
     return E_OK;
 }
 

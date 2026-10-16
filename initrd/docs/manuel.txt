@@ -1,4 +1,4 @@
-MANUEL DE PHOENOS 0.9.0
+MANUEL DE PHOENOS 0.9.1
 =======================
 Tapez  man            pour la liste des sujets,
        man <sujet>    pour lire un sujet (exemple : man ls).
@@ -642,9 +642,12 @@ Differences avec Unix : pas de droits ni de proprietaires (les dates existent, v
   rester sans reponse selon la machine hote. Differences avec Unix : toujours 4 envois, pas d'options.
 
 == dns  - adresse d'un nom (0.9.0)
-  Syntaxe : dns <nom>
+  Syntaxe : dns <nom> | -l | -f
   Demande au serveur DNS (obtenu par DHCP) l'adresse IPv4 d'un nom : dns exemple.org. Les reponses
-  piegees ou tronquees sont refusees. Pas d'IPv6 ni de cache pour l'instant. Voir aussi : net, reseau.
+  piegees ou tronquees sont refusees. Depuis la 0.9.1 les reponses sont gardees en cache (8 noms, pour la
+  duree donnee par le serveur, 1 h au plus ; un nom deja connu est repondu sans reseau, marque "(cache)").
+  -l liste le cache et les compteurs, -f le vide. Le cache est aussi vide a chaque nouvelle adresse DHCP.
+  Les echecs ne sont pas retenus. Pas d'IPv6. Voir aussi : net, reseau.
 
 == reseau  - carte, pilote et pile reseau (0.9.0)
   PhoenOS parle au reseau en trois etages : le PILOTE de la carte (e1000, officiel, integre au

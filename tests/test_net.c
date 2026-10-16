@@ -509,6 +509,43 @@ int test_main(void)
     hostile_dns_mode = 0;
     CHECK(net_resolve("phoenos.test", &ip) == E_OK);
 
+    /* cache DNS (0.9.1) */
+    {
+        char nm[NET_DNS_NAME_MAX]; u32 left = 0, q0, i2;
+        struct net_status s1, s2;
+
+        net_dns_flush();
+        CHECK(net_dns_cache_count() == 0);
+        q0 = n_dns_q;
+        CHECK(net_resolve("cache.test", &ip) == E_OK && n_dns_q == q0 + 1 && net_dns_cache_count() == 1);
+        CHECK(net_resolve("cache.test", &ip) == E_OK && n_dns_q == q0 + 1 && ip == 0x5DB8D822u);   /* servi par le cache */
+        CHECK(net_resolve("CACHE.Test", &ip) == E_OK && n_dns_q == q0 + 1);                        /* casse ignoree */
+        CHECK(net_resolve("cache.test.", &ip) == E_OK && n_dns_q == q0 + 1);                       /* point final */
+        net_get_status(&s1);
+        CHECK(s1.dns_hits >= 3);
+        CHECK(net_dns_cache_get(0, nm, &i2, &left) == 1 && strcmp(nm, "cache.test") == 0 && i2 == 0x5DB8D822u && left <= 60 && left >= 58);
+        CHECK(net_dns_cache_get(1, nm, &i2, &left) == 0);
+        clock_ms += 61000;                                              /* duree de vie (60 s) ecoulee : on redemande */
+        CHECK(net_dns_cache_count() == 0);
+        CHECK(net_resolve("cache.test", &ip) == E_OK && n_dns_q == q0 + 2);
+        CHECK(net_resolve("inconnu.test", &ip) == E_NOENT && net_dns_cache_count() == 1);          /* un echec n'est pas retenu */
+        CHECK(net_resolve("inconnu.test", &ip) == E_NOENT && n_dns_q == q0 + 4);
+        for (int k = 0; k < 12; k++) {                                  /* plus de 8 noms : les plus anciens sont remplaces */
+            char nn[24] = "hote";
+            nn[4] = (char)('a' + k); nn[5] = 0;
+            CHECK(net_resolve(nn, &ip) == E_OK);
+        }
+        CHECK(net_dns_cache_count() == NET_DNS_CACHE_MAX);
+        q0 = n_dns_q;
+        CHECK(net_resolve("hotel", &ip) == E_OK && n_dns_q == q0);       /* le plus recent est la */
+        CHECK(net_resolve("hotea", &ip) == E_OK && n_dns_q == q0 + 1);   /* le plus ancien est parti */
+        net_dns_flush();
+        CHECK(net_dns_cache_count() == 0);
+        CHECK(net_resolve("10.9.8.7", &ip) == E_OK && net_dns_cache_count() == 0);   /* un nombre ne passe pas par le cache */
+        net_get_status(&s2);
+        CHECK(s2.dns_queries > s1.dns_queries);
+    }
+
     /* on nous pose des questions : ARP et echo vers nous */
     {
         u8 f[200], a[28];

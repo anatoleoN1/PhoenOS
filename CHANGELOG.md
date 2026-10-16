@@ -5,6 +5,12 @@ z = correctif ou petite amélioration. Chaque version est livrée testée automa
 les chemins de démarrage réels (GRUB, ISO, anneau 3, activation de la pagination) ne sont
 vérifiables que sur une vraie machine ou sous QEMU : ils sont validés par vos essais.
 
+## 0.9.1 — Cache DNS
+- **Cache DNS** (`src/net.c`) : 8 noms, durée de vie donnée par le serveur (3600 s au plus, 0 = pas de cache), casse et point final ignorés,
+  les échecs ne sont pas retenus, vidé à chaque nouvelle adresse DHCP. `dns` marque « (cache) », `dns -l` liste le cache et les compteurs,
+  `dns -f` le vide. `ping nom` en profite aussi.
+- Tests : `test_net` (réutilisation, expiration, casse, remplacement au-delà de 8 noms, vidage), `test_shell` (`dns -l`, `dns -f`).
+
 ## 0.9.0 — Premier pilote officiel (réseau filaire e1000) et pile réseau
 - **Bus PCI** (`src/pci.c`) : exploration au démarrage, commande `lspci`. **Cadre des pilotes** (`src/driver.c`) : un pilote
   déclare ses identifiants PCI ; officiels (PhoenOS) ou, plus tard, communautaires (à leurs risques). Commande `drivers`.
