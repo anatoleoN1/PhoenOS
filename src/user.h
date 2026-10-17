@@ -46,7 +46,11 @@ enum {
     SYS_SLEEP_MS = 200,  /* sleep_ms(ms)    propre a PhoenOS */
     SYS_UPTIME   = 201,  /* uptime_ms()     propre a PhoenOS */
     SYS_SPAWN    = 202,  /* spawn(chemin, argv) : lance un programme enfant, renvoie son numero (propre a PhoenOS) */
-    SYS_PSL      = 203   /* psl(nom, symbole) : charge la bibliotheque /lib/<nom>.psl si besoin, renvoie l'adresse du symbole (NULL : son adresse de base) (propre a PhoenOS) */
+    SYS_PSL      = 203,  /* psl(nom, symbole) : charge la bibliotheque /lib/<nom>.psl si besoin, renvoie l'adresse du symbole (NULL : son adresse de base) (propre a PhoenOS) */
+    SYS_SOCK_CONNECT = 204, /* sock_connect(hote, port) : connexion TCP (nom ou adresse) ; renvoie le numero de connexion (propre a PhoenOS) */
+    SYS_SOCK_SEND = 205,    /* sock_send(connexion, tampon, taille) : renvoie les octets envoyes (propre a PhoenOS) */
+    SYS_SOCK_RECV = 206,    /* sock_recv(connexion, tampon, taille) : attend des donnees (15 s au plus) ; 0 = le serveur a ferme (propre a PhoenOS) */
+    SYS_SOCK_CLOSE = 207    /* sock_close(connexion) (propre a PhoenOS) */
 };
 
 struct user_fd {

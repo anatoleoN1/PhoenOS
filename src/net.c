@@ -5,12 +5,14 @@
 #include "dlog.h"
 #include "string.h"
 #include "sched.h"
+#include "tcp.h"
 
 #define ETH_HDR   14
 #define ETYPE_IP  0x0800
 #define ETYPE_ARP 0x0806
 #define IP_HDR    20
 #define PROTO_ICMP 1
+#define PROTO_TCP 6
 #define PROTO_UDP 17
 #define PORT_DHCP_C 68
 #define PORT_DHCP_S 67
@@ -736,8 +738,18 @@ static void rx_ip(const u8 *eth_src, const u8 *p, u32 len)
     switch (p[9]) {
     case PROTO_ICMP: rx_icmp(eth_src, src, p + ihl, total - ihl); break;
     case PROTO_UDP:  rx_udp(src, dst, p + ihl, total - ihl); break;
+    case PROTO_TCP:  tcp_rx(src, dst, p + ihl, total - ihl); break;
     default: break;
     }
+}
+
+void net_set_config(u32 ip, u32 mask, u32 gw, u32 dns)
+{
+    N.st.ip = ip;
+    N.st.mask = mask;
+    N.st.gw = gw;
+    N.st.dns = dns;
+    N.st.configured = ip != 0;
 }
 
 void net_poll(void)
@@ -767,6 +779,25 @@ void net_poll(void)
                 rx_ip(src, copy, (u32)n - ETH_HDR);
         }
     }
+}
+
+/* ---- couche TCP (0.10.0) ---- */
+u32 net_local_ip(void) { return N.st.ip; }
+
+err_t net_ip_send(u32 dst, u8 proto, const u8 *payload, u32 len, u32 timeout_ms)
+{
+    return ip_send(dst, proto, payload, len, timeout_ms);
+}
+
+u16 net_pseudo_checksum(u32 src, u32 dst, u8 proto, const u8 *seg, u32 len)
+{
+    u8 ph[12];
+    u32 s = 0;
+
+    put32(ph, src); put32(ph + 4, dst); ph[8] = 0; ph[9] = proto; put16(ph + 10, (u16)len);
+    for (int i = 0; i < 12; i += 2)
+        s += get16(ph + i);
+    return csum(seg, len, s);
 }
 
 /* ---- tache noyau ---- */

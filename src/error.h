@@ -28,7 +28,9 @@ enum {
     E_FAULT   = -17,  /* adresse interdite            */
     E_CHILD   = -18,  /* pas un de vos programmes enfants */
     E_INTR    = -19,  /* attente interrompue (arret demande) */
-    E_NOLIB   = -20   /* bibliotheque .psl absente ou invalide */
+    E_NOLIB   = -20,  /* bibliotheque .psl absente ou invalide */
+    E_REFUSED = -21,  /* connexion refusee par le serveur */
+    E_RESET   = -22   /* connexion coupee par le serveur  */
 };
 
 static inline const char *err_str(err_t e)
@@ -55,6 +57,8 @@ static inline const char *err_str(err_t e)
     case E_CHILD:   return "pas un programme enfant";
     case E_INTR:    return "attente interrompue";
     case E_NOLIB:   return "bibliotheque absente ou invalide";
+    case E_REFUSED: return "connexion refusee";
+    case E_RESET:   return "connexion coupee par le serveur";
     default:        return "erreur inconnue";
     }
 }

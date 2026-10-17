@@ -5,6 +5,22 @@ z = correctif ou petite amélioration. Chaque version est livrée testée automa
 les chemins de démarrage réels (GRUB, ISO, anneau 3, activation de la pagination) ne sont
 vérifiables que sur une vraie machine ou sous QEMU : ils sont validés par vos essais.
 
+## 0.10.0 — TCP client pour les programmes
+- **TCP** (`src/tcp.c`) : connexions sortantes (client), numéros de séquence modulo 2³², somme de contrôle avec pseudo-en-tête,
+  taille maximale de segment négociée (1460 octets), réémission après 1 s sans accusé, délais : 10 s pour ouvrir, 8 s pour envoyer,
+  15 s pour recevoir. Fermeture propre (FIN) ; une connexion coupée par le serveur (RST) rend `E_RESET`, un refus `E_REFUSED`.
+- **Appels système** 204 à 207 : `sock_connect(hôte, port)` (nom ou adresse), `sock_send`, `sock_recv`, `sock_close`.
+  Bibliothèque `user/phoenos.h` mise à jour. Les connexions d'un programme sont fermées à sa fin.
+- **Programme `web`** : `web <hôte> [chemin]` récupère une page en HTTP/1.0 (port 80, sans HTTPS).
+- **Pile réseau** : `net_set_config` (adresse fixe, pour les tests), `net_ip_send`, `net_pseudo_checksum` exposés à TCP ;
+  codes d'erreur `E_REFUSED` (-21) et `E_RESET` (-22).
+- **Limites** : client seulement (pas d'écoute), 4 connexions à la fois dans tout le système, un segment en attente à la fois
+  (plus lent qu'une vraie pile), tampon de réception de 8 Kio, données hors ordre ignorées, pas de TIME_WAIT, pas de HTTPS.
+- Tests : `test_tcp` (faux serveur branché sur la vraie pile : écho, segments multiples, refus, muet, fermeture par le serveur,
+  réponse abîmée puis réémission, trame falsifiée ignorée, propriétaires, table pleine, délai) ; `test_syscall` (pointeurs hostiles
+  et arguments invalides des appels 204 à 207).
+- Pas encore testé dans QEMU ici : `web example.org` est à vérifier sur votre machine (`make serial`).
+
 ## 0.9.1 — Cache DNS
 - **Cache DNS** (`src/net.c`) : 8 noms, durée de vie donnée par le serveur (3600 s au plus, 0 = pas de cache), casse et point final ignorés,
   les échecs ne sont pas retenus, vidé à chaque nouvelle adresse DHCP. `dns` marque « (cache) », `dns -l` liste le cache et les compteurs,

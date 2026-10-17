@@ -7,7 +7,7 @@
 
 /*
  * Pile reseau (0.9.0) : Ethernet, ARP, IPv4, ICMP (ping), UDP, client DHCP et resolveur DNS (enregistrements A).
- * Pas encore de TCP : il viendra avec les mises a jour automatiques. Les adresses IPv4 sont des u32 "a.b.c.d" = a<<24|b<<16|c<<8|d.
+ * TCP : voir tcp.h (0.10.0). Les adresses IPv4 sont des u32 "a.b.c.d" = a<<24|b<<16|c<<8|d.
  * Tout est interroge (pas d'interruption) : la tache noyau "net" appelle net_poll() toutes les 10 ms, et les commandes qui
  * attendent une reponse (ping, dns, net up) l'appellent aussi elles-memes.
  */
@@ -47,6 +47,16 @@ int   net_dns_cache_count(void);
 /* i-eme entree valide : nom (au moins NET_DNS_NAME_MAX octets), adresse, secondes restantes. 0 : plus d'entree. */
 int   net_dns_cache_get(int i, char *name, u32 *ip, u32 *secs_left);
 void  net_dns_flush(void);
+
+/* Configuration fixe (0.10.0) : sans DHCP (tests, et configuration manuelle plus tard). ip = 0 : pas configure. */
+void  net_set_config(u32 ip, u32 mask, u32 gw, u32 dns);
+
+/* Pour la couche TCP (tcp.c) : envoi d'un paquet IPv4 (routage et ARP compris), adresse locale, et somme de controle
+ * TCP/UDP avec pseudo-en-tete. net_pseudo_checksum renvoie la somme calculee sur `seg` : a mettre a 0 dans le segment
+ * avant d'emettre (renvoyer la valeur obtenue) ; a la reception, 0 signifie segment intact. */
+err_t net_ip_send(u32 dst, u8 proto, const u8 *payload, u32 len, u32 timeout_ms);
+u32   net_local_ip(void);
+u16   net_pseudo_checksum(u32 src, u32 dst, u8 proto, const u8 *seg, u32 len);
 
 /* "10.0.2.15" -> u32 (E_INVAL si mal forme) ; u32 -> texte (au moins 16 octets). */
 err_t net_parse_ip(const char *s, u32 *ip);

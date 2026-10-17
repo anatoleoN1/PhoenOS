@@ -12,7 +12,8 @@ typedef unsigned char uchar;
 
 enum { SYS_EXIT = 1, SYS_READ = 3, SYS_WRITE = 4, SYS_OPEN = 5, SYS_CLOSE = 6, SYS_WAITPID = 7, SYS_UNLINK = 10, SYS_TIME = 13,
        SYS_GETPID = 20, SYS_KILL = 37, SYS_BRK = 45, SYS_GETPPID = 64, SYS_SCHED_YIELD = 158,
-       SYS_LOG = 199, SYS_SLEEP_MS = 200, SYS_UPTIME = 201, SYS_SPAWN = 202, SYS_PSL = 203 };
+       SYS_LOG = 199, SYS_SLEEP_MS = 200, SYS_UPTIME = 201, SYS_SPAWN = 202, SYS_PSL = 203,
+       SYS_SOCK_CONNECT = 204, SYS_SOCK_SEND = 205, SYS_SOCK_RECV = 206, SYS_SOCK_CLOSE = 207 };
 
 static inline int syscall3(int n, int a, int b, int c)
 {
@@ -66,6 +67,19 @@ static inline int psl_addr(const char *lib, const char *sym)    { return syscall
 static inline void *psl_sym(const char *lib, const char *sym)   { int a = psl_addr(lib, sym); return a > 0 ? (void *)a : (void *)0; }
 
 /* Tas : brk(0) donne la fin du tas, brk(adresse) la deplace et renvoie la nouvelle fin (inchangee si refuse). */
+/*
+ * Connexions TCP (0.10.0, propres a PhoenOS) :
+ *   sock_connect(hote, port)  ouvre une connexion ; hote = nom (ex. "example.org") ou adresse en chiffres. Renvoie son numero (>= 0).
+ *   sock_send(c, b, n)        envoie n octets ; renvoie ceux qui sont partis (parfois moins : on recommence).
+ *   sock_recv(c, b, n)        attend des donnees (15 s au plus) ; renvoie leur nombre, 0 si le serveur a ferme, E_TIMEOUT (-6) sinon.
+ *   sock_close(c)             ferme la connexion.
+ * Quatre connexions au plus dans tout le systeme ; elles sont fermees a la fin du programme. Codes negatifs : voir error.h.
+ */
+static inline int  sock_connect(const char *host, uint port)    { return syscall3(SYS_SOCK_CONNECT, (int)host, (int)port, 0); }
+static inline int  sock_send(int c, const void *b, uint n)      { return syscall3(SYS_SOCK_SEND, c, (int)b, (int)n); }
+static inline int  sock_recv(int c, void *b, uint n)            { return syscall3(SYS_SOCK_RECV, c, (int)b, (int)n); }
+static inline int  sock_close(int c)                            { return syscall3(SYS_SOCK_CLOSE, c, 0, 0); }
+
 static inline uint brk_to(uint addr)                            { return (uint)syscall3(SYS_BRK, (int)addr, 0, 0); }
 
 static inline uint slen(const char *s) { uint n = 0; while (s[n]) n++; return n; }

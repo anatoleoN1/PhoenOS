@@ -1,4 +1,4 @@
-MANUEL DE PHOENOS 0.9.1
+MANUEL DE PHOENOS 0.10.0
 =======================
 Tapez  man            pour la liste des sujets,
        man <sujet>    pour lire un sujet (exemple : man ls).
@@ -649,12 +649,18 @@ Differences avec Unix : pas de droits ni de proprietaires (les dates existent, v
   -l liste le cache et les compteurs, -f le vide. Le cache est aussi vide a chaque nouvelle adresse DHCP.
   Les echecs ne sont pas retenus. Pas d'IPv6. Voir aussi : net, reseau.
 
+== web  - recupere une page web (programme, 0.10.0)
+  Syntaxe : web <hote> [chemin]
+  Ouvre une connexion TCP au port 80 de l'hote (nom ou adresse), envoie une requete HTTP/1.0 et affiche
+  la reponse telle quelle (en-tetes compris). Exemple : web example.org       web example.org /index.html
+  Sans HTTPS (port 443) : les sites en https ne repondent pas. Sous QEMU la sortie passe par la machine hote.
+
 == reseau  - carte, pilote et pile reseau (0.9.0)
   PhoenOS parle au reseau en trois etages : le PILOTE de la carte (e1000, officiel, integre au
   noyau), la pile (Ethernet, ARP, IPv4, ICMP, UDP) et les services DHCP (adresse automatique) et DNS
   (noms). Tout fonctionne par interrogation (sans interruption) : la tache "net" regarde la carte
-  toutes les 10 ms. Pas encore de TCP ni de connexion pour les programmes : ils viendront avec les
-  mises a jour automatiques (0.10.0). Le Wi-Fi viendra avec son propre pilote ; QEMU ne l'emule pas.
+  toutes les 10 ms. Depuis la 0.10.0, les PROGRAMMES peuvent ouvrir des connexions TCP (voir web).
+  Le Wi-Fi viendra avec son propre pilote ; QEMU ne l'emule pas.
   Pilotes : officiels = ecrits par PhoenOS ; communaute = a leurs risques et perils (licence, art. 5).
   Sous QEMU "make run" donne une carte e1000 (reseau 10.0.2.0/24, passerelle 10.0.2.2, DNS 10.0.2.3).
-  Commandes : lspci, drivers, net, ping, dns.
+  Commandes : lspci, drivers, net, ping, dns. Programme : web (0.10.0).

@@ -75,6 +75,10 @@ static int strstr_(const char *h, const char *n)
 int  sched_ready(void)       { return 0; }
 void sched_sleep_ms(u32 ms)  { (void)ms; }
 void sched_yield(void)       { yielded++; }
+struct task;
+err_t sched_create(const char *name, void (*entry)(void *), void *arg, void (*cleanup)(void *), void *owner, struct task **out)
+{ (void)name; (void)entry; (void)arg; (void)cleanup; (void)owner; (void)out; return E_OK; }
+void sched_detach(struct task *t) { (void)t; }
 
 /* 0.7.0 : le vrai user.c est teste dans test_user.c ; ici on verifie seulement ce que syscall.c transmet */
 static u32 sp_path_len; static int sp_argc; static char sp_arg0[32], sp_arg1[32];
@@ -176,6 +180,15 @@ int test_main(void)
     CHECK(SYS(SYS_WRITE, 3, A(1100), 8) == 8);
     CHECK(SYS(SYS_READ, 3, A(1200), 4) == E_INVAL);                         /* ouvert en ecriture seule */
     CHECK(SYS(SYS_WRITE, 3, A(8190), 10) == E_FAULT);
+    /* connexions TCP (0.10.0) : pointeurs hostiles et arguments invalides, sans reseau */
+    CHECK(SYS(SYS_SOCK_CONNECT, 0, 80, 0) == E_FAULT);                      /* nom a l'adresse 0 */
+    CHECK(SYS(SYS_SOCK_CONNECT, A(0), 0, 0) == E_INVAL);                    /* port 0 */
+    CHECK(SYS(SYS_SOCK_CONNECT, A(0), 70000, 0) == E_INVAL);                /* port trop grand */
+    CHECK(SYS(SYS_SOCK_SEND, 0, 0, 10) == E_FAULT);                         /* tampon a l'adresse 0 */
+    CHECK(SYS(SYS_SOCK_SEND, 0, A(0), 10) == E_INVAL);                      /* pas de connexion 0 */
+    CHECK(SYS(SYS_SOCK_RECV, 0, 0x100000u, 4) == E_FAULT);                  /* memoire du noyau */
+    CHECK(SYS(SYS_SOCK_RECV, 0, A(0), 0) == 0);                             /* rien a recevoir */
+    CHECK(SYS(SYS_SOCK_CLOSE, 9, 0, 0) == E_INVAL);                         /* numero hors table */
     CHECK(SYS(SYS_CLOSE, 3, 0, 0) == 0);
     CHECK(fs_lookup("/neuf.txt", &f) == E_OK && f->size == 8 && !memcmp(f->data, "un\ndeux\n", 8));
     CHECK(SYS(SYS_OPEN, A(1000), O_WRONLY | O_APPEND, 0) == 3);             /* ajoute a la suite */

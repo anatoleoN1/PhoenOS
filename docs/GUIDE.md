@@ -30,7 +30,7 @@ make clean
 Pour tester sur une vraie machine : écrire `phoenos-0.1.0.iso` sur une clé USB
 (`sudo dd if=phoenos-0.1.0.iso of=/dev/sdX bs=4M status=progress`, en vérifiant bien `sdX`).
 
-## Ce qu'on doit voir au démarrage (v0.9.0)
+## Ce qu'on doit voir au démarrage (v0.10.0)
 
 Des lignes `[ OK ]` pour : VGA + port série, Multiboot, GDT, IDT/PIC/timer/clavier,
 exceptions (point d'arrêt traité), **mémoire physique, tas du noyau et leurs auto-tests**,
@@ -73,6 +73,12 @@ QEMU s'arrête au lieu de redémarrer, et `qemu.log` contient la dernière excep
 Limites connues : un débordement de pile est détecté après coup (canari testé à chaque tick du
 timer) mais peut provoquer une triple faute avant ; la protection complète demande un TSS dédié
 pour la double faute (prévu plus tard).
+
+## Nouveautés de la 0.10.0 — TCP client pour les programmes
+Voir `CHANGELOG.md`, et dans PhoenOS `man web`, `man reseau`. Architecture : `src/tcp.c` (connexions : état, un segment
+en attente à la fois, réémission après 1 s sans réponse, fermeture avec FIN), appels système 204 à 207 (`sock_connect`,
+`sock_send`, `sock_recv`, `sock_close` dans `syscall.c`), libération des connexions à la fin du programme (`user.c`).
+Tests : `tests/test_tcp.c` joue un faux serveur (écho, refus, muet, fermeture, réponse abîmée, trame falsifiée, table pleine).
 
 ## Nouveautés de la 0.9.0 — pilote réseau e1000 et pile réseau
 Voir `CHANGELOG.md` et, dans PhoenOS, `man reseau`, `man net`, `man ping`. Architecture : `src/pci.c` (bus PCI),

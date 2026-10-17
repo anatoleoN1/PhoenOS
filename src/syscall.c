@@ -15,6 +15,8 @@
 #include "dlog.h"
 #include "rtc.h"
 #include "string.h"
+#include "net.h"
+#include "tcp.h"
 
 #define WRITE_MAX    (1u << 20)         /* octets ecrits par appel au plus */
 #define SLEEP_MAX_MS 60000u
@@ -436,6 +438,10 @@ static const char *sys_name(u32 nr)
     case SYS_BRK:      return "brk";
     case SYS_GETPPID:  return "getppid";
     case SYS_SCHED_YIELD: return "yield";
+    case SYS_SOCK_CONNECT: return "sock_connect";
+    case SYS_SOCK_SEND: return "sock_send";
+    case SYS_SOCK_RECV: return "sock_recv";
+    case SYS_SOCK_CLOSE: return "sock_close";
     case SYS_SPAWN:    return "spawn";
     case SYS_PSL:      return "psl";
     default:           return "?";
@@ -463,6 +469,58 @@ static void excerpt(struct uproc *p, u32 addr, u32 n, char *out, usize size)
     out[o] = 0;
 }
 
+/* Connexions TCP (0.10.0). Le programme attend (bloquant) comme pour sleep_ms : les autres programmes continuent. */
+static i32 sys_sock_connect(struct uproc *p, u32 host_addr, u32 port)
+{
+    char host[128];
+    u32 ip = 0;
+    int h = -1;
+    err_t e;
+
+    if (port == 0 || port > 65535)
+        return E_INVAL;
+    if (user_string(p, host_addr, host, sizeof host) != 0)
+        return E_FAULT;
+    e = net_resolve(host, &ip);                         /* un nom ou une adresse en chiffres */
+    if (e != E_OK)
+        return e;
+    e = tcp_connect(p->pid, ip, (u16)port, &h);
+    return e == E_OK ? (i32)h : e;
+}
+
+static i32 sys_sock_send(struct uproc *p, u32 h, u32 buf, u32 len)
+{
+    u32 sent = 0;
+    err_t e;
+
+    if (len == 0)
+        return 0;
+    if (len > 65536u)
+        len = 65536u;
+    if (!user_range(p, buf, len, 0))
+        return E_FAULT;
+    e = tcp_send(p->pid, (int)h, (const u8 *)buf, len, &sent);
+    if (sent)
+        return (i32)sent;                               /* au moins une partie est partie */
+    return e;
+}
+
+static i32 sys_sock_recv(struct uproc *p, u32 h, u32 buf, u32 cap)
+{
+    if (cap == 0)
+        return 0;
+    if (cap > 4096u)
+        cap = 4096u;
+    if (!user_range(p, buf, cap, 1))
+        return E_FAULT;
+    return tcp_recv(p->pid, (int)h, (u8 *)buf, cap);
+}
+
+static i32 sys_sock_close(struct uproc *p, u32 h)
+{
+    return tcp_close(p->pid, (int)h);
+}
+
 i32 syscall_dispatch(struct uproc *p, u32 nr, u32 a, u32 b, u32 c)
 {
     char txt[96];
@@ -482,6 +540,7 @@ i32 syscall_dispatch(struct uproc *p, u32 nr, u32 a, u32 b, u32 c)
     case SYS_UNLINK:
     case SYS_SPAWN:
     case SYS_PSL:
+    case SYS_SOCK_CONNECT:
         if (user_string(p, a, txt, sizeof txt) != 0)
             strcpy(txt, "?");
         DTRACE("sys", "[%u %s] %s(\"%s\", %#x) = %d%s%s", p->pid, p->name, sys_name(nr), txt, b, r,
@@ -540,6 +599,14 @@ static i32 dispatch(struct uproc *p, u32 nr, u32 a, u32 b, u32 c)
         return sys_spawn(p, a, b);
     case SYS_PSL:
         return sys_psl(p, a, b);
+    case SYS_SOCK_CONNECT:
+        return sys_sock_connect(p, a, b);
+    case SYS_SOCK_SEND:
+        return sys_sock_send(p, a, b, c);
+    case SYS_SOCK_RECV:
+        return sys_sock_recv(p, a, b, c);
+    case SYS_SOCK_CLOSE:
+        return sys_sock_close(p, a);
     case SYS_WAITPID:
         return sys_waitpid(p, a, b, c);
     case SYS_KILL:
