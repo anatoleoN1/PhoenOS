@@ -5,6 +5,18 @@ z = correctif ou petite amélioration. Chaque version est livrée testée automa
 les chemins de démarrage réels (GRUB, ISO, anneau 3, activation de la pagination) ne sont
 vérifiables que sur une vraie machine ou sous QEMU : ils sont validés par vos essais.
 
+## 0.9.0 — Premier pilote officiel (réseau filaire e1000) et pile réseau
+- **Bus PCI** (`src/pci.c`) : exploration au démarrage, commande `lspci`. **Cadre des pilotes** (`src/driver.c`) : un pilote
+  déclare ses identifiants PCI ; officiels (PhoenOS) ou, plus tard, communautaires (à leurs risques). Commande `drivers`.
+- **Pilote e1000** (Intel PRO/1000, carte par défaut de QEMU et VirtualBox) : registres MMIO mappés dans le noyau
+  (`paging_map_range`, `paging_map_mmio`), anneaux DMA de 32 (réception) et 16 (émission) descripteurs, sans interruption.
+- **Pile réseau** (`src/net.c`) : Ethernet, ARP (cache), IPv4 (fragments refusés), ICMP (réponse + `ping`), UDP, client **DHCP**,
+  résolveur **DNS** (compression des noms, réponses piégées refusées). Tâche noyau « net » : adresse obtenue au démarrage sans le retarder.
+- Commandes `lspci`, `drivers`, `net [up]`, `ping`, `dns` ; pages de manuel et sujet `reseau`. `make run/serial/debug` : `-nic user,model=e1000`.
+- Pas encore : TCP (prévu pour les mises à jour 0.10.0), IPv6, Wi-Fi (pilote à part, il faut connaître la puce exacte).
+- Tests : `test_net` (fausse carte e1000 + faux réseau : ARP, ping, DHCP avec offre au mauvais identifiant, DNS avec CNAME/NXDOMAIN/piège,
+  trames tronquées, fausses sommes, fragments), `test_paging` (plage de matériel), `test_shell` (commandes réseau).
+
 ## 0.8.0 — Applications .poe complètes et bibliothèques partagées .psl
 - **Format .poe version 2** (en-tête de 208 octets) : en plus de nom/version/auteur, une description et jusqu'à 4
   bibliothèques `.psl` nécessaires. Le format 1 reste lu et créé tel quel ; niveau d'API 2 (`POE_API_LEVEL`).

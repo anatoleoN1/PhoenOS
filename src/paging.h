@@ -41,6 +41,18 @@ err_t paging_build(u32 *dir, u32 *tables, u32 ntables, const struct paging_cfg *
 /* Parcourt les tables : E_FAULT si non presente ; *flags = droits effectifs (PAGE_P|RW|US). */
 err_t paging_lookup(const u32 *dir, u32 vaddr, u32 *paddr, u32 *flags);
 
+/*
+ * Mappe en identite [lo, hi) (arrondi aux pages) avec les droits `flags` (PAGE_P est ajoute), pour du materiel mappe en memoire
+ * (cartes PCI) hors de la RAM. Cree au besoin la table de pages de chaque 4 Mio avec alloc() (une page, a zero ou non :
+ * elle est remplie ici). E_INVAL : zone vide ou deja (en partie) presente ; E_NOMEM : alloc() a echoue (rien n'est change
+ * pour les tables deja existantes ; une table neuve deja posee reste vide).
+ */
+err_t paging_map_range(u32 *dir, u32 lo, u32 hi, u32 flags, u32 (*alloc)(void));
+
+/* Noyau : mappe une plage de materiel (voir paging_map_range) dans le repertoire du noyau. A faire AVANT le premier programme
+ * (les espaces des programmes copient ce repertoire a leur creation). Seul le noyau (taches du noyau) touche ces adresses. */
+err_t paging_map_mmio(u32 phys, u32 size);
+
 /* Noyau : construit les tables et active la pagination. Voir paging_enable.c. */
 err_t paging_init(void);
 int   paging_enabled(void);

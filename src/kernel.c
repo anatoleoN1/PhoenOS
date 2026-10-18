@@ -29,6 +29,9 @@
 #include "initrd.h"
 #include "ata.h"
 #include "persist.h"
+#include "pci.h"
+#include "driver.h"
+#include "net.h"
 
 #define MULTIBOOT_BOOTLOADER_MAGIC 0x2BADB002
 
@@ -301,11 +304,22 @@ void kernel_main(u32 magic, const struct multiboot_info *mbi)
                     paging_mapped_top() >> 20, paging_table_bytes() / 1024);
     }
 
+    {   /* PCI et pilotes (0.9.0) : apres la pagination, car le pilote reseau mappe ses registres */
+        int np = pci_scan(), nd;
+
+        nd = drivers_attach_all();
+        status(np > 0, "Bus PCI explore");
+        kprintf("       PCI : %d peripherique(s), %d pilote(s) attache(s)\n", np, nd);
+        DINFO("pci", "%d peripherique(s) PCI, %d pilote(s) attache(s)", np, nd);
+        net_init();
+    }
+
     pit_second_hook = heartbeat;
     sched_init();                               /* le noyau qui tourne devient la tache 0 (le shell) */
     user_sched_init();
     status(1, "Ordonnanceur initialise (multitache : taches de 16 Kio, tourniquet a 100 Hz)");
 
+    net_start();                                /* tache "net" : adresse par DHCP en arriere-plan, sans retarder le demarrage */
     fs_set_clock(rtc_now_unix);                 /* dates des fichiers : horloge materielle (0 si illisible) */
     fs_init();
     status(1, "Systeme de fichiers en RAM initialise");

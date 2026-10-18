@@ -25,6 +25,8 @@
 #include "initrd.h"
 #include "ata.h"
 #include "persist.h"
+#include "netdev.h"
+#include "net.h"
 
 #ifndef MODE
 #define MODE 0
@@ -76,6 +78,18 @@ static u32 last_sleep;
 u32  pit_ticks(void)       { return 1234; }
 u32  pit_uptime_ms(void)   { return 3725000; }              /* 1 h 2 min 5 s */
 void pit_sleep_ms(u32 ms)  { last_sleep = ms; }
+
+/* reseau : doublures (pas de vraie carte) */
+err_t paging_map_mmio(u32 phys, u32 size) { (void)phys; (void)size; return E_NOSYS; }
+err_t sched_create(const char *n, void (*e)(void *), void *a, void (*c)(void *), void *o, struct task **out) { (void)n; (void)e; (void)a; (void)c; (void)o; (void)out; return E_NOSYS; }
+void sched_detach(struct task *t) { (void)t; }
+static u32 net_clock;
+u32 net_now_ms(void) { return net_clock; }
+void net_delay_ms(u32 ms) { net_clock += ms; }
+static int fk_link(struct netdev *d) { (void)d; return 1; }
+static err_t fk_send(struct netdev *d, const u8 *f, u32 l) { (void)d; (void)f; (void)l; return E_OK; }
+static int fk_recv(struct netdev *d, u8 *b, u32 c) { (void)d; (void)b; (void)c; return 0; }
+static struct netdev fake_nic = { .driver = "fake", .mac = { 2, 0, 0, 0, 0, 9 }, .link_up = fk_link, .send = fk_send, .recv = fk_recv };
 
 /* faux ordonnanceur : le shell (0) et un programme "ticker" (7) en arriere-plan */
 int  sched_ready(void)            { return 0; }
@@ -226,7 +240,7 @@ static void verify(void)
     CHECK(count("  1  sleep 250") == 0 || count("  1  ") >= 1); /* history : numerotation */
     CHECK(count("gris clair") == 1 && count("blanc") == 1);     /* colors */
     CHECK(count(" 10   vert clair") == 1);                      /* %2d correct dans colors */
-    CHECK(count("PhoenOS 0.8.0") == 1);                         /* version */
+    CHECK(count("PhoenOS 0.9.0") == 1);                         /* version */
     CHECK(count("<bg hello argc=3 hello a b>") == 1 && count("<bg hello argc=1 hello>") == 1);
     CHECK(count("[7] hello en arriere-plan (ps pour la liste, kill 7 pour l'arreter)") == 2);
     CHECK(count("& : seulement pour les programmes") == 1);
@@ -284,7 +298,7 @@ static void verify(void)
     CHECK(count("PANIQUE") == 0);
 
     /* après `dmesg` : tout le journal rejoué une seconde fois */
-    CHECK(count_end("Commandes (Tab complete") == 5);          /* le journal (8 Kio) a perdu le plus ancien help */
+    CHECK(count_end("Commandes (Tab complete") == 4);          /* le journal (8 Kio) a perdu le plus ancien help */
     CHECK(count_end("\ndeux\n") == 9);
     /* ---- 0.0.9 ---- */
     CHECK(count_end("lundi 5 octobre 2026, 07:31:12") == 1);
@@ -345,6 +359,11 @@ static void verify(void)
     CHECK(count_end("/lib/texte2.psl cree : texte2 3.1, 2 exports, ") == 1 && count_end("Description    : Textes de test") == 1);
     CHECK(count_end("pslpack : symbole a exporter introuvable") == 1 && count_end("pslpack : nom : 1 a 15 caracteres") == 1);
     CHECK(count_end("pslpack : le fichier n'est pas un ELF") == 1 && count_end("usage : pslpack -n nom") == 1);
+    CHECK(count_end("Aucun peripherique PCI detecte.") == 1 && count_end("usage : lspci") == 1);
+    CHECK(count_end("e1000    0.9.0  ethernet  officiel") == 1 && count_end("aucun peripherique correspondant") == 1);
+    CHECK(count_end("eth0  pilote fake  MAC 02:00:00:00:00:09  lien actif") == 2 && count_end("pas d'adresse (essayez : net up)") == 2);
+    CHECK(count_end("net: DHCP : delai depasse") == 1 && count_end("usage : net [up]") == 1 && count_end("usage : ping <adresse|nom>") == 1);
+    CHECK(count_end("reseau non configure (net up)") == 2 && count_end("ping: 999.1.1.1") == 1 && count_end("seq=1 erreur d'entree/sortie") == 2 && count_end("10.1.2.3 : 10.1.2.3") == 1);
     CHECK(count_end("/apps/mine.poe cree : mine 1.5, 272 octets (format 2)") == 1 && count_end("/apps/simple.poe cree : simple 1, 160 octets (format 1)") == 1);
     CHECK(count_end("Bibliotheques  : maths (presente) texte2 (presente)") == 1 && count_end("Format         : 2") == 1 && count_end("Format         : 1") == 3);
     CHECK(count_end("poepack : bibliotheque indiquee deux fois") == 1 && count_end("poepack : le programme n'est pas un fichier ELF") == 1);
@@ -389,6 +408,7 @@ int test_main(void)
     M.e[0] = (struct multiboot_mmap_entry){ 20, (u32)fake_ram, 0, sizeof fake_ram, 0, MB_MMAP_AVAILABLE };
     pmm_init(&M.mbi);
     kheap_init();
+    CHECK(netdev_register(&fake_nic) == E_OK && net_init() == E_OK);
     fs_set_clock(fake_clock);
     fs_init();
     fake_cmos[0] = 0x12; fake_cmos[2] = 0x31; fake_cmos[4] = 0x07; fake_cmos[7] = 0x05;
@@ -627,6 +647,21 @@ int test_main(void)
     type("exe nofile\n");
     type("exe\n");
     type("poeinfo /long.txt\n");
+    type("lspci\n");                                            /* 0.9.0 : reseau, sans carte */
+    type("lspci x\n");
+    type("drivers\n");
+    type("net\n");
+    type("ping 10.0.2.2\n");
+    type("dns exemple.test\n");
+    type("net\n");                                              /* carte sans adresse */
+    type("net up\n");                                           /* pas de serveur DHCP : delai depasse */
+    type("net zzz\n");
+    type("ping\n");
+    type("ping 10.0.2.2\n");
+    type("ping 999.1.1.1\n");
+    type("dns\n");
+    type("dns exemple.test\n");
+    type("dns 10.1.2.3\n");
     type("psl\n");                                              /* 0.8.0 : bibliotheques */
     type("psl maths\n");
     type("psl nope\n");

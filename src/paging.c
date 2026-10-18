@@ -76,3 +76,34 @@ err_t paging_lookup(const u32 *dir, u32 va, u32 *pa, u32 *flags)
         *flags = pte & pde & (PAGE_P | PAGE_RW | PAGE_US);
     return E_OK;
 }
+
+err_t paging_map_range(u32 *dir, u32 lo, u32 hi, u32 flags, u32 (*alloc)(void))
+{
+    u32 first, last;
+
+    lo &= ~(PAGE_SIZE - 1);
+    if (hi == 0 || hi - 1 < lo || hi > 0xFFFFF000u)
+        return E_INVAL;
+    hi = (hi + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
+    first = lo >> 12;
+    last = hi >> 12;                                            /* exclu */
+    for (u32 p = first; p < last; p++) {                        /* d'abord tout verifier : on ne remappe jamais la RAM */
+        u32 pde = dir[p >> 10];
+
+        if ((pde & PAGE_P) && ((const u32 *)(pde & ~(PAGE_SIZE - 1)))[p & 1023] & PAGE_P)
+            return E_INVAL;
+    }
+    for (u32 slot = first >> 10; slot <= (last - 1) >> 10; slot++) {
+        if (!(dir[slot] & PAGE_P)) {
+            u32 t = alloc();
+
+            if (!t)
+                return E_NOMEM;
+            memset((void *)t, 0, PAGE_SIZE);
+            dir[slot] = t | PAGE_P | PAGE_RW;
+        }
+    }
+    for (u32 p = first; p < last; p++)
+        ((u32 *)(dir[p >> 10] & ~(PAGE_SIZE - 1)))[p & 1023] = (p << 12) | flags | PAGE_P;
+    return E_OK;
+}

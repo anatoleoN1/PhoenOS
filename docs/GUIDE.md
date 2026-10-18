@@ -30,7 +30,7 @@ make clean
 Pour tester sur une vraie machine : écrire `phoenos-0.1.0.iso` sur une clé USB
 (`sudo dd if=phoenos-0.1.0.iso of=/dev/sdX bs=4M status=progress`, en vérifiant bien `sdX`).
 
-## Ce qu'on doit voir au démarrage (v0.8.0)
+## Ce qu'on doit voir au démarrage (v0.9.0)
 
 Des lignes `[ OK ]` pour : VGA + port série, Multiboot, GDT, IDT/PIC/timer/clavier,
 exceptions (point d'arrêt traité), **mémoire physique, tas du noyau et leurs auto-tests**,
@@ -73,6 +73,14 @@ QEMU s'arrête au lieu de redémarrer, et `qemu.log` contient la dernière excep
 Limites connues : un débordement de pile est détecté après coup (canari testé à chaque tick du
 timer) mais peut provoquer une triple faute avant ; la protection complète demande un TSS dédié
 pour la double faute (prévu plus tard).
+
+## Nouveautés de la 0.9.0 — pilote réseau e1000 et pile réseau
+Voir `CHANGELOG.md` et, dans PhoenOS, `man reseau`, `man net`, `man ping`. Architecture : `src/pci.c` (bus PCI),
+`src/driver.c` (cadre des pilotes : un pilote déclare ses identifiants PCI et une fonction `attach`), `src/e1000.c`
+(registres en mémoire via `paging_map_mmio`, anneaux de descripteurs DMA, interrogation sans interruption), `src/netdev.c`
+(interface commune aux cartes, filaires ou Wi-Fi plus tard), `src/net.c` (Ethernet, ARP, IPv4, ICMP, UDP, DHCP, DNS),
+tâche noyau « net ». Sous QEMU : `make run` ajoute `-nic user,model=e1000` (réseau 10.0.2.0/24).
+Essai : `lspci`, `drivers`, `net` (attendre l'adresse ou `net up`), `ping 10.0.2.2`, `dns exemple.org`.
 
 ## Nouveautés de la 0.8.0 — .poe complets et bibliothèques .psl
 Voir `CHANGELOG.md` et, dans PhoenOS, `man bibliotheques`, `man poepack`, `man psl`. Architecture :

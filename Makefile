@@ -31,7 +31,7 @@ DISKMB  := 32
 # Option d'affichage de QEMU : vide = choix automatique. Essayez  make run QEMU_DISPLAY="-display sdl"  (ou gtk)
 # si la fenetre s'affiche mais ne recoit pas le clavier (ex. Chromebook / Linux sous ChromeOS).
 QEMU_DISPLAY :=
-QEMU_DISK := -drive file=$(DISK),format=raw,if=ide,index=0,media=disk
+QEMU_DISK := -drive file=$(DISK),format=raw,if=ide,index=0,media=disk -nic user,model=e1000
 CFLAGS  := -m32 -std=gnu11 -O2 -g -Wall -Wextra -Werror \
            -ffreestanding -fno-stack-protector -fno-pic -fno-pie \
            -fno-builtin -fno-omit-frame-pointer -fno-tree-loop-distribute-patterns \

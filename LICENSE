@@ -1,5 +1,5 @@
-LICENCE PHOENOS 1.0  (PhoenOS License 1.0)
-Copyright (c) 2026 Anatole - PhoenOS (« l'Éditeur d'origine »)
+LICENCE PHOENOS 1.1  (PhoenOS License 1.1)
+Copyright (c) 2026 anatoleoN1 - PhoenOS (« l'Éditeur d'origine »)
 
 Le texte français fait foi. An English version follows the French text.
 
@@ -39,8 +39,12 @@ redistribuer, sous réserve des conditions ci-dessous.
     dont le texte complet est joint.
  b) Gratuité : le Logiciel et ses versions modifiées sont redistribués
     gratuitement. Vous ne pouvez pas faire payer le droit de le recevoir
-    ou de l'utiliser. (Vous pouvez en revanche facturer un service distinct :
-    installation, assistance, formation, matériel.)
+    ou de l'utiliser. Le seul paiement permis est celui d'un SERVICE humain
+    distinct que vous rendez vous-même (par exemple le travail d'installer
+    PhoenOS chez quelqu'un, l'assistance, la formation) : ce que le client
+    paie est votre temps, jamais le système. Il est interdit de vendre
+    PhoenOS ou une version modifiée, de conditionner leur obtention à un
+    paiement, ou de proposer un système dérivé de PhoenOS payant.
  c) Mentions conservées : vous conservez les mentions de droit d'auteur et
     cette licence.
 
@@ -54,7 +58,7 @@ redistribuer, sous réserve des conditions ci-dessous.
     présentation du projet, et écran ou message de démarrage du système) :
       - qu'elle est modifiée ;
       - la version d'origine dont elle dérive (ex. « PhoenOS 0.7.1 ») ;
-      - l'éditeur d'origine (Anatole, PhoenOS) ;
+      - l'éditeur d'origine (anatoleoN1, PhoenOS) ;
       - l'éditeur de la version modifiée (nom ou pseudonyme et lien).
  c) Identité PhoenOS non modifiée : l'image de PhoenOS (logo, bannière,
     images officielles) est reproduite telle quelle quand elle est montrée ;
@@ -75,8 +79,11 @@ redistribuer, sous réserve des conditions ci-dessous.
     et peut le dysfonctionner, perdre des données ou l'endommager. L'Éditeur
     d'origine ne les examine pas et n'en répond pas.
 
-6. CONTRIBUTIONS
-Sauf accord écrit contraire, toute contribution (code, correctif,
+6. CONTRIBUTIONS ET MODIFICATIONS
+PhoenOS officiel reste le projet de l'Éditeur d'origine. Quiconque modifie
+PhoenOS et diffuse le résultat crée un nouveau système, qui porte un surnom
+construit sur PhoenOS (article 4) ; cette règle ne change pas. Sauf accord
+écrit contraire, toute contribution (code, correctif,
 documentation) que vous envoyez volontairement à l'Éditeur d'origine est
 placée sous la présente licence et peut être intégrée au Logiciel, y compris
 dans ses versions d'origine futures. Vous garantissez avoir le droit de la
@@ -135,8 +142,11 @@ modify it and redistribute it, subject to the conditions below.
     must be included.
  b) Free of charge: the Software and its Modified Versions are redistributed
     free of charge. You may not charge for the right to receive or use them.
-    (You may charge for a separate service: installation, support, training,
-    hardware.)
+    The only payment allowed is for a separate human SERVICE that you
+    provide yourself (for example the work of installing PhoenOS for someone,
+    support, training): what the customer pays for is your time, never the
+    system. You may not sell PhoenOS or a Modified Version, make obtaining
+    them conditional on payment, or offer a paid system derived from PhoenOS.
  c) Notices kept: you keep the copyright notices and this license.
 
 4. ADDITIONAL CONDITIONS FOR A MODIFIED VERSION
@@ -148,7 +158,7 @@ modify it and redistribute it, subject to the conditions below.
     the system's boot screen or message):
       - that it is modified;
       - the Original Version it derives from (e.g. "PhoenOS 0.7.1");
-      - the original publisher (Anatole, PhoenOS);
+      - the original publisher (anatoleoN1, PhoenOS);
       - the publisher of the Modified Version (name or pseudonym and link).
  c) PhoenOS Identity unmodified: the PhoenOS image (logo, banner, official
     images) is reproduced as is whenever shown; it is not altered, replaced,
@@ -167,7 +177,10 @@ modify it and redistribute it, subject to the conditions below.
     or damage it. The Original Publisher does not review them and is not
     responsible for them.
 
-6. CONTRIBUTIONS
+6. CONTRIBUTIONS AND MODIFICATIONS
+Official PhoenOS remains the Original Publisher's project. Anyone who
+modifies PhoenOS and distributes the result creates a new system, which
+carries a nickname built on PhoenOS (article 4); this rule does not change.
 Unless agreed otherwise in writing, any contribution (code, patch,
 documentation) you voluntarily send to the Original Publisher is placed under
 this license and may be included in the Software, including in future

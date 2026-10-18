@@ -17,6 +17,8 @@ static inline u8  inb(u16 port)              { return (u8)test_port_in(port, 1);
 static inline u16 inw(u16 port)              { return (u16)test_port_in(port, 2); }
 static inline void outb(u16 port, u8 v)      { test_port_out(port, v, 1); }
 static inline void outw(u16 port, u16 v)     { test_port_out(port, v, 2); }
+static inline u32  inl(u16 port)             { return test_port_in(port, 4); }
+static inline void outl(u16 port, u32 v)     { test_port_out(port, v, 4); }
 static inline void io_wait(void)             { }
 static inline void cpu_cli(void)             { }
 static inline void cpu_sti(void)             { }

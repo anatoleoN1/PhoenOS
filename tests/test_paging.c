@@ -11,6 +11,9 @@ void test_panic(const char *fmt, ...) { out("  PANIQUE INATTENDUE : "); out(fmt)
 static char fake_ram[8u << 20] __attribute__((aligned(4096)));
 
 #define TOP (128u << 20)
+static u8 mmio_tabs[4][4096] __attribute__((aligned(4096)));
+static int mmio_used;
+static u32 alloc_stub(void) { return mmio_used < 4 ? (u32)mmio_tabs[mmio_used++] : 0; }
 static u32 dir[1024] __attribute__((aligned(4096)));
 static u32 tabs[32 * 1024] __attribute__((aligned(4096)));
 
@@ -130,6 +133,22 @@ int test_main(void)
         }
         CHECK(!seen_high && pmm_free_frames() == 0);
         pmm_limit(0xFFFFF000u);                                               /* au-dela de la RAM : sans effet */
+    }
+
+    {   /* 0.9.0 : plage de materiel (registres de la carte reseau) */
+        static u8 tp[2][4096] __attribute__((aligned(4096)));
+        static int used;
+        u32 f = 0, pa2 = 0;
+        u32 (*al)(void) = alloc_stub;
+
+        used = 0; (void)used; (void)tp;
+        CHECK(paging_map_range(dir, 0xFEBC0000u, 0xFEBE0000u, PAGE_RW | PAGE_PCD | PAGE_PWT, al) == E_OK);
+        CHECK(paging_lookup(dir, 0xFEBC0000u, &pa2, &f) == E_OK && pa2 == 0xFEBC0000u && f == (PAGE_P | PAGE_RW));
+        CHECK(paging_lookup(dir, 0xFEBDFFFCu, &pa2, NULL) == E_OK && pa2 == 0xFEBDFFFCu);
+        CHECK(paging_lookup(dir, 0xFEBE0000u, &pa2, NULL) == E_FAULT);
+        CHECK(paging_map_range(dir, 0x1000, 0x3000, PAGE_RW, al) == E_INVAL);          /* jamais par-dessus la RAM */
+        CHECK(paging_map_range(dir, 0xFEC00000u, 0xFEC00000u, PAGE_RW, al) == E_INVAL);
+        CHECK(paging_map_range(dir, 0xFEC00000u, 0, PAGE_RW, al) == E_INVAL);
     }
 
     out("  pagination verifiee : droits page par page (128 Mio), page nulle, noyau en lecture seule, ring 3, configurations invalides\n");

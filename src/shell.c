@@ -32,6 +32,9 @@
 #include "ata.h"
 #include "persist.h"
 #include "io.h"
+#include "pci.h"
+#include "driver.h"
+#include "net.h"
 
 #define LINE_MAX 256
 #define MAX_ARGS 16
@@ -114,6 +117,11 @@ static err_t cmd_wc(int argc, char **argv);
 static err_t cmd_grep(int argc, char **argv);
 static err_t cmd_sort(int argc, char **argv);
 static err_t cmd_more(int argc, char **argv);
+static err_t cmd_lspci(int argc, char **argv);
+static err_t cmd_drivers(int argc, char **argv);
+static err_t cmd_net(int argc, char **argv);
+static err_t cmd_ping(int argc, char **argv);
+static err_t cmd_dns(int argc, char **argv);
 static void erase_line(usize len);
 
 /* ------------------------------------------------------------------ */
@@ -124,6 +132,7 @@ static void erase_line(usize len);
 #define G_FS  "Fichiers"
 #define G_DISK "Stockage"
 #define G_TXT "Texte"
+#define G_NET "Reseau"
 
 static const struct command commands[] = {
     { G_SYS, "help",     "[commande]",   "Liste les commandes, ou detaille l'une d'elles",  cmd_help     },
@@ -171,6 +180,11 @@ static const struct command commands[] = {
     { G_DISK, "format",  "oui",          "Prepare le disque pour PhoenOS (efface la sauvegarde)", cmd_format },
     { G_DISK, "save",    "",             "Enregistre les fichiers sur le disque",          cmd_save     },
     { G_DISK, "load",    "",             "Relit la sauvegarde du disque",                  cmd_load     },
+    { G_NET, "lspci",    "",             "Liste les peripheriques PCI et leur pilote",     cmd_lspci    },
+    { G_NET, "drivers",  "",             "Liste les pilotes du noyau (officiels) et leur etat", cmd_drivers },
+    { G_NET, "net",      "[up]",         "Etat du reseau ; up : demande une adresse (DHCP)", cmd_net },
+    { G_NET, "ping",     "<adresse|nom>", "Envoie un ping (ICMP) et mesure le temps de reponse", cmd_ping },
+    { G_NET, "dns",      "<nom>",        "Cherche l'adresse IPv4 d'un nom",                cmd_dns      },
     { G_TXT, "echo",     "[-n] [texte...]", "Affiche son texte (\"entre guillemets\" permis)", cmd_echo },
     { G_TXT, "head",     "[-N] [fichier]", "Affiche les N premieres lignes (10 par defaut)", cmd_head },
     { G_TXT, "tail",     "[-N] [fichier]", "Affiche les N dernieres lignes (10 par defaut)", cmd_tail },
@@ -247,7 +261,7 @@ static err_t parse_flags(int argc, char **argv, const char *allowed, u32 *flags,
 
 static err_t cmd_help(int argc, char **argv)
 {
-    static const char *const groups[] = { G_SYS, G_FS, G_DISK, G_TXT };
+    static const char *const groups[] = { G_SYS, G_FS, G_DISK, G_NET, G_TXT };
 
     if (argc >= 2) {
         for (int i = 0; i < COMMAND_COUNT; i++) {
@@ -1068,6 +1082,145 @@ static err_t cmd_hexdump(int argc, char **argv)
 /* ------------------------------------------------------------------ */
 /* Stockage                                                            */
 /* ------------------------------------------------------------------ */
+
+static err_t cmd_lspci(int argc, char **argv)
+{
+    (void)argv;
+    if (argc != 1)
+        return usage("lspci");
+    if (pci_count() == 0) {
+        kprintf("Aucun peripherique PCI detecte.\n");
+        return E_OK;
+    }
+    for (int i = 0; i < pci_count(); i++) {
+        const struct pci_dev *d = pci_get(i);
+        const struct driver *dr = drivers_for_dev(i);
+
+        kprintf(" %02x:%02x.%u  %04x:%04x  %-22s", d->bus, d->dev, d->fn, d->vendor, d->device,
+                pci_class_name(d->class_code, d->subclass));
+        if (dr)
+            kprintf(" pilote %s\n", dr->name);
+        else
+            kprintf(" (pas de pilote)\n");
+    }
+    kprintf("%d peripherique(s).\n", pci_count());
+    return E_OK;
+}
+
+static err_t cmd_drivers(int argc, char **argv)
+{
+    (void)argv;
+    if (argc != 1)
+        return usage("drivers");
+    for (int i = 0; i < drivers_count(); i++) {
+        const struct driver *d = drivers_get(i);
+        int used = 0;
+
+        kprintf(" %-8s %-6s %-9s %-10s %s\n", d->name, d->version, d->kind, d->official ? "officiel" : "communaute", d->summary);
+        for (int b = 0; b < drivers_bindings(); b++) {
+            const struct driver_binding *bd = drivers_binding(b);
+
+            if (bd->drv != d)
+                continue;
+            const struct pci_dev *pd = pci_get(bd->dev);
+
+            used = 1;
+            kprintf("          peripherique %02x:%02x.%u : %s\n", pd->bus, pd->dev, pd->fn,
+                    bd->status == E_OK ? "en service" : err_str(bd->status));
+        }
+        if (!used)
+            kprintf("          aucun peripherique correspondant\n");
+    }
+    return E_OK;
+}
+
+static err_t cmd_net(int argc, char **argv)
+{
+    struct net_status st;
+    struct netdev *nd = net_dev();
+    char a[16];
+
+    if (argc > 2 || (argc == 2 && strcmp(argv[1], "up") != 0))
+        return usage("net [up]");
+    if (!nd)
+        return fail_msg("net: aucune carte reseau (voir lspci et drivers).");
+    if (argc == 2) {
+        err_t e = net_dhcp(8000);
+
+        if (e != E_OK) {
+            kprintf("net: DHCP : %s\n", e == E_IO ? "pas de lien (cable ou reseau virtuel)" : err_str(e));
+            return E_REPORTED;
+        }
+    }
+    net_get_status(&st);
+    kprintf(" %s  pilote %s  MAC %02x:%02x:%02x:%02x:%02x:%02x  lien %s\n", nd->name, nd->driver, nd->mac[0], nd->mac[1],
+            nd->mac[2], nd->mac[3], nd->mac[4], nd->mac[5], nd->link_up(nd) ? "actif" : "inactif");
+    if (st.configured) {
+        net_ip_str(st.ip, a);   kprintf("     adresse     %s\n", a);
+        net_ip_str(st.mask, a); kprintf("     masque      %s\n", a);
+        net_ip_str(st.gw, a);   kprintf("     passerelle  %s\n", a);
+        net_ip_str(st.dns, a);  kprintf("     DNS         %s\n", a);
+    } else {
+        kprintf("     pas d'adresse (essayez : net up)\n");
+    }
+    kprintf("     trames : %u envoyees, %u recues, %u jetees, %u erreurs d'envoi\n", nd->tx_frames, nd->rx_frames,
+            nd->rx_dropped, nd->tx_errors);
+    return E_OK;
+}
+
+static err_t cmd_ping(int argc, char **argv)
+{
+    u32 ip, rtt = 0;
+    char a[16];
+    int ok = 0;
+    err_t e;
+
+    if (argc != 2)
+        return usage("ping <adresse|nom>");
+    if (!net_dev())
+        return fail_msg("ping: aucune carte reseau.");
+    e = net_resolve(argv[1], &ip);
+    if (e != E_OK) {
+        kprintf("ping: %s : %s\n", argv[1], e == E_NOENT ? "nom inconnu" : err_str(e));
+        return E_REPORTED;
+    }
+    net_ip_str(ip, a);
+    for (int i = 1; i <= 4; i++) {
+        e = net_ping(ip, 2000, &rtt);
+        if (e == E_OK) {
+            ok++;
+            kprintf("reponse de %s : seq=%d temps=%u ms\n", a, i, rtt);
+        } else {
+            kprintf("%s : seq=%d %s\n", a, i, e == E_TIMEOUT ? "pas de reponse" : err_str(e));
+            if (e != E_TIMEOUT)
+                return E_REPORTED;
+        }
+        if (i < 4)
+            sched_sleep_ms(500);
+    }
+    kprintf("%d reponse(s) sur 4.\n", ok);
+    return ok ? E_OK : E_REPORTED;
+}
+
+static err_t cmd_dns(int argc, char **argv)
+{
+    u32 ip;
+    char a[16];
+    err_t e;
+
+    if (argc != 2)
+        return usage("dns <nom>");
+    if (!net_dev())
+        return fail_msg("dns: aucune carte reseau.");
+    e = net_resolve(argv[1], &ip);
+    if (e != E_OK) {
+        kprintf("dns: %s : %s\n", argv[1], e == E_NOENT ? "nom inconnu" : e == E_IO ? "reseau non configure (net up)" : err_str(e));
+        return E_REPORTED;
+    }
+    net_ip_str(ip, a);
+    kprintf("%s : %s\n", argv[1], a);
+    return E_OK;
+}
 
 static err_t cmd_disks(int argc, char **argv)
 {

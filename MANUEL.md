@@ -1,4 +1,4 @@
-# Manuel de PhoenOS 0.8.0
+# Manuel de PhoenOS 0.9.0
 
 > Généré à partir de `initrd/docs/manuel.txt` (lisible dans PhoenOS avec `man`).
 
@@ -616,4 +616,46 @@ Differences avec Unix : pas de droits ni de proprietaires (les dates existent, v
   Programme d'exemple (application .poe qui declare maths et texte) : pgcd, racine, Fibonacci, mots
   d'une phrase, majuscules, inverse, et le compteur d'appels a maths propre a CE programme. Lancez-en
   deux ensemble (exe utilib &) puis psl : le code de maths est partage. Voir man bibliotheques.
+
+
+== lspci  - peripheriques PCI et leur pilote (0.9.0)
+  Syntaxe : lspci
+  Une ligne par peripherique du bus PCI : position bus:peripherique.fonction, identifiants
+  vendeur:modele (hexadecimal), type, et le pilote de PhoenOS qui le prend en charge (ou
+  "pas de pilote"). Sur QEMU et VirtualBox on voit par exemple le pont hote, le disque IDE et
+  la carte reseau 8086:100e (pilote e1000). Voir aussi : drivers, reseau.
+
+== drivers  - pilotes du noyau (0.9.0)
+  Syntaxe : drivers
+  Liste les pilotes connus : nom, version, genre, officiel ou communaute, description, puis
+  pour chacun le peripherique auquel il est attache et son etat ("en service" ou la cause de
+  l'echec). 0.9.0 : un seul pilote officiel, e1000 (reseau filaire Intel PRO/1000). Voir : reseau.
+
+== net  - etat du reseau, adresse automatique (0.9.0)
+  Syntaxe : net [up]
+  Sans argument : carte (nom, pilote, adresse MAC, lien), adresse IP, masque, passerelle, DNS et
+  compteurs de trames. "net up" relance la demande d'adresse (DHCP, 8 s au plus). Au demarrage
+  la tache "net" la demande toute seule, sans retarder le demarrage : si "net" dit "pas d'adresse",
+  attendez quelques secondes ou tapez net up. Voir aussi : ping, dns, reseau.
+
+== ping  - teste une machine du reseau (0.9.0)
+  Syntaxe : ping <adresse|nom>
+  Envoie 4 messages ICMP et affiche le temps de reponse (precision 10 ms). Le nom est cherche par
+  le DNS. Sous QEMU, ping 10.0.2.2 (la passerelle) doit repondre ; les adresses d'Internet peuvent
+  rester sans reponse selon la machine hote. Differences avec Unix : toujours 4 envois, pas d'options.
+
+== dns  - adresse d'un nom (0.9.0)
+  Syntaxe : dns <nom>
+  Demande au serveur DNS (obtenu par DHCP) l'adresse IPv4 d'un nom : dns exemple.org. Les reponses
+  piegees ou tronquees sont refusees. Pas d'IPv6 ni de cache pour l'instant. Voir aussi : net, reseau.
+
+== reseau  - carte, pilote et pile reseau (0.9.0)
+  PhoenOS parle au reseau en trois etages : le PILOTE de la carte (e1000, officiel, integre au
+  noyau), la pile (Ethernet, ARP, IPv4, ICMP, UDP) et les services DHCP (adresse automatique) et DNS
+  (noms). Tout fonctionne par interrogation (sans interruption) : la tache "net" regarde la carte
+  toutes les 10 ms. Pas encore de TCP ni de connexion pour les programmes : ils viendront avec les
+  mises a jour automatiques (0.10.0). Le Wi-Fi viendra avec son propre pilote ; QEMU ne l'emule pas.
+  Pilotes : officiels = ecrits par PhoenOS ; communaute = a leurs risques et perils (licence, art. 5).
+  Sous QEMU "make run" donne une carte e1000 (reseau 10.0.2.0/24, passerelle 10.0.2.2, DNS 10.0.2.3).
+  Commandes : lspci, drivers, net, ping, dns.
 ```

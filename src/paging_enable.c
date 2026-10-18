@@ -70,6 +70,18 @@ err_t paging_init(void)
     return E_OK;
 }
 
+err_t paging_map_mmio(u32 phys, u32 size)
+{
+    err_t e;
+
+    if (!enabled || size == 0 || phys + size < phys)
+        return E_INVAL;
+    e = paging_map_range((u32 *)kernel_cr3, phys, phys + size, PAGE_RW | PAGE_PCD | PAGE_PWT, pmm_alloc_frame);
+    if (e == E_OK)
+        __asm__ volatile ("movl %0, %%cr3" : : "r"(kernel_cr3) : "memory");     /* vide le cache d'adresses */
+    return e;
+}
+
 int paging_enabled(void)      { return enabled; }
 u32 paging_table_bytes(void)  { return table_bytes; }
 u32 paging_mapped_top(void)   { return mapped_top; }
