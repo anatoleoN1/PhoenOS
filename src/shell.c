@@ -35,6 +35,7 @@
 #include "pci.h"
 #include "driver.h"
 #include "net.h"
+#include "crypto.h"
 
 #define LINE_MAX 256
 #define MAX_ARGS 16
@@ -98,6 +99,7 @@ static err_t cmd_mv(int argc, char **argv);
 static err_t cmd_tree(int argc, char **argv);
 static err_t cmd_df(int argc, char **argv);
 static err_t cmd_hexdump(int argc, char **argv);
+static err_t cmd_sha256(int argc, char **argv);
 static err_t cmd_man(int argc, char **argv);
 static err_t cmd_disks(int argc, char **argv);
 static err_t cmd_format(int argc, char **argv);
@@ -176,6 +178,7 @@ static const struct command commands[] = {
     { G_FS,  "tree",     "[-d] [dossier]", "Affiche l'arborescence (-d : dossiers seuls)",                         cmd_tree     },
     { G_FS,  "df",       "",             "Occupation du systeme de fichiers",              cmd_df       },
     { G_FS,  "hexdump",  "<fichier> [octets]", "Affiche un fichier en hexadecimal",        cmd_hexdump  },
+    { G_FS,  "sha256",   "<fichier...>", "Empreinte SHA-256 d'un ou plusieurs fichiers",   cmd_sha256   },
     { G_DISK, "disks",   "",             "Liste les disques et l'etat du stockage",        cmd_disks    },
     { G_DISK, "format",  "oui",          "Prepare le disque pour PhoenOS (efface la sauvegarde)", cmd_format },
     { G_DISK, "save",    "",             "Enregistre les fichiers sur le disque",          cmd_save     },
@@ -1077,6 +1080,31 @@ static err_t cmd_hexdump(int argc, char **argv)
     if (count < n->size)
         kprintf("... %u octet(s) de plus\n", n->size - count);
     return E_OK;
+}
+
+static err_t cmd_sha256(int argc, char **argv)
+{
+    err_t result = E_OK;
+
+    if (argc < 2)
+        return usage("sha256 <fichier...>");
+    for (int i = 1; i < argc; i++) {
+        struct fs_node *n;
+        u8 h[SHA256_LEN];
+        err_t e = fs_lookup(argv[i], &n);
+
+        if (e == E_OK && n->type != FS_FILE)
+            e = E_ISDIR;
+        if (e != E_OK) {
+            result = fail_path("sha256", argv[i], e);
+            continue;
+        }
+        sha256(h, n->data, n->size);
+        for (int k = 0; k < SHA256_LEN; k++)
+            kprintf("%02x", h[k]);
+        kprintf("  %s\n", argv[i]);
+    }
+    return result;
 }
 
 /* ------------------------------------------------------------------ */

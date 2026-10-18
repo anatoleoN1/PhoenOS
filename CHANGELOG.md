@@ -5,6 +5,18 @@ z = correctif ou petite amélioration. Chaque version est livrée testée automa
 les chemins de démarrage réels (GRUB, ISO, anneau 3, activation de la pagination) ne sont
 vérifiables que sur une vraie machine ou sous QEMU : ils sont validés par vos essais.
 
+## 0.10.1 — Briques de chiffrement (base de TLS et des mises à jour signées)
+- **SHA-256, SHA-384, SHA-512** (`src/sha2.c`), en un coup ou par morceaux ; **HMAC** et **HKDF** (SHA-256 ou SHA-384 choisi à l'exécution).
+- **ChaCha20-Poly1305** et **AES-128/256-GCM** (`src/aead.c`) : chiffrement authentifié ; une étiquette fausse rend `-1` sans rien déchiffrer.
+- **X25519** (échange de clés) et **Ed25519** (signatures, avec refus des signatures malleables S ≥ L) dans `src/c25519.c`.
+- **Commande `sha256 <fichier...>`** : empreinte d'un fichier (page de manuel `man sha256`).
+- Interface unique dans `src/crypto.h` ; `u64`/`i64` ajoutés à `types.h`. Pas de division 64 bits (le noyau n'a pas libgcc).
+- **Limites** : AES lit sa table par indice (pas à temps constant face à un attaquant sur le même processeur, sans objet ici pour l'instant) ;
+  GHASH calculé bit à bit (lent, sûr) ; pas de générateur aléatoire encore (nécessaire pour la prochaine étape, TLS) ; pas d'AES-192.
+- Tests : `test_crypto` contre des vecteurs générés par la bibliothèque Python `cryptography` (hashlib pour SHA/HMAC), plus altérations ;
+  contrôle par mutation : changer une constante ou une retenue fait échouer le test. Générateur : `tests/gen_crypto_vectors.py`.
+- Étapes suivantes : 0.10.2 TLS 1.3 client + certificats + HTTPS, 0.10.3 mises à jour signées.
+
 ## 0.10.0 — TCP client pour les programmes
 - **TCP** (`src/tcp.c`) : connexions sortantes (client), numéros de séquence modulo 2³², somme de contrôle avec pseudo-en-tête,
   taille maximale de segment négociée (1460 octets), réémission après 1 s sans accusé, délais : 10 s pour ouvrir, 8 s pour envoyer,

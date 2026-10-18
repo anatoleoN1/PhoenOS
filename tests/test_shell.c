@@ -240,7 +240,7 @@ static void verify(void)
     CHECK(count("  1  sleep 250") == 0 || count("  1  ") >= 1); /* history : numerotation */
     CHECK(count("gris clair") == 1 && count("blanc") == 1);     /* colors */
     CHECK(count(" 10   vert clair") == 1);                      /* %2d correct dans colors */
-    CHECK(count("PhoenOS 0.10.0") == 1);                         /* version */
+    CHECK(count("PhoenOS 0.10.1") == 1);                         /* version */
     CHECK(count("<bg hello argc=3 hello a b>") == 1 && count("<bg hello argc=1 hello>") == 1);
     CHECK(count("[7] hello en arriere-plan (ps pour la liste, kill 7 pour l'arreter)") == 2);
     CHECK(count("& : seulement pour les programmes") == 1);
@@ -292,6 +292,8 @@ static void verify(void)
     CHECK(count("b/  f.txt  g.txt  ") == 1);                    /* ls apres cp */
     CHECK(count("cat g.txt \n") == 1);                          /* Tab complete g<Tab> en g.txt */
     CHECK(count("00000000  68 65 6c 6c 6f") == 1 && count("... 6 octet(s) de plus") == 1);   /* hexdump */
+    CHECK(count("6052eef1a76d3ff777269e8a1720524953b74c4d96e4689679c8982699a32beb  f.txt") == 1);   /* sha256 */
+    CHECK(count("sha256: nofile: introuvable") == 1);
     CHECK(count("6 dossier(s), 13 fichier(s)") == 1);            /* tree / */
     CHECK(count("Redirection : cmd") == 3);                /* help, puis cat h.txt (help redirige) */
     CHECK(count("Commandes (Tab complete") == 3);               /* help redirige + cat : sortie bien capturee */
@@ -544,6 +546,7 @@ int test_main(void)
     type("ls\n");
     type("cat g.\t\n");
     type("hexdump f.txt 5\n");
+    type("sha256 f.txt nofile\n");
     type("cd /\n");
     type("tree /\n");
     type("help > h.txt\n");

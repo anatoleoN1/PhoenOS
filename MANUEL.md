@@ -1,4 +1,4 @@
-# Manuel de PhoenOS 0.10.0
+# Manuel de PhoenOS 0.10.1
 
 > Généré à partir de `initrd/docs/manuel.txt` (lisible dans PhoenOS avec `man`).
 
@@ -405,6 +405,13 @@ Differences avec Unix : pas de droits ni de proprietaires (les dates existent, v
   en hexadecimal, puis le texte entre | |. Difference : pas d'options ; le nombre
   d'octets est un argument.
   Exemples : hexdump hello.txt    hexdump hello.txt 1000
+
+== sha256  - empreinte SHA-256 de fichiers
+  Syntaxe : sha256 <fichier...>
+  Affiche, pour chaque fichier, son empreinte SHA-256 (64 caracteres hexadecimaux) puis son
+  nom, comme la commande sha256sum de Linux. Deux fichiers identiques ont la meme empreinte ;
+  le moindre octet different change tout. Sert a verifier un fichier et prepare les mises a jour signees.
+  Exemples : sha256 hello.txt    sha256 a.txt b.txt
 
 == disks  - disques et etat du stockage
   Syntaxe : disks

@@ -30,7 +30,7 @@ make clean
 Pour tester sur une vraie machine : écrire `phoenos-0.1.0.iso` sur une clé USB
 (`sudo dd if=phoenos-0.1.0.iso of=/dev/sdX bs=4M status=progress`, en vérifiant bien `sdX`).
 
-## Ce qu'on doit voir au démarrage (v0.10.0)
+## Ce qu'on doit voir au démarrage (v0.10.1)
 
 Des lignes `[ OK ]` pour : VGA + port série, Multiboot, GDT, IDT/PIC/timer/clavier,
 exceptions (point d'arrêt traité), **mémoire physique, tas du noyau et leurs auto-tests**,
@@ -73,6 +73,12 @@ QEMU s'arrête au lieu de redémarrer, et `qemu.log` contient la dernière excep
 Limites connues : un débordement de pile est détecté après coup (canari testé à chaque tick du
 timer) mais peut provoquer une triple faute avant ; la protection complète demande un TSS dédié
 pour la double faute (prévu plus tard).
+
+## Nouveautés de la 0.10.1 — briques de chiffrement
+Voir `CHANGELOG.md` et, dans PhoenOS, `man sha256`. Architecture : `src/crypto.h` (toute l'interface), `src/sha2.c` (SHA-256/384/512, HMAC, HKDF),
+`src/aead.c` (ChaCha20-Poly1305, AES-GCM), `src/c25519.c` (X25519 et Ed25519, d'après TweetNaCl). Aucune allocation, aucune division 64 bits
+(le noyau n'a pas libgcc). Tests : `tests/test_crypto.c` contre des vecteurs produits par Python (`tests/gen_crypto_vectors.py`,
+à relancer pour régénérer `tests/crypto_vectors.h`), avec des attaques (étiquette, message, signature, S ≥ L).
 
 ## Nouveautés de la 0.10.0 — TCP client pour les programmes
 Voir `CHANGELOG.md`, et dans PhoenOS `man web`, `man reseau`. Architecture : `src/tcp.c` (connexions : état, un segment
