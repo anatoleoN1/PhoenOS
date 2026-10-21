@@ -36,6 +36,7 @@
 #include "driver.h"
 #include "net.h"
 #include "crypto.h"
+#include "update.h"
 
 #define LINE_MAX 256
 #define MAX_ARGS 16
@@ -122,6 +123,7 @@ static err_t cmd_more(int argc, char **argv);
 static err_t cmd_lspci(int argc, char **argv);
 static err_t cmd_drivers(int argc, char **argv);
 static err_t cmd_net(int argc, char **argv);
+static err_t cmd_maj(int argc, char **argv);
 static err_t cmd_ping(int argc, char **argv);
 static err_t cmd_dns(int argc, char **argv);
 static void erase_line(usize len);
@@ -162,6 +164,7 @@ static const struct command commands[] = {
     { G_SYS, "log",      "[-a|-n N] [-t tag] [-l niveau] | level | clear | save | add", "Journal de debogage du systeme (voir man log)", cmd_log },
     { G_SYS, "history",  "",             "Liste les commandes precedentes",                cmd_history  },
     { G_SYS, "crash",    "<type>",       "Provoque une erreur : voir l'ecran d'erreur",    cmd_crash    },
+    { G_SYS, "maj",      "[etat|verifier|installer|retour|preparer|auto]", "Mises a jour signees de PhoenOS (voir man maj)", cmd_maj },
     { G_SYS, "reboot",   "",             "Redemarre la machine",                           cmd_reboot   },
     { G_SYS, "shutdown", "",             "Eteint la machine (QEMU, VirtualBox)",           cmd_shutdown },
     { G_SYS, "halt",     "",             "Arrete le processeur",                           cmd_halt     },
@@ -1194,6 +1197,11 @@ static err_t cmd_net(int argc, char **argv)
     kprintf("     trames : %u envoyees, %u recues, %u jetees, %u erreurs d'envoi\n", nd->tx_frames, nd->rx_frames,
             nd->rx_dropped, nd->tx_errors);
     return E_OK;
+}
+
+static err_t cmd_maj(int argc, char **argv)
+{
+    return update_command(argc, argv);
 }
 
 static err_t cmd_ping(int argc, char **argv)
@@ -2918,6 +2926,13 @@ void shell_run(void)
     kprintf_task_hook = task_out_hook;
 
     for (;;) {
+        const char *notice = update_take_notice();          /* mise a jour trouvee en arriere-plan (0.10.4) */
+
+        if (notice) {
+            color(VGA_YELLOW);
+            kprintf("[maj] %s\n", notice);
+            color(VGA_LIGHT_GREY);
+        }
         prompt();
         read_line(line, &len);
 

@@ -33,6 +33,7 @@
 #include "driver.h"
 #include "net.h"
 #include "rng.h"
+#include "update.h"
 
 #define MULTIBOOT_BOOTLOADER_MAGIC 0x2BADB002
 
@@ -257,6 +258,8 @@ void kernel_main(u32 magic, const struct multiboot_info *mbi)
     DINFO("boot", "multiboot : flags %#x, carte memoire %u octets, modules %u", mbi->flags, mbi->mmap_length, mbi->mods_count);
     status(1, "Demarre par un bootloader Multiboot");
 
+    update_stage0(mbi);                         /* version plus recente installee sur le disque ? (0.10.4) ne revient pas si oui */
+
     gdt_init();
     status(1, "GDT chargee (segments noyau et utilisateur)");
 
@@ -328,6 +331,7 @@ void kernel_main(u32 magic, const struct multiboot_info *mbi)
     user_sched_init();
     status(1, "Ordonnanceur initialise (multitache : taches de 16 Kio, tourniquet a 100 Hz)");
 
+    update_start();                             /* tache "maj" : confirme la version lancee, verifie les mises a jour */
     net_start();                                /* tache "net" : adresse par DHCP en arriere-plan, sans retarder le demarrage */
     fs_set_clock(rtc_now_unix);                 /* dates des fichiers : horloge materielle (0 si illisible) */
     fs_init();

@@ -1,4 +1,4 @@
-MANUEL DE PHOENOS 0.10.3
+MANUEL DE PHOENOS 0.10.4
 =======================
 Tapez  man            pour la liste des sujets,
        man <sujet>    pour lire un sujet (exemple : man ls).
@@ -306,6 +306,26 @@ Differences avec Unix : pas de droits ni de proprietaires (les dates existent, v
           panic, assert, doublefree (double liberation memoire), heap (tas corrompu)
   L'ecran d'erreur orange (ou violet selon la compilation) s'affiche ; redemarrez ensuite.
   Specifique a PhoenOS, pour tester la robustesse du noyau.
+
+== maj  - mises a jour signees de PhoenOS (0.10.4)
+  Syntaxe : maj [etat]            version, cle, zone de mise a jour, emplacements A et B
+            maj verifier           cherche une version plus recente (rien n'est installe)
+            maj installer          verifie, telecharge et installe dans l'emplacement inactif
+            maj retour             revient a la version precedente (puis reboot)
+            maj preparer [force]   cree la zone de mise a jour sur le disque (une seule fois)
+            maj auto [non|verifier|installer]   verification automatique en arriere-plan
+  Comment ca marche : les versions sont publiees sur GitHub (releases du depot) avec un MANIFESTE signe par
+  l'editeur (Ed25519). PhoenOS ne croit que ce qui porte une signature valide pour la cle publique integree a son
+  image : manifeste, puis noyau et initrd dont les empreintes SHA-256 sont dans le manifeste. Rien n'est
+  jamais lance sans cela. Une version plus ANCIENNE que la derniere confirmee est refusee.
+  Deux emplacements (A et B) sur le disque : la mise a jour est ecrite dans celui qui n'est PAS actif ; l'actif
+  n'est change qu'a la toute fin. Une coupure de courant en cours d'installation ne change donc rien.
+  Au demarrage suivant la nouvelle version est lancee "a l'essai" ; si elle ne tient pas 30 secondes, elle n'est
+  pas confirmee, et apres 2 essais PhoenOS revient seul a la precedente (ou a celle du CD). Le CD/la cle USB
+  reste toujours un point de retour.
+  Prerequis : un disque de 32 Mio au moins qui est un disque PhoenOS (make newdisk), `maj preparer` une fois, du
+  reseau (net) et une horloge exacte (certificats HTTPS). Sans cle de signature dans l'image : desactive.
+  Voir aussi : web (HTTPS), sha256, reboot, disks.
 
 == reboot  - redemarre
   Syntaxe : reboot
@@ -674,4 +694,4 @@ Differences avec Unix : pas de droits ni de proprietaires (les dates existent, v
   Le Wi-Fi viendra avec son propre pilote ; QEMU ne l'emule pas.
   Pilotes : officiels = ecrits par PhoenOS ; communaute = a leurs risques et perils (licence, art. 5).
   Sous QEMU "make run" donne une carte e1000 (reseau 10.0.2.0/24, passerelle 10.0.2.2, DNS 10.0.2.3).
-  Commandes : lspci, drivers, net, ping, dns. Programme : web (HTTP, HTTPS).
+  Commandes : lspci, drivers, net, ping, dns, maj (mises a jour signees). Programme : web (HTTP, HTTPS).

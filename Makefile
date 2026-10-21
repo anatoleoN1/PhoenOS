@@ -51,7 +51,13 @@ OBJ     := $(patsubst src/%.c,build/%.o,$(SRC_C)) \
 
 KERNEL  := build/phoenos.bin
 VERSION := $(shell sed -n 's/.*PHOENOS_VERSION "\(.*\)".*/\1/p' src/version.h)
-ISO     := phoenos-$(VERSION).iso
+# Editions que ce code sait construire (publier.sh la lit) ; EDITION=... choisit laquelle (une seule pour l'instant).
+EDITIONS_OK := perf32
+EDITION ?= $(shell sed -n 's/.*PHOENOS_EDITION  *"\([a-z0-9]*\)".*/\1/p' src/version.h)
+ISO     := phoenos-$(EDITION)-$(VERSION).iso
+ifeq ($(filter $(EDITION),$(EDITIONS_OK)),)
+$(error edition "$(EDITION)" pas encore disponible : editions construisibles : $(EDITIONS_OK))
+endif
 
 # Programmes utilisateur (user/*.c) : un ELF par programme, charge a 4 Mio, copie dans /bin de l'initrd.
 USER_CFLAGS := -m32 -std=gnu11 -O2 -Wall -Wextra -Werror -ffreestanding -fno-stack-protector -fno-pic -fno-pie \

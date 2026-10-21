@@ -18,7 +18,7 @@ sudo apt install build-essential gcc-multilib grub-pc-bin grub-common xorriso mt
 ```bash
 make              # compile le noyau -> build/phoenos.bin
 make check        # vérifie que le noyau est un binaire Multiboot valide
-make iso          # génère phoenos-<version>.iso (ex. phoenos-0.1.0.iso), bootable
+make iso          # génère phoenos-<édition>-<version>.iso (ex. phoenos-perf32-0.10.4.iso), bootable
 make run          # lance l'ISO dans QEMU (le journal s'affiche aussi dans le terminal)
 make serial       # idem sans fenêtre graphique (Windows 10 + WSL, SSH...)
 make debug        # comme run + journal des exceptions CPU dans qemu.log
@@ -30,7 +30,7 @@ make clean
 Pour tester sur une vraie machine : écrire `phoenos-0.1.0.iso` sur une clé USB
 (`sudo dd if=phoenos-0.1.0.iso of=/dev/sdX bs=4M status=progress`, en vérifiant bien `sdX`).
 
-## Ce qu'on doit voir au démarrage (v0.10.3)
+## Ce qu'on doit voir au démarrage (v0.10.4)
 
 Des lignes `[ OK ]` pour : VGA + port série, Multiboot, GDT, IDT/PIC/timer/clavier,
 exceptions (point d'arrêt traité), **mémoire physique, tas du noyau et leurs auto-tests**,
@@ -73,6 +73,12 @@ QEMU s'arrête au lieu de redémarrer, et `qemu.log` contient la dernière excep
 Limites connues : un débordement de pile est détecté après coup (canari testé à chaque tick du
 timer) mais peut provoquer une triple faute avant ; la protection complète demande un TSS dédié
 pour la double faute (prévu plus tard).
+
+## Nouveautés de la 0.10.4 — mises à jour signées
+Voir `CHANGELOG.md` et, dans PhoenOS, `man maj`. Architecture : `src/updman.c` (manifeste strict + vérification Ed25519), `src/updstore.c` (zone disque : contrôle à deux copies CRC, deux emplacements),
+`src/updboot.c` (choix au démarrage, essais, retour arrière, relance), `src/relaunch.S` (copie du noyau et saut), `src/httpc.c` (HTTPS GET + redirections), `src/update.c` (commande `maj`, tâche de fond).
+**Première fois (une seule)** : `python3 tools/phoenos_sign.py keygen` crée `~/.phoenos/signing.key` (SECRÈTE : sauvegardez-la sur une clé USB, ne la publiez jamais) et écrit la clé publique dans `src/updkey.h`,
+puis `make iso`. **Publier** : `./publier.sh` construit chaque édition, signe et publie la release (manifeste, signature, noyau, initrd, ISO). **Tester** : disque de 32 Mio (`make newdisk`), `maj preparer`, `maj verifier`, `maj installer`, `reboot`.
 
 ## Nouveautés de la 0.10.3 — correctif de débit
 Voir `CHANGELOG.md`. `src/tcp.c` : `tcp_recv` envoie un ACK de mise à jour de fenêtre quand le tampon se libère ; `user/web.c` : décodage « chunked »

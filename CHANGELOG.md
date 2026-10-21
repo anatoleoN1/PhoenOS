@@ -5,6 +5,25 @@ z = correctif ou petite amélioration. Chaque version est livrée testée automa
 les chemins de démarrage réels (GRUB, ISO, anneau 3, activation de la pagination) ne sont
 vérifiables que sur une vraie machine ou sous QEMU : ils sont validés par vos essais.
 
+## 0.10.4 — Mises à jour automatiques signées
+- **`maj`** (`etat`, `verifier`, `installer`, `retour`, `preparer`, `auto`) : PhoenOS cherche les nouvelles versions dans les *releases* GitHub du dépôt (`anatoleoN1/PhoenOS`), en HTTPS.
+- **Signature Ed25519** : chaque édition publie un manifeste (`manifest-<édition>.txt`, version, build, tailles, SHA-256 du noyau et de l'initrd) signé avec VOTRE clé ;
+  la clé publique est intégrée à l'image (`src/updkey.h`). Rien n'est installé ni lancé sans signature valide, bonne édition, bonnes empreintes et en-tête d'image correct.
+  Une version plus ancienne que la dernière confirmée est refusée (anti-retour-arrière).
+- **Deux emplacements A/B** sur le disque (secteurs 32768 à 65535, après PhoenFS, 16 Mio) : on écrit dans l'emplacement inactif, la bascule est la TOUTE dernière écriture
+  (test : coupure de courant simulée à chaque secteur écrit, jamais d'emplacement actif invalide).
+- **Étape 0** (début de `kernel_main`) : si un emplacement est actif, le noyau du CD vérifie (signature + SHA-256 en mémoire) puis relance la version installée
+  (« kexec » : `src/relaunch.S`). Lancée « à l'essai » ; confirmée après 30 s de fonctionnement ; après 2 essais ratés, retour automatique à la version précédente ou à celle du CD.
+- **Mode automatique** (`maj auto verifier|installer`, défaut : vérifier) : tâche de fond, première vérification 90 s après le démarrage puis toutes les 6 h ; un avis jaune `[maj]` s'affiche au prompt.
+- **Outil** `tools/phoenos_sign.py` (Python seul, sans dépendance) : `keygen`, `pubkey`, `release`, `verify`. **Éditions** : l'ISO s'appelle `phoenos-<édition>-<version>.iso` (pour l'instant `perf32`).
+- Client HTTP du noyau (`src/httpc.c`) : redirections HTTPS (GitHub redirige vers son CDN), Content-Length, « chunked ».
+- Tests : `maj-manifeste`, `maj-http`, `maj-stockage` (choix de démarrage, retour arrière, relance simulée avec fausse RAM), `maj-complet` (commande `maj` de bout en bout contre un faux GitHub et un faux disque,
+  manifestes/noyaux/initrds altérés, autre clé, autre édition, plus ancien, coupures de courant), `outil-signature` (vecteurs RFC 8032, recoupement `cryptography`, release/verify). Contrôles par mutation.
+- **Limites** : le vrai démarrage de l'étape 0 (relance du noyau sur une machine) n'est vérifiable que chez vous ; disque de 32 Mio au moins et `maj preparer` une fois ; pas de révocation de clé
+  (clé perdue = nouvelle ISO avec une nouvelle clé) ; l'anti-retour-arrière repose sur l'état du disque ; une seule session TLS dans le système (`maj` et `web` ne peuvent pas télécharger en même temps) ;
+  l'horloge doit être exacte (certificats).
+- Feuille de route : après les mises à jour, PhoenOS passe en **64 bits UEFI** et devient **mi-C mi-Rust** ; éditions Performance (32 et 64 bits) et Puissance (64 bits seulement).
+
 ## 0.10.3 — Correctif : téléchargements fluides
 - **Bug corrigé (TCP)** : en lisant, `tcp_recv` ne prévenait jamais le serveur que la place avait été libérée. Dès que le tampon de 8 Kio était plein
   (page lourde, comme GitHub), le serveur attendait ses sondes lentes et la page arrivait « bout par bout » sans jamais finir. Maintenant une mise à jour de

@@ -10,7 +10,7 @@ FAILED=0
 rm -rf "$B"; mkdir -p "$B/src"
 cp "$ROOT"/src/* "$B/src/"
 cp "$ROOT"/tests/shim/* "$B/src/"        # remplace io.h et panic.h par des versions de test
-cp "$ROOT"/tests/*.c "$ROOT"/tests/testlib.h "$ROOT"/tests/fakeata.h "$ROOT"/tests/crypto_vectors.h "$ROOT"/tests/pk_vectors.h "$ROOT"/tests/x509_vectors.h "$B/src/"
+cp "$ROOT"/tests/*.c "$ROOT"/tests/testlib.h "$ROOT"/tests/fakeata.h "$ROOT"/tests/crypto_vectors.h "$ROOT"/tests/pk_vectors.h "$ROOT"/tests/x509_vectors.h "$ROOT"/tests/upd_vectors.h "$ROOT"/tests/test_updkey.h "$B/src/"
 
 CF="-m32 -static -nostdlib -ffreestanding -fno-builtin -fno-stack-protector -fno-pie \
 -fno-tree-loop-distribute-patterns -O2 -Wall -Wextra -Wno-unused-function -I$B/src"
@@ -208,6 +208,12 @@ run chiffrement      0   test_crypto.c sha2.c aead.c c25519.c string.c
 run signatures       0   test_pubkey.c pubkey.c sha2.c string.c
 run aleatoire        0   test_rng.c rng.c sha2.c aead.c string.c
 run colle-https      0   test_tlssock.c tlssock.c string.c
+run maj-manifeste    0   test_updman.c updman.c sha2.c c25519.c string.c
+run maj-http         0   test_httpc.c httpc.c string.c
+run maj-stockage     0   -DUPD_SIM_PHYS test_updstore.c updstore.c updboot.c updman.c crc32.c sha2.c c25519.c string.c
+cp "$B/src/test_updkey.h" "$B/src/updkey.h"
+run maj-complet 0 -DUPD_SIM_PHYS test_update.c update.c updstore.c updboot.c updman.c httpc.c crc32.c sha2.c c25519.c dlog.c kprintf.c string.c
+cp "$ROOT/src/updkey.h" "$B/src/updkey.h"
 printf '== tls-openssl\n'
 if (cd "$B/src" && gcc $CF test_tls.c tls.c x509.c pubkey.c roots.c rng.c sha2.c aead.c c25519.c string.c -o "$B/tls"); then
     if bash "$ROOT/tests/tls_interop.sh" "$B" "$ROOT"; then echo "  => OK"; else echo "  => ECHEC"; FAILED=1; fi
@@ -237,7 +243,7 @@ ligne2" ] && echo "  => OK" || { echo "  => ECHEC (contenu extrait different)"; 
         echo "  => ECHEC : tar refuse l'archive"; cat "$B/snapshot.err"; FAILED=1
     fi
 fi
-SH="test_shell.c shell.c dlog.c poe.c psl.c elf.c cmdline.c kprintf.c pmm.c kheap.c string.c fs.c initrd.c persist.c ata.c crc32.c tarw.c rtc.c pci.c driver.c e1000.c netdev.c net.c tcp.c rng.c sha2.c aead.c"
+SH="test_shell.c upd_stub.c shell.c dlog.c poe.c psl.c elf.c cmdline.c kprintf.c pmm.c kheap.c string.c fs.c initrd.c persist.c ata.c crc32.c tarw.c rtc.c pci.c driver.c e1000.c netdev.c net.c tcp.c rng.c sha2.c aead.c"
 run shell-session       0   -DMODE=0 $SH
 run shell-crash-panic   100 -DMODE=1 $SH
 run shell-crash-assert  100 -DMODE=2 $SH
@@ -255,6 +261,9 @@ for c in $(sed -n 's/^== \([a-z0-9]*\) .*/\1/p' "$ROOT/initrd/docs/manuel.txt");
     case " $cmds $progs general fichiers stockage programmes multitache processus bibliotheques reseau " in *" $c "*) ;; *) echo "  page de manuel sans commande : $c"; FAILED=1;; esac
 done
 echo "  manuel verifie : $(echo $cmds | wc -w) commandes et $(echo $progs | wc -w) programmes documentes"
+
+echo "== outil-signature"
+if python3 "$ROOT/tests/test_sign_tool.py"; then echo "  => OK"; else echo "  => ECHEC"; FAILED=1; fi
 
 echo
 if [ "$FAILED" -eq 0 ]; then echo "TOUS LES TESTS PASSENT"; else echo "DES TESTS ONT ECHOUE"; fi
