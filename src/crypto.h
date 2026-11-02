@@ -39,10 +39,10 @@ void sha512(u8 out[SHA512_LEN], const void *d, u32 n);
 void sha384(u8 out[SHA384_LEN], const void *d, u32 n);
 
 /* ---- Hachage choisi a l'execution (TLS : SHA-256 ou SHA-384) ---- */
-enum { HASH_SHA256 = 0, HASH_SHA384 = 1 };
+enum { HASH_SHA256 = 0, HASH_SHA384 = 1, HASH_SHA512 = 2 };
 typedef struct { int alg; union { sha256_ctx s256; sha512_ctx s512; } u; } hash_ctx;
-#define HASH_MAX 48
-u32  hash_len(int alg);                         /* 32 ou 48 ; 0 si alg inconnu */
+#define HASH_MAX 64
+u32  hash_len(int alg);                         /* 32, 48 ou 64 ; 0 si alg inconnu */
 u32  hash_block(int alg);                       /* 64 ou 128 */
 void hash_init(hash_ctx *c, int alg);
 void hash_update(hash_ctx *c, const void *d, u32 n);

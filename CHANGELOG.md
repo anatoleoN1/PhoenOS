@@ -5,6 +5,22 @@ z = correctif ou petite amélioration. Chaque version est livrée testée automa
 les chemins de démarrage réels (GRUB, ISO, anneau 3, activation de la pagination) ne sont
 vérifiables que sur une vraie machine ou sous QEMU : ils sont validés par vos essais.
 
+## 0.10.2 — TLS 1.3 client, certificats X.509 et HTTPS
+- **TLS 1.3 client** (`src/tls.c`) : suites TLS_AES_128_GCM_SHA256, TLS_AES_256_GCM_SHA384, TLS_CHACHA20_POLY1305_SHA256 ; échange x25519 ;
+  vérification de CertificateVerify (ECDSA P-256/P-384, RSA-PSS, Ed25519) et de Finished ; KeyUpdate pris en charge.
+- **Signatures à clé publique** (`src/pubkey.c`) : RSA PKCS#1 v1.5 et PSS (2048 à 4096 bits exigés pour les certificats), ECDSA P-256 et P-384.
+- **Certificats X.509** (`src/x509.c`) : lecture DER, nom d'hôte (SAN, jokers, adresse IPv4), chaîne jusqu'à une racine, contraintes de base,
+  longueur de chemin, usages de clé, serverAuth, extensions critiques inconnues refusées, SHA-1 et RSA < 2048 refusés, dates vérifiées.
+  **40 autorités racines** intégrées (`src/roots.c`, régénérables par `tools/gen_roots.py`).
+- **Générateur aléatoire** (`src/rng.c`) : RDRAND, gigue du compteur de cycles, événements clavier et paquets réseau ; TLS refuse de partir tant qu'il n'a pas assez d'entropie.
+- **Appels système** 208 à 212 : `tls_connect`, `tls_send`, `tls_recv`, `tls_close`, `tls_error` ; **`web https://hote/chemin`** ; erreurs `E_TLS` (-23) et `E_CERT` (-24) avec message en français.
+- **Limites** : une seule session TLS dans tout le système ; TLS 1.3 seulement (pas de 1.2, pas de HelloRetryRequest : serveur sans x25519 refusé) ;
+  pas de certificat client, pas de reprise de session, pas de vérification de révocation (CRL/OCSP) ; l'horloge matérielle est l'heure locale sans fuseau
+  (les certificats exigent une date ≥ 2025-01-01) ; liste de racines figée à la version ; qualité d'entropie sous émulateur non garantie.
+- Tests : vecteurs RSA/ECDSA/X.509 générés avec Python `cryptography`, poignées de main réelles contre OpenSSL (toutes clés et suites, KeyUpdate),
+  11 serveurs tricheurs refusés, contrôles par mutation. Réel (internet, boot) à valider chez vous : `make serial`, puis `web https://example.org`.
+- Étapes suivantes : 0.10.3 mises à jour signées ; ensuite passage en 64 bits (UEFI) et noyau mi-C mi-Rust (décidés le 19 oct. 2026).
+
 ## 0.10.1 — Briques de chiffrement (base de TLS et des mises à jour signées)
 - **SHA-256, SHA-384, SHA-512** (`src/sha2.c`), en un coup ou par morceaux ; **HMAC** et **HKDF** (SHA-256 ou SHA-384 choisi à l'exécution).
 - **ChaCha20-Poly1305** et **AES-128/256-GCM** (`src/aead.c`) : chiffrement authentifié ; une étiquette fausse rend `-1` sans rien déchiffrer.

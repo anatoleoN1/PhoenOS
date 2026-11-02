@@ -22,6 +22,7 @@
 #include "sched.h"
 #include "dlog.h"
 #include "tcp.h"
+#include "tlssock.h"
 #include "vga.h"
 #include "string.h"
 
@@ -215,6 +216,7 @@ static void user_cleanup(void *owner)
 {
     struct utask *u = owner;
 
+    tlss_release_owner(u->proc.pid);            /* sa session securisee (avant le TCP dont elle depend) */
     tcp_release_owner(u->proc.pid);             /* ses connexions TCP */
     libmgr_detach_all(&u->proc);                /* rend les bibliotheques (la derniere libere les pages partagees) */
     aspace_destroy(&u->space);

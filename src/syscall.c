@@ -17,6 +17,7 @@
 #include "string.h"
 #include "net.h"
 #include "tcp.h"
+#include "tlssock.h"
 
 #define WRITE_MAX    (1u << 20)         /* octets ecrits par appel au plus */
 #define SLEEP_MAX_MS 60000u
@@ -442,6 +443,11 @@ static const char *sys_name(u32 nr)
     case SYS_SOCK_SEND: return "sock_send";
     case SYS_SOCK_RECV: return "sock_recv";
     case SYS_SOCK_CLOSE: return "sock_close";
+    case SYS_TLS_CONNECT: return "tls_connect";
+    case SYS_TLS_SEND: return "tls_send";
+    case SYS_TLS_RECV: return "tls_recv";
+    case SYS_TLS_CLOSE: return "tls_close";
+    case SYS_TLS_ERROR: return "tls_error";
     case SYS_SPAWN:    return "spawn";
     case SYS_PSL:      return "psl";
     default:           return "?";
@@ -521,6 +527,71 @@ static i32 sys_sock_close(struct uproc *p, u32 h)
     return tcp_close(p->pid, (int)h);
 }
 
+/* Connexions securisees (0.10.2) : memes regles que les connexions TCP, plus la verification du certificat. */
+static i32 sys_tls_connect(struct uproc *p, u32 host_addr, u32 port)
+{
+    char host[128];
+    u32 ip = 0;
+    int h = -1;
+    err_t e;
+
+    if (port == 0 || port > 65535)
+        return E_INVAL;
+    if (user_string(p, host_addr, host, sizeof host) != 0)
+        return E_FAULT;
+    e = net_resolve(host, &ip);
+    if (e != E_OK)
+        return e;
+    e = tlss_connect(p->pid, host, ip, (u16)port, &h);
+    return e == E_OK ? (i32)h : e;
+}
+
+static i32 sys_tls_send(struct uproc *p, u32 h, u32 buf, u32 len)
+{
+    i32 r;
+
+    if (len == 0)
+        return 0;
+    if (len > 16384u)
+        len = 16384u;
+    if (!user_range(p, buf, len, 0))
+        return E_FAULT;
+    r = tlss_send(p->pid, (int)h, (const u8 *)buf, len);
+    return r;
+}
+
+static i32 sys_tls_recv(struct uproc *p, u32 h, u32 buf, u32 cap)
+{
+    if (cap == 0)
+        return 0;
+    if (cap > 4096u)
+        cap = 4096u;
+    if (!user_range(p, buf, cap, 1))
+        return E_FAULT;
+    return tlss_recv(p->pid, (int)h, (u8 *)buf, cap);
+}
+
+static i32 sys_tls_close(struct uproc *p, u32 h)
+{
+    return tlss_close(p->pid, (int)h);
+}
+
+static i32 sys_tls_error(struct uproc *p, u32 buf, u32 cap)
+{
+    const char *m = tlss_last_error();
+    u32 n = (u32)strlen(m);
+
+    if (cap == 0)
+        return 0;
+    if (n >= cap)
+        n = cap - 1;
+    if (!user_range(p, buf, n + 1, 1))
+        return E_FAULT;
+    memcpy((void *)buf, m, n);
+    ((char *)buf)[n] = 0;
+    return (i32)n;
+}
+
 i32 syscall_dispatch(struct uproc *p, u32 nr, u32 a, u32 b, u32 c)
 {
     char txt[96];
@@ -541,6 +612,7 @@ i32 syscall_dispatch(struct uproc *p, u32 nr, u32 a, u32 b, u32 c)
     case SYS_SPAWN:
     case SYS_PSL:
     case SYS_SOCK_CONNECT:
+    case SYS_TLS_CONNECT:
         if (user_string(p, a, txt, sizeof txt) != 0)
             strcpy(txt, "?");
         DTRACE("sys", "[%u %s] %s(\"%s\", %#x) = %d%s%s", p->pid, p->name, sys_name(nr), txt, b, r,
@@ -607,6 +679,16 @@ static i32 dispatch(struct uproc *p, u32 nr, u32 a, u32 b, u32 c)
         return sys_sock_recv(p, a, b, c);
     case SYS_SOCK_CLOSE:
         return sys_sock_close(p, a);
+    case SYS_TLS_CONNECT:
+        return sys_tls_connect(p, a, b);
+    case SYS_TLS_SEND:
+        return sys_tls_send(p, a, b, c);
+    case SYS_TLS_RECV:
+        return sys_tls_recv(p, a, b, c);
+    case SYS_TLS_CLOSE:
+        return sys_tls_close(p, a);
+    case SYS_TLS_ERROR:
+        return sys_tls_error(p, a, b);
     case SYS_WAITPID:
         return sys_waitpid(p, a, b, c);
     case SYS_KILL:

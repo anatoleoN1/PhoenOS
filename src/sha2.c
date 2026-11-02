@@ -230,14 +230,15 @@ void sha384(u8 out[SHA384_LEN], const void *d, u32 n)
 }
 
 /* ---- Hachage a choisir a l'execution ---- */
-u32 hash_len(int alg)   { return alg == HASH_SHA256 ? 32 : alg == HASH_SHA384 ? 48 : 0; }
-u32 hash_block(int alg) { return alg == HASH_SHA256 ? 64 : alg == HASH_SHA384 ? 128 : 0; }
+u32 hash_len(int alg)   { return alg == HASH_SHA256 ? 32 : alg == HASH_SHA384 ? 48 : alg == HASH_SHA512 ? 64 : 0; }
+u32 hash_block(int alg) { return alg == HASH_SHA256 ? 64 : (alg == HASH_SHA384 || alg == HASH_SHA512) ? 128 : 0; }
 
 void hash_init(hash_ctx *c, int alg)
 {
     c->alg = alg;
-    if (alg == HASH_SHA256) sha256_init(&c->u.s256);
-    else                    sha384_init(&c->u.s512);
+    if (alg == HASH_SHA256)      sha256_init(&c->u.s256);
+    else if (alg == HASH_SHA512) sha512_init(&c->u.s512);
+    else                         sha384_init(&c->u.s512);
 }
 
 void hash_update(hash_ctx *c, const void *d, u32 n)
@@ -248,8 +249,9 @@ void hash_update(hash_ctx *c, const void *d, u32 n)
 
 void hash_final(hash_ctx *c, u8 *out)
 {
-    if (c->alg == HASH_SHA256) sha256_final(&c->u.s256, out);
-    else                       sha384_final(&c->u.s512, out);
+    if (c->alg == HASH_SHA256)      sha256_final(&c->u.s256, out);
+    else if (c->alg == HASH_SHA512) sha512_final(&c->u.s512, out);
+    else                            sha384_final(&c->u.s512, out);
 }
 
 /* ---- HMAC ---- */

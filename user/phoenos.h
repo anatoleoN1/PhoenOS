@@ -13,7 +13,8 @@ typedef unsigned char uchar;
 enum { SYS_EXIT = 1, SYS_READ = 3, SYS_WRITE = 4, SYS_OPEN = 5, SYS_CLOSE = 6, SYS_WAITPID = 7, SYS_UNLINK = 10, SYS_TIME = 13,
        SYS_GETPID = 20, SYS_KILL = 37, SYS_BRK = 45, SYS_GETPPID = 64, SYS_SCHED_YIELD = 158,
        SYS_LOG = 199, SYS_SLEEP_MS = 200, SYS_UPTIME = 201, SYS_SPAWN = 202, SYS_PSL = 203,
-       SYS_SOCK_CONNECT = 204, SYS_SOCK_SEND = 205, SYS_SOCK_RECV = 206, SYS_SOCK_CLOSE = 207 };
+       SYS_SOCK_CONNECT = 204, SYS_SOCK_SEND = 205, SYS_SOCK_RECV = 206, SYS_SOCK_CLOSE = 207,
+       SYS_TLS_CONNECT = 208, SYS_TLS_SEND = 209, SYS_TLS_RECV = 210, SYS_TLS_CLOSE = 211, SYS_TLS_ERROR = 212 };
 
 static inline int syscall3(int n, int a, int b, int c)
 {
@@ -79,6 +80,19 @@ static inline int  sock_connect(const char *host, uint port)    { return syscall
 static inline int  sock_send(int c, const void *b, uint n)      { return syscall3(SYS_SOCK_SEND, c, (int)b, (int)n); }
 static inline int  sock_recv(int c, void *b, uint n)            { return syscall3(SYS_SOCK_RECV, c, (int)b, (int)n); }
 static inline int  sock_close(int c)                            { return syscall3(SYS_SOCK_CLOSE, c, 0, 0); }
+
+/*
+ * Connexions securisees HTTPS (0.10.2, propres a PhoenOS) : comme sock_*, mais en TLS 1.3 avec verification du certificat
+ * du serveur (nom, dates, chaine jusqu'a une autorite connue). Une seule a la fois dans tout le systeme.
+ *   tls_connect(hote, port)   renvoie son numero (>= 0) ou E_CERT (-24) si le certificat est refuse, E_TLS (-23) pour un autre echec.
+ *   tls_send / tls_recv / tls_close   comme sock_send / sock_recv / sock_close.
+ *   tls_error(b, n)           ecrit dans b le texte (francais) de la derniere erreur securisee, renvoie sa longueur.
+ */
+static inline int  tls_connect(const char *host, uint port)     { return syscall3(SYS_TLS_CONNECT, (int)host, (int)port, 0); }
+static inline int  tls_send(int c, const void *b, uint n)       { return syscall3(SYS_TLS_SEND, c, (int)b, (int)n); }
+static inline int  tls_recv(int c, void *b, uint n)             { return syscall3(SYS_TLS_RECV, c, (int)b, (int)n); }
+static inline int  tls_close(int c)                             { return syscall3(SYS_TLS_CLOSE, c, 0, 0); }
+static inline int  tls_error(char *b, uint n)                   { return syscall3(SYS_TLS_ERROR, (int)b, (int)n, 0); }
 
 static inline uint brk_to(uint addr)                            { return (uint)syscall3(SYS_BRK, (int)addr, 0, 0); }
 

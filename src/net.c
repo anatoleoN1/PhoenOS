@@ -6,6 +6,7 @@
 #include "string.h"
 #include "sched.h"
 #include "tcp.h"
+#include "rng.h"
 
 #define ETH_HDR   14
 #define ETYPE_IP  0x0800
@@ -764,6 +765,7 @@ void net_poll(void)
             break;
         if (n < ETH_HDR)
             continue;
+        rng_event((u32)n);                              /* l'instant d'arrivee d'un paquet est imprevisible */
         if (memcmp(rxb, N.dev->mac, 6) != 0 && memcmp(rxb, BCAST, 6) != 0)
             continue;
         {

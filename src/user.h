@@ -50,7 +50,12 @@ enum {
     SYS_SOCK_CONNECT = 204, /* sock_connect(hote, port) : connexion TCP (nom ou adresse) ; renvoie le numero de connexion (propre a PhoenOS) */
     SYS_SOCK_SEND = 205,    /* sock_send(connexion, tampon, taille) : renvoie les octets envoyes (propre a PhoenOS) */
     SYS_SOCK_RECV = 206,    /* sock_recv(connexion, tampon, taille) : attend des donnees (15 s au plus) ; 0 = le serveur a ferme (propre a PhoenOS) */
-    SYS_SOCK_CLOSE = 207    /* sock_close(connexion) (propre a PhoenOS) */
+    SYS_SOCK_CLOSE = 207,   /* sock_close(connexion) (propre a PhoenOS) */
+    SYS_TLS_CONNECT = 208,  /* tls_connect(hote, port) : connexion securisee HTTPS (TLS 1.3), certificat verifie (propre a PhoenOS) */
+    SYS_TLS_SEND = 209,     /* tls_send(connexion, tampon, taille) (propre a PhoenOS) */
+    SYS_TLS_RECV = 210,     /* tls_recv(connexion, tampon, taille) : 0 = fin normale (propre a PhoenOS) */
+    SYS_TLS_CLOSE = 211,    /* tls_close(connexion) (propre a PhoenOS) */
+    SYS_TLS_ERROR = 212     /* tls_error(tampon, taille) : texte de la derniere erreur securisee ; renvoie sa longueur (propre a PhoenOS) */
 };
 
 struct user_fd {

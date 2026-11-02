@@ -3,6 +3,7 @@
  * Pilote clavier PS/2 : scancodes "set 1" -> caractères, disposition AZERTY.
  */
 #include "keyboard.h"
+#include "rng.h"
 #include "isr.h"
 #include "io.h"
 #include "serial.h"
@@ -91,6 +92,7 @@ static void keyboard_irq(struct regs *r)
 
     (void)r;
     sc = inb(KBD_DATA);
+    rng_event(sc);                                  /* le moment exact d'une touche est imprevisible */
 
     /* Touche Pause : E1 1D 45 E1 9D C5. Le test du compteur doit passer AVANT celui de E1,
      * sinon le second E1 relancerait le décompte et avalerait les touches suivantes. */

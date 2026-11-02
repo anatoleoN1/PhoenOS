@@ -189,6 +189,21 @@ int test_main(void)
     CHECK(SYS(SYS_SOCK_RECV, 0, 0x100000u, 4) == E_FAULT);                  /* memoire du noyau */
     CHECK(SYS(SYS_SOCK_RECV, 0, A(0), 0) == 0);                             /* rien a recevoir */
     CHECK(SYS(SYS_SOCK_CLOSE, 9, 0, 0) == E_INVAL);                         /* numero hors table */
+    /* connexions securisees (0.10.2) : memes verifications, sans reseau */
+    CHECK(SYS(SYS_TLS_CONNECT, 0, 443, 0) == E_FAULT);
+    CHECK(SYS(SYS_TLS_CONNECT, A(0), 0, 0) == E_INVAL);
+    CHECK(SYS(SYS_TLS_CONNECT, A(0), 70000, 0) == E_INVAL);
+    CHECK(SYS(SYS_TLS_SEND, 0, 0, 10) == E_FAULT);
+    CHECK(SYS(SYS_TLS_SEND, 0, A(0), 10) == E_INVAL);                       /* pas de session */
+    CHECK(SYS(SYS_TLS_SEND, 0, A(0), 0) == 0);
+    CHECK(SYS(SYS_TLS_RECV, 0, 0x100000u, 4) == E_FAULT);
+    CHECK(SYS(SYS_TLS_RECV, 0, A(0), 4) == E_INVAL);
+    CHECK(SYS(SYS_TLS_RECV, 0, A(0), 0) == 0);
+    CHECK(SYS(SYS_TLS_CLOSE, 0, 0, 0) == E_INVAL);
+    CHECK(SYS(SYS_TLS_CLOSE, 9, 0, 0) == E_INVAL);
+    CHECK(SYS(SYS_TLS_ERROR, 0x100000u, 50, 0) == E_FAULT);                 /* memoire du noyau */
+    CHECK(SYS(SYS_TLS_ERROR, A(1200), 0, 0) == 0);
+    CHECK(SYS(SYS_TLS_ERROR, A(1200), 5, 0) == 4 && !memcmp(umem + 1200, "aucu", 5));   /* texte tronque + zero final */
     CHECK(SYS(SYS_CLOSE, 3, 0, 0) == 0);
     CHECK(fs_lookup("/neuf.txt", &f) == E_OK && f->size == 8 && !memcmp(f->data, "un\ndeux\n", 8));
     CHECK(SYS(SYS_OPEN, A(1000), O_WRONLY | O_APPEND, 0) == 3);             /* ajoute a la suite */

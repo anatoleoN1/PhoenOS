@@ -30,7 +30,9 @@ enum {
     E_INTR    = -19,  /* attente interrompue (arret demande) */
     E_NOLIB   = -20,  /* bibliotheque .psl absente ou invalide */
     E_REFUSED = -21,  /* connexion refusee par le serveur */
-    E_RESET   = -22   /* connexion coupee par le serveur  */
+    E_RESET   = -22,  /* connexion coupee par le serveur  */
+    E_TLS     = -23,  /* echec de la connexion securisee (TLS) */
+    E_CERT    = -24   /* certificat du serveur refuse */
 };
 
 static inline const char *err_str(err_t e)
@@ -59,6 +61,8 @@ static inline const char *err_str(err_t e)
     case E_NOLIB:   return "bibliotheque absente ou invalide";
     case E_REFUSED: return "connexion refusee";
     case E_RESET:   return "connexion coupee par le serveur";
+    case E_TLS:     return "echec de la connexion securisee";
+    case E_CERT:    return "certificat du serveur refuse";
     default:        return "erreur inconnue";
     }
 }

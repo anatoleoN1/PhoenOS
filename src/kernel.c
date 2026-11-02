@@ -32,6 +32,7 @@
 #include "pci.h"
 #include "driver.h"
 #include "net.h"
+#include "rng.h"
 
 #define MULTIBOOT_BOOTLOADER_MAGIC 0x2BADB002
 
@@ -302,6 +303,14 @@ void kernel_main(u32 magic, const struct multiboot_info *mbi)
         else
             kprintf("       Pagination : %u Mio mappes, tables de %u Kio, code du noyau en lecture seule\n",
                     paging_mapped_top() >> 20, paging_table_bytes() / 1024);
+    }
+
+    {   /* generateur aleatoire (0.10.2) : RDRAND si present, gigue du compteur de cycles ; le clavier et les paquets l'alimentent ensuite */
+        rng_init();
+        if (rng_ready())
+            kprintf("       Aleatoire : amorce (de quoi faire des cles TLS)\n");
+        else
+            klog(LOG_WARN, "generateur aleatoire peu alimente : HTTPS attendra plus d'evenements (touches, paquets)");
     }
 
     {   /* PCI et pilotes (0.9.0) : apres la pagination, car le pilote reseau mappe ses registres */

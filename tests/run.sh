@@ -10,7 +10,7 @@ FAILED=0
 rm -rf "$B"; mkdir -p "$B/src"
 cp "$ROOT"/src/* "$B/src/"
 cp "$ROOT"/tests/shim/* "$B/src/"        # remplace io.h et panic.h par des versions de test
-cp "$ROOT"/tests/*.c "$ROOT"/tests/testlib.h "$ROOT"/tests/fakeata.h "$ROOT"/tests/crypto_vectors.h "$B/src/"
+cp "$ROOT"/tests/*.c "$ROOT"/tests/testlib.h "$ROOT"/tests/fakeata.h "$ROOT"/tests/crypto_vectors.h "$ROOT"/tests/pk_vectors.h "$ROOT"/tests/x509_vectors.h "$B/src/"
 
 CF="-m32 -static -nostdlib -ffreestanding -fno-builtin -fno-stack-protector -fno-pie \
 -fno-tree-loop-distribute-patterns -O2 -Wall -Wextra -Wno-unused-function -I$B/src"
@@ -46,7 +46,7 @@ run erreur-kfree-invalide 100 -DMODE=4 test_mem.c pmm.c kheap.c string.c
 run erreur-frame-double 100 -DMODE=5 test_mem.c pmm.c kheap.c string.c
 run erreur-frame-reservee 100 -DMODE=6 test_mem.c pmm.c kheap.c string.c
 run shell-cmdline       0   test_cmdline.c cmdline.c string.c
-run clavier-azerty      0   test_keyboard.c keyboard.c serial.c string.c
+run clavier-azerty      0   test_keyboard.c keyboard.c serial.c string.c rng.c sha2.c aead.c
 run horloge 0 test_rtc.c rtc.c string.c
 
 # Programmes utilisateur : compiles comme pour l'ISO (user/*.c, charges a 4 Mio).
@@ -199,14 +199,24 @@ run poe 0 test_poe.c poe.c elf.c crc32.c string.c
 run bibliotheques 0 test_libs.c libmgr.c psl.c poe.c elf.c crc32.c aspace.c paging.c fs.c pmm.c kheap.c dlog.c kprintf.c string.c
 run pagination 0 test_paging.c paging.c pmm.c string.c
 run journal-debug 0 test_dlog.c dlog.c kprintf.c string.c
-run ordonnanceur-clavier 0 test_sched_kbd.c sched.c switch.S keyboard.c kheap.c pmm.c string.c
+run ordonnanceur-clavier 0 test_sched_kbd.c sched.c switch.S keyboard.c kheap.c pmm.c string.c rng.c sha2.c aead.c
 run ordonnanceur 0 test_sched.c sched.c switch.S kheap.c pmm.c string.c
-run programmes-multiples 0 test_user.c sched.c switch.S syscall.c libmgr.c psl.c aspace.c elf.c fs.c poe.c crc32.c dlog.c kprintf.c pmm.c kheap.c string.c rtc.c tcp.c net.c netdev.c net_stubs.c
-run reseau 0 test_net.c pci.c driver.c e1000.c netdev.c net.c tcp.c dlog.c kprintf.c string.c
-run tcp 0 test_tcp.c tcp.c net.c netdev.c dlog.c kprintf.c string.c
+run programmes-multiples 0 test_user.c sched.c switch.S syscall.c libmgr.c psl.c aspace.c elf.c fs.c poe.c crc32.c dlog.c kprintf.c pmm.c kheap.c string.c rtc.c tcp.c net.c netdev.c net_stubs.c sha2.c aead.c c25519.c pubkey.c roots.c x509.c tls.c rng.c tlssock.c
+run reseau 0 test_net.c pci.c driver.c e1000.c netdev.c net.c tcp.c dlog.c kprintf.c string.c rng.c sha2.c aead.c
+run tcp 0 test_tcp.c tcp.c net.c netdev.c dlog.c kprintf.c string.c rng.c sha2.c aead.c
 run chiffrement      0   test_crypto.c sha2.c aead.c c25519.c string.c
+run signatures       0   test_pubkey.c pubkey.c sha2.c string.c
+run aleatoire        0   test_rng.c rng.c sha2.c aead.c string.c
+run colle-https      0   test_tlssock.c tlssock.c string.c
+printf '== tls-openssl\n'
+if (cd "$B/src" && gcc $CF test_tls.c tls.c x509.c pubkey.c roots.c rng.c sha2.c aead.c c25519.c string.c -o "$B/tls"); then
+    if bash "$ROOT/tests/tls_interop.sh" "$B" "$ROOT"; then echo "  => OK"; else echo "  => ECHEC"; FAILED=1; fi
+else
+    echo "  ECHEC de compilation"; FAILED=1
+fi
+run certificats      0   test_x509.c x509.c pubkey.c roots.c sha2.c c25519.c string.c
 run espaces-adressage 0 test_aspace.c aspace.c paging.c pmm.c string.c
-run appels-systeme 0 test_syscall.c syscall.c libmgr.c psl.c poe.c elf.c crc32.c dlog.c aspace.c fs.c kprintf.c pmm.c kheap.c string.c rtc.c tcp.c net.c netdev.c net_stubs.c
+run appels-systeme 0 test_syscall.c syscall.c libmgr.c psl.c poe.c elf.c crc32.c dlog.c aspace.c fs.c kprintf.c pmm.c kheap.c string.c rtc.c tcp.c net.c netdev.c net_stubs.c sha2.c aead.c c25519.c pubkey.c roots.c x509.c tls.c rng.c tlssock.c
 run ecran-defilement 0 -DVGA_TEST_MEMORY=test_vga test_vga.c vga.c string.c
 run kprintf             0   test_kprintf.c kprintf.c string.c
 run fichiers 0 test_fs.c fs.c pmm.c kheap.c string.c
@@ -227,7 +237,7 @@ ligne2" ] && echo "  => OK" || { echo "  => ECHEC (contenu extrait different)"; 
         echo "  => ECHEC : tar refuse l'archive"; cat "$B/snapshot.err"; FAILED=1
     fi
 fi
-SH="test_shell.c shell.c dlog.c poe.c psl.c elf.c cmdline.c kprintf.c pmm.c kheap.c string.c fs.c initrd.c persist.c ata.c crc32.c tarw.c rtc.c pci.c driver.c e1000.c netdev.c net.c tcp.c sha2.c"
+SH="test_shell.c shell.c dlog.c poe.c psl.c elf.c cmdline.c kprintf.c pmm.c kheap.c string.c fs.c initrd.c persist.c ata.c crc32.c tarw.c rtc.c pci.c driver.c e1000.c netdev.c net.c tcp.c rng.c sha2.c aead.c"
 run shell-session       0   -DMODE=0 $SH
 run shell-crash-panic   100 -DMODE=1 $SH
 run shell-crash-assert  100 -DMODE=2 $SH

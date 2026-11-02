@@ -1,0 +1,12 @@
+ok 0
+bad_cv 5
+bad_finished 5
+cv_other_key 5
+cv_wrong_scheme 5
+zero_share 2
+bad_sid 2
+empty_certs 2
+extra_ext 2
+truncated_finished 2
+hrr 6
+no_version 6

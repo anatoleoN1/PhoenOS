@@ -30,7 +30,7 @@ make clean
 Pour tester sur une vraie machine : écrire `phoenos-0.1.0.iso` sur une clé USB
 (`sudo dd if=phoenos-0.1.0.iso of=/dev/sdX bs=4M status=progress`, en vérifiant bien `sdX`).
 
-## Ce qu'on doit voir au démarrage (v0.10.1)
+## Ce qu'on doit voir au démarrage (v0.10.2)
 
 Des lignes `[ OK ]` pour : VGA + port série, Multiboot, GDT, IDT/PIC/timer/clavier,
 exceptions (point d'arrêt traité), **mémoire physique, tas du noyau et leurs auto-tests**,
@@ -73,6 +73,13 @@ QEMU s'arrête au lieu de redémarrer, et `qemu.log` contient la dernière excep
 Limites connues : un débordement de pile est détecté après coup (canari testé à chaque tick du
 timer) mais peut provoquer une triple faute avant ; la protection complète demande un TSS dédié
 pour la double faute (prévu plus tard).
+
+## Nouveautés de la 0.10.2 — TLS 1.3, certificats, HTTPS
+Voir `CHANGELOG.md` et, dans PhoenOS, `man web`. Architecture : `src/pubkey.c` (grands nombres, RSA, ECDSA), `src/x509.c` (certificats, chaîne),
+`src/roots.c` (racines, généré), `src/rng.c` (aléatoire), `src/tls.c` (protocole, indépendant du réseau via `struct tls_io`),
+`src/tlssock.c` (liaison noyau : une session, propriétaire, messages d'erreur), appels système 208 à 212.
+Tests : `tests/test_pubkey.c`, `test_x509.c`, `test_rng.c`, `test_tls.c`, `tests/tls_interop.sh` (OpenSSL et faux serveurs tricheurs), `test_tlssock.c`.
+Essai : `make serial`, attendre le réseau (`net`), `web https://example.org`, `web https://github.com`.
 
 ## Nouveautés de la 0.10.1 — briques de chiffrement
 Voir `CHANGELOG.md` et, dans PhoenOS, `man sha256`. Architecture : `src/crypto.h` (toute l'interface), `src/sha2.c` (SHA-256/384/512, HMAC, HKDF),
