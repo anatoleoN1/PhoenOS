@@ -23,9 +23,12 @@ struct block {
     u32 size;                           /* taille utile, sans l'en-tête */
     struct block *prev;
     struct block *next;
+#ifdef __x86_64__
+    u8 pad[8];                          /* perf64 : pointeurs de 8 octets, l'en-tete reste un multiple de 16 (donnees alignees) */
+#endif
 };
 
-_Static_assert(sizeof(struct block) == HEAP_ALIGN, "en-tete de bloc : 16 octets attendus");
+_Static_assert(sizeof(struct block) % HEAP_ALIGN == 0, "en-tete de bloc : multiple de 16 octets attendu");
 
 static struct block *heap_first;
 static u32 heap_start, heap_end;

@@ -4,6 +4,16 @@
  */
 #include "vga.h"
 #include "io.h"
+#ifdef PHOENOS_X64
+#include "x64/fbcon.h"                          /* edition 64 bits : ecran graphique (UEFI n'a pas de texte VGA) */
+static int use_fb;
+#else
+#define use_fb 0
+#define fbcon_init()                    0
+#define fbcon_cell(y, x, v)             ((void)0)
+#define fbcon_cursor(y, x, vis)         ((void)0)
+#define fbcon_palette(c, r, g, b)       ((void)0)
+#endif
 
 #define VGA_WIDTH   80
 #define VGA_HEIGHT  25
@@ -43,6 +53,10 @@ static void cursor_update(void)
 {
     u16 pos = (u16)(row * VGA_WIDTH + col);
 
+    if (use_fb) {
+        fbcon_cursor(row, col, !view_offset);
+        return;
+    }
     if (view_offset)
         pos = VGA_WIDTH * VGA_HEIGHT;           /* hors écran : le curseur disparaît pendant la lecture */
     outb(VGA_CRTC_INDEX, 14);
@@ -66,8 +80,12 @@ static void redraw(void)
     for (usize y = 0; y < VGA_HEIGHT; y++) {
         const u16 *line = virtual_line(first + y);
 
-        for (usize x = 0; x < VGA_WIDTH; x++)
-            VGA_MEMORY[y * VGA_WIDTH + x] = line[x];
+        for (usize x = 0; x < VGA_WIDTH; x++) {
+            if (use_fb)
+                fbcon_cell(y, x, line[x]);
+            else
+                VGA_MEMORY[y * VGA_WIDTH + x] = line[x];
+        }
     }
 }
 
@@ -75,8 +93,12 @@ static void redraw(void)
 static void put_cell(usize y, usize x, u16 value)
 {
     live[y][x] = value;
-    if (!view_offset)
-        VGA_MEMORY[y * VGA_WIDTH + x] = value;
+    if (!view_offset) {
+        if (use_fb)
+            fbcon_cell(y, x, value);
+        else
+            VGA_MEMORY[y * VGA_WIDTH + x] = value;
+    }
 }
 
 void vga_scroll_reset(void)
@@ -121,6 +143,10 @@ void vga_set_palette(enum vga_color c, u8 r, u8 g, u8 b)
         0x38, 0x39, 0x3A, 0x3B, 0x3C, 0x3D, 0x3E, 0x3F
     };
 
+    if (use_fb) {
+        fbcon_palette(c, r, g, b);
+        return;
+    }
     outb(0x3C8, dac_index[c & 15]);
     outb(0x3C9, (u8)(r >> 2));          /* le DAC travaille sur 6 bits par composante */
     outb(0x3C9, (u8)(g >> 2));
@@ -140,6 +166,9 @@ void vga_clear(void)
 
 void vga_init(void)
 {
+#ifdef PHOENOS_X64
+    use_fb = fbcon_init();
+#endif
     vga_set_color(VGA_LIGHT_GREY, VGA_BLACK);
     ring_count = ring_head = 0;
     vga_clear();

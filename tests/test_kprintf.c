@@ -28,6 +28,20 @@ void vga_clear(void) { }
 int test_main(void)
 {
     EXPECT("abc", "abc");
+
+    /* modificateurs de longueur (perf64) : l/z = mot machine, ll = 64 bits (sans division 64 bits native) */
+    EXPECT("4294967295", "%lu", 0xFFFFFFFFul);
+    EXPECT("ffff", "%lx", 0xFFFFul);
+    EXPECT("0xdeadbeef", "%#lx", 0xDEADBEEFul);
+    EXPECT("123456", "%zu", (usize)123456);
+    EXPECT("-5", "%ld", -5l);
+    EXPECT("18446744073709551615", "%llu", 0xFFFFFFFFFFFFFFFFull);
+    EXPECT("9223372036854775807", "%lld", 0x7FFFFFFFFFFFFFFFll);
+    EXPECT("-9223372036854775808", "%lld", (long long)0x8000000000000000ull);
+    EXPECT("100000000", "%llx", 0x100000000ull);
+    EXPECT("0x00000001ffffffff", "%#018llx", 0x1FFFFFFFFull);
+    EXPECT("10000000000", "%llu", 10000000000ull);
+    EXPECT("4294967296", "%llu", 4294967296ull);
     EXPECT("42", "%d", 42);
     EXPECT("-42", "%d", -42);
     EXPECT("0", "%d", 0);

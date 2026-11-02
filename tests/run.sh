@@ -8,7 +8,8 @@ B="$ROOT/build/test"
 FAILED=0
 
 rm -rf "$B"; mkdir -p "$B/src"
-cp "$ROOT"/src/* "$B/src/"
+cp "$ROOT"/src/* "$B/src/" 2>/dev/null
+cp "$ROOT"/src/x64/fbcon.c "$ROOT"/src/x64/mb2.c "$ROOT"/src/x64/fbcon.h "$ROOT"/src/x64/font8x16.c "$ROOT"/src/x64/bootinfo.h "$B/src/"
 cp "$ROOT"/tests/shim/* "$B/src/"        # remplace io.h et panic.h par des versions de test
 cp "$ROOT"/tests/*.c "$ROOT"/tests/testlib.h "$ROOT"/tests/fakeata.h "$ROOT"/tests/crypto_vectors.h "$ROOT"/tests/pk_vectors.h "$ROOT"/tests/x509_vectors.h "$ROOT"/tests/upd_vectors.h "$ROOT"/tests/test_updkey.h "$B/src/"
 
@@ -224,6 +225,8 @@ run certificats      0   test_x509.c x509.c pubkey.c roots.c sha2.c c25519.c str
 run espaces-adressage 0 test_aspace.c aspace.c paging.c pmm.c string.c
 run appels-systeme 0 test_syscall.c syscall.c libmgr.c psl.c poe.c elf.c crc32.c dlog.c aspace.c fs.c kprintf.c pmm.c kheap.c string.c rtc.c tcp.c net.c netdev.c net_stubs.c sha2.c aead.c c25519.c pubkey.c roots.c x509.c tls.c rng.c tlssock.c
 run ecran-defilement 0 -DVGA_TEST_MEMORY=test_vga test_vga.c vga.c string.c
+run console-graphique 0 -DFBCON_TEST test_fbcon.c fbcon.c font8x16.c string.c
+run multiboot2 0 test_mb2.c mb2.c string.c
 run kprintf             0   test_kprintf.c kprintf.c string.c
 run fichiers 0 test_fs.c fs.c pmm.c kheap.c string.c
 

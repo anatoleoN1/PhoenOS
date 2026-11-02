@@ -21,7 +21,7 @@ void kpanic_at(const char *file, int line, const char *fmt, ...)
 
 /* Briques réutilisées par l'écran de panique des exceptions CPU (isr.c) */
 void panic_begin(const char *title);
-void panic_backtrace(u32 ebp, u32 eip);
+void panic_backtrace(usize ebp, usize eip);
 void panic_end(void) __attribute__((noreturn));
 
 /* Appelé par boot.S si kernel_main() revient. */

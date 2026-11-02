@@ -96,18 +96,43 @@ static void emit_field(struct putter *p, const char *prefix, const char *body, u
     }
 }
 
-/* Convertit `value` en texte dans buf (buf >= 33 octets), renvoie buf. */
-static char *utoa(u32 value, u32 base, int upper, char *buf)
+/* Convertit `value` en texte dans buf (buf >= 70 octets), renvoie buf.
+ * Pas de division 64 bits native (le noyau 32 bits n'a pas libgcc) : au-dela de 32 bits, division par soustractions. */
+static u32 div64_small(u64 *v, u32 base)                /* *v /= base ; renvoie le reste */
+{
+    u64 q = 0, r = 0;
+
+    for (int i = 63; i >= 0; i--) {
+        r = (r << 1) | ((*v >> i) & 1);
+        if (r >= base) {
+            r -= base;
+            q |= (u64)1 << i;
+        }
+    }
+    *v = q;
+    return (u32)r;
+}
+
+static char *utoa64(u64 value, u32 base, int upper, char *buf)
 {
     const char *digits = upper ? "0123456789ABCDEF" : "0123456789abcdef";
-    char tmp[33];
+    char tmp[65];
     usize n = 0, len = 0;
 
     if (value == 0)
         tmp[n++] = '0';
     while (value) {
-        tmp[n++] = digits[value % base];
-        value /= base;
+        u32 d;
+
+        if (value >> 32) {
+            d = div64_small(&value, base);
+        } else {
+            u32 v32 = (u32)value;
+
+            d = v32 % base;
+            value = v32 / base;
+        }
+        tmp[n++] = digits[d];
     }
     while (n)
         buf[len++] = tmp[--n];
@@ -120,7 +145,8 @@ static void vformat(struct putter *p, const char *fmt, va_list ap)
     for (; *fmt; fmt++) {
         int alt = 0, zero = 0, left = 0;
         usize width = 0;
-        char buf[40], chbuf[2];
+        char buf[70], chbuf[2];
+        int lng = 0;                        /* 1 : l ou z (mot machine), 2 : ll (64 bits) */
 
         if (*fmt != '%') {
             out(p, *fmt);
@@ -142,6 +168,17 @@ static void vformat(struct putter *p, const char *fmt, va_list ap)
         }
         if (left)
             zero = 0;
+        if (*fmt == 'l') {
+            lng = 1;
+            fmt++;
+            if (*fmt == 'l') {
+                lng = 2;
+                fmt++;
+            }
+        } else if (*fmt == 'z') {
+            lng = 1;
+            fmt++;
+        }
 
         switch (*fmt) {
         case 's': {
@@ -159,22 +196,24 @@ static void vformat(struct putter *p, const char *fmt, va_list ap)
                 emit_field(p, "", chbuf, width, left, 0);
             break;
         case 'd': {
-            i32 v = va_arg(ap, i32);
+            i64 v = lng == 2 ? va_arg(ap, i64) : lng == 1 ? (i64)va_arg(ap, long) : (i64)va_arg(ap, i32);
 
             if (v >= 0)
-                emit_field(p, "", utoa((u32)v, 10, 0, buf), width, left, zero);
+                emit_field(p, "", utoa64((u64)v, 10, 0, buf), width, left, zero);
             else
-                emit_field(p, "-", utoa((u32)(-(v + 1)) + 1u, 10, 0, buf), width, left, zero);
+                emit_field(p, "-", utoa64((u64)(-(v + 1)) + 1u, 10, 0, buf), width, left, zero);
             break;
         }
         case 'u':
-            emit_field(p, "", utoa(va_arg(ap, u32), 10, 0, buf), width, left, zero);
+            emit_field(p, "", utoa64(lng == 2 ? va_arg(ap, u64) : lng == 1 ? (u64)va_arg(ap, unsigned long) : (u64)va_arg(ap, u32),
+                                     10, 0, buf), width, left, zero);
             break;
         case 'x':
         case 'X':
             /* Avec '#', le préfixe 0x est TOUJOURS affiché (même pour 0), la largeur l'inclut. */
-            emit_field(p, alt ? "0x" : "", utoa(va_arg(ap, u32), 16, *fmt == 'X', buf),
-                       width, left, zero);
+            emit_field(p, alt ? "0x" : "",
+                       utoa64(lng == 2 ? va_arg(ap, u64) : lng == 1 ? (u64)va_arg(ap, unsigned long) : (u64)va_arg(ap, u32),
+                              16, *fmt == 'X', buf), width, left, zero);
             break;
         case '%':
             out(p, '%');

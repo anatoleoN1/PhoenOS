@@ -322,8 +322,8 @@ err_t sched_create(const char *name, void (*entry)(void *), void *arg, void (*cl
                    void *owner, struct task **out)
 {
     struct task *t = NULL;
-    u32 *sp;
-    u32 top;
+    usize *sp;
+    usize top;
 
     for (int i = 1; i < SCHED_MAX_TASKS; i++)
         if (tasks[i].state == T_FREE) {
@@ -345,17 +345,24 @@ err_t sched_create(const char *name, void (*entry)(void *), void *arg, void (*cl
     t->cleanup = cleanup;
     t->owner = owner;
 
-    top = ((u32)t->kstack + SCHED_KSTACK_SIZE) & ~15u;
+    top = ((usize)t->kstack + SCHED_KSTACK_SIZE) & ~(usize)15;
     t->ktop = top;
-    sp = (u32 *)top;
+    sp = (usize *)top;
     *--sp = 0;                                  /* adresse de retour factice de task_start (ne revient jamais) */
-    *--sp = (u32)task_start;                    /* le "ret" de switch_context mene ici */
+    *--sp = (usize)task_start;                  /* le "ret" de switch_context mene ici */
     *--sp = 0x2;                                /* EFLAGS : interruptions coupees jusqu'a task_start */
-    *--sp = 0;                                  /* ebp */
-    *--sp = 0;                                  /* ebx */
+    *--sp = 0;                                  /* ebp / rbp */
+    *--sp = 0;                                  /* ebx / rbx */
+#ifdef __x86_64__
+    *--sp = 0;                                  /* r12 */
+    *--sp = 0;                                  /* r13 */
+    *--sp = 0;                                  /* r14 */
+    *--sp = 0;                                  /* r15 */
+#else
     *--sp = 0;                                  /* esi */
     *--sp = 0;                                  /* edi */
-    t->kesp = (u32)sp;
+#endif
+    t->kesp = (usize)sp;
     t->state = T_READY;
     if (sched_event_hook)
         sched_event_hook('C', t->id, 0, t->name);

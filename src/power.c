@@ -20,7 +20,7 @@ void power_reboot(void)
         io_wait();
 
     /* 2) Dernier recours : IDT vide + exception = triple faute = reset du CPU */
-    static const struct { u16 limit; u32 base; } __attribute__((packed)) empty_idt = { 0, 0 };
+    static const struct { u16 limit; usize base; } __attribute__((packed)) empty_idt = { 0, 0 };
     __asm__ volatile ("lidt %0; int3" : : "m"(empty_idt));
 
     for (;;)

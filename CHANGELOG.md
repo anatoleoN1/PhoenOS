@@ -5,6 +5,20 @@ z = correctif ou petite amélioration. Chaque version est livrée testée automa
 les chemins de démarrage réels (GRUB, ISO, anneau 3, activation de la pagination) ne sont
 vérifiables que sur une vraie machine ou sous QEMU : ils sont validés par vos essais.
 
+## 0.11.0 — PhoenOS 64 bits (édition perf64, UEFI)
+- **Nouvelle édition `perf64`** (`make EDITION=perf64 iso` → `phoenos-perf64-0.11.0.iso`) : noyau x86-64 qui démarre en **UEFI** ou en BIOS classique par GRUB (Multiboot2). L'édition `perf32` reste construite comme avant.
+- **Démarrage** (`src/x64/boot.S`) : mode protégé 32 bits → pagination identité 4 Gio (pages de 2 Mio ; au-delà de 1 Gio sans cache : périphériques et écran) → mode long → noyau C.
+  Les informations Multiboot2 sont converties au format Multiboot 1 (`src/x64/mb2.c`) : le reste du noyau (mémoire, initrd, mises à jour) est inchangé.
+- **Noyau 64 bits** : `usize` 64 bits partout (piles, ordonnanceur, traces d'appel), GDT/IDT/TSS 64 bits, pile IST dédiée pour la double faute, commutation de tâches x86-64, `kprintf` avec `%l`, `%ll`, `%z`.
+  Tout le noyau et toutes les allocations restent sous 4 Gio (pointeurs 64 bits, adresses 32 bits) ; la RAM gérée est limitée à 1 Gio comme avant.
+- **Console graphique** (`src/x64/fbcon.c`, police 8x16 dans le domaine public) : l'écran 80x25 est dessiné en pixels (UEFI n'a pas de texte VGA), agrandi d'un facteur entier et centré ; mémoire vidéo en écriture combinée (PAT) ;
+  l'écran d'erreur garde ses couleurs. Sans écran graphique, retour au texte VGA.
+- **Pas encore en 64 bits** (0.11.1) : programmes utilisateur (anneau 3), appels système, bibliothèques `.psl`, relance de l'étape 0 des mises à jour. Le shell, le réseau, le disque, TLS, `web` et `maj verifier` marchent ; lancer un programme répond « non implemente ».
+- Makefile : `EDITION=perf64`, `make check` (Multiboot2), `make run-uefi | serial-uefi | run-bios` (OVMF). Procédure d'essai : `docs/TEST_64BITS.md`.
+- Tests : `console-graphique` (faux écran : échelle, centrage, glyphes, curseur, palette), `multiboot2` (conversion des informations de démarrage). Les 2 noyaux compilent sans avertissement.
+- **Mises à jour sous perf64** : `maj verifier` et `maj installer` fonctionnent, mais la **relance** de la version installée n'existe pas encore (0.11.1) : un perf64 0.11.0 redémarre toujours sur la version de son CD.
+- **Limite importante** : le démarrage réel (boot.S, mode long, UEFI) n'a pas pu être exécuté ici (pas d'émulateur) : il est validé par vos essais.
+
 ## 0.10.5 — Version d'essai des mises à jour
 - **Aucune fonction nouvelle** : cette version ne sert qu'à vérifier, sur une vraie machine, la chaîne complète de la 0.10.4 : publier → `maj verifier` → `maj installer` → `reboot` → relance
   de la version installée par l'étape 0 → confirmation après 30 s → (au besoin) retour arrière. Seuls changent le numéro de version (build 10005), le message d'accueil et la documentation.

@@ -7,7 +7,11 @@ typedef unsigned int       u32;
 typedef signed int         i32;
 typedef unsigned long long u64;
 typedef signed long long   i64;
+#ifdef __x86_64__
+typedef unsigned long      usize;       /* perf64 : taille d'un pointeur */
+#else
 typedef unsigned int       usize;
+#endif
 
 #define NULL ((void *)0)
 

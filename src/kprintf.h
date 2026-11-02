@@ -5,7 +5,7 @@
 #include "types.h"
 
 /*
- * Formats : %s %c %d %u %x %X %%
+ * Formats : %s %c %d %u %x %X %% (et %ld %lu %lx %zu %llx : mot machine / 64 bits)
  * Drapeaux : '#' (préfixe 0x pour %x, toujours affiché), '0' (zéros), '-' (aligné à gauche)
  * Largeur : %5d  %05u  %#010x (0x0000beef)  %-12s
  * Sortie : écran VGA + port série COM1 (+ tampon dmesg).

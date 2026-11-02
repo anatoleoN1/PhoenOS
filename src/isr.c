@@ -65,16 +65,22 @@ u32 isr_breakpoint_count(void)
 }
 
 /* Explique en français ce que signifie l'exception et son code d'erreur. */
+#ifdef __x86_64__
+#define R_IP(r)  ((r)->rip)
+#else
+#define R_IP(r)  ((r)->eip)
+#endif
+
 static void describe_cause(const struct regs *r)
 {
-    u32 e = r->err_code;
+    u32 e = (u32)r->err_code;
 
     switch (r->int_no) {
     case 0:
         kprintf("  Cause : division par zero ou quotient trop grand\n");
         break;
     case 6:
-        kprintf("  Cause : instruction invalide a l'adresse %#x\n", r->eip);
+        kprintf("  Cause : instruction invalide a l'adresse %#lx\n", (unsigned long)R_IP(r));
         break;
     case 8:
         kprintf("  Cause : une exception s'est produite pendant le traitement d'une autre\n");
@@ -89,10 +95,14 @@ static void describe_cause(const struct regs *r)
                     "          segment ou acces interdit)\n");
         break;
     case 14: {
-        u32 cr2;
+        usize cr2;
+#ifdef __x86_64__
+        __asm__ volatile ("movq %%cr2, %0" : "=r"(cr2));
+#else
         __asm__ volatile ("movl %%cr2, %0" : "=r"(cr2));
-        kprintf("  Cause : %s a l'adresse %#x (%s)\n",
-                (e & 2) ? "ecriture" : "lecture", cr2,
+#endif
+        kprintf("  Cause : %s a l'adresse %#lx (%s)\n",
+                (e & 2) ? "ecriture" : "lecture", (unsigned long)cr2,
                 (e & 1) ? "page protegee (ex. code du noyau en lecture seule)"
                         : (cr2 < 0x1000 ? "page absente : pointeur nul" : "page absente"));
         break;
@@ -105,6 +115,26 @@ static void describe_cause(const struct regs *r)
 static void panic_exception(const struct regs *r)
 {
     panic_begin("Exception du processeur");
+#ifdef __x86_64__
+#define UL(x) ((unsigned long)(x))
+    DERROR("panic", "exception %u (%s) err=%#lx RIP=%#lx CS=%#lx RFLAGS=%#lx", (u32)r->int_no, exception_names[r->int_no],
+           UL(r->err_code), UL(r->rip), UL(r->cs), UL(r->rflags));
+    DERROR("panic", "RAX=%#lx RBX=%#lx RCX=%#lx RDX=%#lx RSI=%#lx RDI=%#lx RBP=%#lx RSP=%#lx", UL(r->rax), UL(r->rbx),
+           UL(r->rcx), UL(r->rdx), UL(r->rsi), UL(r->rdi), UL(r->rbp), UL(r->rsp));
+
+    kprintf("  Exception %u : %s\n", (u32)r->int_no, exception_names[r->int_no]);
+    kprintf("  Code d'erreur : %#lx\n", UL(r->err_code));
+    describe_cause(r);
+
+    kprintf("\n  RAX=%#lx  RBX=%#lx  RCX=%#lx  RDX=%#lx\n", UL(r->rax), UL(r->rbx), UL(r->rcx), UL(r->rdx));
+    kprintf("  RSI=%#lx  RDI=%#lx  RBP=%#lx  RSP=%#lx\n", UL(r->rsi), UL(r->rdi), UL(r->rbp), UL(r->rsp));
+    kprintf("  RIP=%#lx  CS=%#lx  RFLAGS=%#lx\n", UL(r->rip), UL(r->cs), UL(r->rflags));
+
+    if (r->rsp < (usize)stack_bottom || r->rsp > (usize)stack_top)
+        kprintf("\n  ATTENTION : RSP hors de la pile de demarrage du noyau (pile d'une tache, ou debordement)\n");
+
+    panic_backtrace(r->rbp, r->rip);
+#else
     DERROR("panic", "exception %u (%s) err=%#x EIP=%#x CS=%#x EFLAGS=%#x", r->int_no, exception_names[r->int_no],
            r->err_code, r->eip, r->cs, r->eflags);
     DERROR("panic", "EAX=%#x EBX=%#x ECX=%#x EDX=%#x ESI=%#x EDI=%#x EBP=%#x ESP=%#x", r->eax, r->ebx, r->ecx,
@@ -122,6 +152,7 @@ static void panic_exception(const struct regs *r)
         kprintf("\n  ATTENTION : ESP hors de la pile du noyau (debordement probable)\n");
 
     panic_backtrace(r->ebp, r->eip);
+#endif
     panic_end();
 }
 

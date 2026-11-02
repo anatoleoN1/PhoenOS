@@ -198,16 +198,30 @@ def cmd_pubkey(a):
 
 
 def elf_to_image(elf, edition):
-    """ELF 32 bits du noyau -> image PBI1 : 32 octets d'en-tete + octets a charger (le .bss est rempli de zeros au lancement)."""
-    if elf[:4] != b"\x7fELF" or elf[4] != 1 or elf[5] != 1:
-        raise SystemExit("ERREUR : le noyau n'est pas un ELF 32 bits petit-boutiste")
-    entry, phoff = struct.unpack_from("<II", elf, 24)[0], struct.unpack_from("<I", elf, 28)[0]
-    phentsize, phnum = struct.unpack_from("<HH", elf, 42)
+    """ELF du noyau (32 bits : perf32 ; 64 bits : perf64, adresses sous 4 Gio) -> image PBI1 : 32 octets d'en-tete + octets
+    a charger (le .bss est rempli de zeros au lancement)."""
+    if elf[:4] != b"\x7fELF" or elf[5] != 1 or elf[4] not in (1, 2):
+        raise SystemExit("ERREUR : le noyau n'est pas un ELF petit-boutiste 32 ou 64 bits")
     segs = []
-    for i in range(phnum):
-        t, off, vaddr, paddr, filesz, memsz, flags, align = struct.unpack_from("<8I", elf, phoff + i * phentsize)
-        if t == 1 and memsz:
-            segs.append((paddr, off, filesz, memsz))
+    if elf[4] == 1:
+        entry, phoff = struct.unpack_from("<II", elf, 24)[0], struct.unpack_from("<I", elf, 28)[0]
+        phentsize, phnum = struct.unpack_from("<HH", elf, 42)
+        for i in range(phnum):
+            t, off, vaddr, paddr, filesz, memsz, flags, align = struct.unpack_from("<8I", elf, phoff + i * phentsize)
+            if t == 1 and memsz:
+                segs.append((paddr, off, filesz, memsz))
+    else:
+        entry = struct.unpack_from("<Q", elf, 24)[0]
+        phoff = struct.unpack_from("<Q", elf, 32)[0]
+        phentsize, phnum = struct.unpack_from("<HH", elf, 54)
+        for i in range(phnum):
+            t, flags, off, vaddr, paddr, filesz, memsz, align = struct.unpack_from("<IIQQQQQQ", elf, phoff + i * phentsize)
+            if t == 1 and memsz:
+                if paddr + memsz >= 1 << 32:
+                    raise SystemExit("ERREUR : segment du noyau au-dela de 4 Gio")
+                segs.append((paddr, off, filesz, memsz))
+        if entry >= 1 << 32:
+            raise SystemExit("ERREUR : point d'entree au-dela de 4 Gio")
     if not segs:
         raise SystemExit("ERREUR : aucun segment a charger dans le noyau")
     lo = min(s[0] for s in segs)

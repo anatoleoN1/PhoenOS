@@ -27,9 +27,9 @@ struct task {
     u32  id;                            /* numero de processus (pid) ; 0 = shell */
     char name[SCHED_NAME_MAX];
     int  state;
-    u32  kesp;                          /* ESP noyau sauvegarde quand la tache ne tourne pas */
+    usize kesp;                         /* ESP/RSP noyau sauvegarde quand la tache ne tourne pas */
     u8  *kstack;                        /* bloc de pile (NULL pour la tache 0 : pile de demarrage) */
-    u32  ktop;                          /* sommet de la pile noyau (valeur de tss.esp0) */
+    usize ktop;                         /* sommet de la pile noyau (valeur de tss.esp0 / rsp0) */
     int (*pred)(void *);                /* tache bloquee : se reveille quand pred(pred_arg) != 0 */
     void *pred_arg;
     void (*entry)(void *);
@@ -91,7 +91,7 @@ extern void (*sched_switch_hook)(struct task *next);        /* avant chaque comm
 extern void (*sched_idle_hook)(void);                       /* a la place de sti+hlt quand rien n'est pret (tests) */
 
 /* Fournis ailleurs */
-void switch_context(u32 *save_esp, u32 new_esp);
+void switch_context(usize *save_esp, usize new_esp);
 u32  pit_hz(void);
 u32  pit_ticks(void);
 

@@ -3,7 +3,8 @@
 # Construction :
 #   make              compile le noyau (build/phoenos.bin)
 #   make check        vérifie que le noyau est un binaire Multiboot valide
-#   make iso          génère l'image bootable PhoenOS.iso
+#   make iso          génère l'image bootable phoenos-<édition>-<version>.iso
+#   make EDITION=perf64 iso   édition 64 bits (UEFI ou BIOS) ; perf32 (défaut) : 32 bits, BIOS
 #   make clean
 #
 # Exécution (QEMU) :
@@ -25,39 +26,62 @@
 
 CC      := gcc
 LD      := ld
-QEMU    := qemu-system-i386
 DISK    := disk.img
 DISKMB  := 32
 # Option d'affichage de QEMU : vide = choix automatique. Essayez  make run QEMU_DISPLAY="-display sdl"  (ou gtk)
 # si la fenetre s'affiche mais ne recoit pas le clavier (ex. Chromebook / Linux sous ChromeOS).
 QEMU_DISPLAY :=
 QEMU_DISK := -drive file=$(DISK),format=raw,if=ide,index=0,media=disk -nic user,model=e1000
-CFLAGS  := -m32 -std=gnu11 -O2 -g -Wall -Wextra -Werror \
-           -ffreestanding -fno-stack-protector -fno-pic -fno-pie \
-           -fno-builtin -fno-omit-frame-pointer -fno-tree-loop-distribute-patterns \
-           -nostdlib -mno-sse -mno-mmx $(THEME_FLAG) $(EXTRA_CFLAGS)
-ASFLAGS := -m32
+# Editions que ce code sait construire (publier.sh la lit) ; EDITION=... choisit laquelle.
+#   perf32 : Performance 32 bits (BIOS, GRUB Multiboot 1)       perf64 : Performance 64 bits (BIOS ou UEFI, GRUB Multiboot2)
+#   pui64  : Puissance 64 bits (pas encore)
+EDITIONS_OK := perf32 perf64
+VERSION := $(shell sed -n 's/.*PHOENOS_VERSION "\(.*\)".*/\1/p' src/version.h)
+EDITION ?= perf32
+ISO     := phoenos-$(EDITION)-$(VERSION).iso
+ifeq ($(filter $(EDITION),$(EDITIONS_OK)),)
+$(error edition "$(EDITION)" pas encore disponible : editions construisibles : $(EDITIONS_OK))
+endif
+OBJDIR  := build/obj-$(EDITION)
+KERNEL  := build/phoenos.bin
 
 # make PANIC_THEME=violet  -> écran d'erreur violet (sinon orange)
 ifeq ($(PANIC_THEME),violet)
 THEME_FLAG := -DPANIC_THEME_VIOLET
 endif
-LDFLAGS := -m elf_i386 -T linker.ld -nostdlib -z noexecstack
 
+CFLAGS_COMMON := -std=gnu11 -O2 -g -Wall -Wextra -Werror \
+           -ffreestanding -fno-stack-protector -fno-pic -fno-pie \
+           -fno-builtin -fno-omit-frame-pointer -fno-tree-loop-distribute-patterns \
+           -nostdlib -mno-sse -mno-mmx $(THEME_FLAG) $(EXTRA_CFLAGS)
+
+ifeq ($(EDITION),perf32)
+ARCH    := x86
+CFLAGS  := -m32 $(CFLAGS_COMMON)
+ASFLAGS := -m32
+LDFLAGS := -m elf_i386 -T linker.ld -nostdlib -z noexecstack
+QEMU    := qemu-system-i386
+GRUBCFG := iso/boot/grub/grub.cfg
 SRC_C   := $(wildcard src/*.c)
 SRC_S   := $(wildcard src/*.S)
-OBJ     := $(patsubst src/%.c,build/%.o,$(SRC_C)) \
-           $(patsubst src/%.S,build/%.o,$(SRC_S))
-
-KERNEL  := build/phoenos.bin
-VERSION := $(shell sed -n 's/.*PHOENOS_VERSION "\(.*\)".*/\1/p' src/version.h)
-# Editions que ce code sait construire (publier.sh la lit) ; EDITION=... choisit laquelle (une seule pour l'instant).
-EDITIONS_OK := perf32
-EDITION ?= $(shell sed -n 's/.*PHOENOS_EDITION  *"\([a-z0-9]*\)".*/\1/p' src/version.h)
-ISO     := phoenos-$(EDITION)-$(VERSION).iso
-ifeq ($(filter $(EDITION),$(EDITIONS_OK)),)
-$(error edition "$(EDITION)" pas encore disponible : editions construisibles : $(EDITIONS_OK))
+else
+# 64 bits : noyau ELF64 charge a 1 Mio par GRUB (Multiboot2), tout sous 4 Gio (voir docs/64BITS.md)
+ARCH    := x64
+CFLAGS  := -m64 -Isrc -mcmodel=small -mno-red-zone -DPHOENOS_ED_PERF64 -DPHOENOS_X64 \
+           -Wno-pointer-to-int-cast -Wno-int-to-pointer-cast $(CFLAGS_COMMON)
+ASFLAGS := -m64 -Isrc -DPHOENOS_X64
+LDFLAGS := -m elf_x86_64 -T linker64.ld -nostdlib -z noexecstack -z max-page-size=4096
+QEMU    := qemu-system-x86_64
+GRUBCFG := iso/boot/grub/grub-x64.cfg
+# fichiers propres au 32 bits (remplaces par src/x64/ ou des versions reduites)
+X86_ONLY := boot.S gdt.c gdt_flush.S idt.c isr_stubs.S switch.S paging.c paging_enable.c relaunch.S \
+            user.c syscall.c aspace.c libmgr.c
+SRC_C   := $(filter-out $(addprefix src/,$(X86_ONLY)),$(wildcard src/*.c)) $(wildcard src/x64/*.c)
+SRC_S   := $(filter-out $(addprefix src/,$(X86_ONLY)),$(wildcard src/*.S)) $(wildcard src/x64/*.S)
 endif
+
+OBJ     := $(patsubst src/%.c,$(OBJDIR)/%.o,$(SRC_C)) \
+           $(patsubst src/%.S,$(OBJDIR)/%.o,$(SRC_S))
 
 # Programmes utilisateur (user/*.c) : un ELF par programme, charge a 4 Mio, copie dans /bin de l'initrd.
 USER_CFLAGS := -m32 -std=gnu11 -O2 -Wall -Wextra -Werror -ffreestanding -fno-stack-protector -fno-pic -fno-pie \
@@ -77,21 +101,20 @@ build/lib/%.elf: lib/%.c user/psl.ld
 	$(CC) $(USER_CFLAGS) -T user/psl.ld -Wl,--defsym=LIB_BASE=$(LIB_BASE_$*) -Wl,--build-id=none -Wl,-z,noexecstack $< -o $@
 TESTS   := test-div0 test-gp test-panic test-assert test-doublefree test-heapcorrupt
 
-.PHONY: all iso run run-sdl run-gtk serial debug debug-window debug-sdl debug-gtk logs logs-clean check symbol test clean newdisk $(TESTS)
+.PHONY: all iso run-uefi serial-uefi run-bios run run-sdl run-gtk serial debug debug-window debug-sdl debug-gtk logs logs-clean check symbol test clean newdisk $(TESTS)
 
 all: $(KERNEL)
 
-$(KERNEL): $(OBJ) linker.ld
+$(KERNEL): $(OBJ) linker.ld linker64.ld
 	$(LD) $(LDFLAGS) -o $@ $(OBJ)
 
-build/%.o: src/%.c | build
+$(OBJDIR)/%.o: src/%.c
+	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -c $< -o $@
 
-build/%.o: src/%.S | build
+$(OBJDIR)/%.o: src/%.S
+	@mkdir -p $(dir $@)
 	$(CC) $(ASFLAGS) -c $< -o $@
-
-build:
-	mkdir -p build
 
 build/user/%.elf: user/%.c user/crt0.c user/phoenos.h user/user.ld
 	mkdir -p build/user
@@ -101,7 +124,7 @@ iso: $(KERNEL) $(USER_ELFS) $(LIB_ELFS)
 	rm -rf build/isodir
 	mkdir -p build/isodir/boot/grub
 	cp $(KERNEL) build/isodir/boot/phoenos.bin
-	cp iso/boot/grub/grub.cfg build/isodir/boot/grub/grub.cfg
+	cp $(GRUBCFG) build/isodir/boot/grub/grub.cfg
 	rm -rf build/initrd
 	cp -r initrd build/initrd
 	mkdir -p build/initrd/bin
@@ -143,6 +166,20 @@ run-gtk: iso $(DISK)
 serial: iso $(DISK)
 	$(QEMU) $(QEMU_DISK) -cdrom $(ISO) $(QEMU_SERIAL)
 
+# Edition 64 bits : demarrage UEFI (firmware OVMF) ou BIOS classique. Paquets : qemu-system-x86 ovmf grub-efi-amd64-bin mtools
+# make EDITION=perf64 run-uefi | serial-uefi | run-bios    (OVMF=/chemin/OVMF_CODE.fd si le firmware n'est pas trouve)
+OVMF ?= $(firstword $(wildcard /usr/share/OVMF/OVMF_CODE_4M.fd /usr/share/OVMF/OVMF_CODE.fd /usr/share/ovmf/OVMF.fd /usr/share/qemu/OVMF.fd))
+run-uefi: iso $(DISK)
+	@test -n "$(OVMF)" || { echo "Firmware UEFI (OVMF) introuvable : sudo apt install ovmf   (ou make run-uefi OVMF=/chemin/OVMF.fd)"; exit 1; }
+	$(QEMU) -m 256 -bios $(OVMF) $(QEMU_DISK) $(QEMU_DISPLAY) -cdrom $(ISO) -serial stdio -no-reboot -rtc base=localtime
+
+serial-uefi: iso $(DISK)
+	@test -n "$(OVMF)" || { echo "Firmware UEFI (OVMF) introuvable : sudo apt install ovmf"; exit 1; }
+	$(QEMU) -m 256 -bios $(OVMF) $(QEMU_DISK) -cdrom $(ISO) $(QEMU_SERIAL)
+
+run-bios: iso $(DISK)
+	$(QEMU) -m 256 $(QEMU_DISK) $(QEMU_DISPLAY) -cdrom $(ISO) -serial stdio -no-reboot -rtc base=localtime
+
 # Diagnostic (0.6.2) : tout est enregistre dans logs/<date-heure>/ (voir tools/debug-session.sh) : compilation,
 # journal interne de PhoenOS (os.log), console serie, journal de QEMU. Rien de tout cela n'est affiche a l'ecran.
 #   make debug          sans fenetre (comme serial)      make debug-window | debug-sdl | debug-gtk : avec fenetre
@@ -175,7 +212,11 @@ test:
 	sh tests/run.sh
 
 check: $(KERNEL)
+ifeq ($(ARCH),x64)
+	grub-file --is-x86-multiboot2 $(KERNEL) && echo "Multiboot2 OK"
+else
 	grub-file --is-x86-multiboot $(KERNEL) && echo "Multiboot OK"
+endif
 
 symbol: $(KERNEL)
 	@test -n "$(ADDR)" || { echo "Usage : make symbol ADDR=0x100abc"; exit 1; }

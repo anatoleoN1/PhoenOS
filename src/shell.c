@@ -317,8 +317,8 @@ static err_t cmd_clear(int argc, char **argv)
 static err_t cmd_version(int argc, char **argv)
 {
     (void)argc; (void)argv;
-    kprintf("%s %s - noyau x86 32 bits, compile le %s a %s\n",
-            PHOENOS_NAME, PHOENOS_VERSION, __DATE__, __TIME__);
+    kprintf("%s %s - noyau %s, edition %s, compile le %s a %s\n",
+            PHOENOS_NAME, PHOENOS_VERSION, PHOENOS_ARCH_TEXT, PHOENOS_EDITION, __DATE__, __TIME__);
     return E_OK;
 }
 

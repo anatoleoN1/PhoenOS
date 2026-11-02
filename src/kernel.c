@@ -246,7 +246,7 @@ void kernel_main(u32 magic, const struct multiboot_info *mbi)
     stack_guard_init();
     banner();
 
-    kprintf("%s %s - noyau x86 (32 bits)\n\n", PHOENOS_NAME, PHOENOS_VERSION);
+    kprintf("%s %s - noyau %s, edition %s\n\n", PHOENOS_NAME, PHOENOS_VERSION, PHOENOS_ARCH_TEXT, PHOENOS_EDITION);
 
     status(1, "Pilote VGA texte et port serie COM1 initialises");
     DINFO("boot", "%s %s - port de debogage 0xE9 : %s - niveau %s", PHOENOS_NAME, PHOENOS_VERSION,

@@ -51,17 +51,28 @@ static inline void cpu_hlt(void)  { __asm__ volatile ("hlt"); }
 /* sti puis hlt, SANS interruption possible entre les deux (sinon un reveil pourrait etre rate). */
 static inline void cpu_sti_hlt(void) { __asm__ volatile ("sti; hlt" : : : "memory"); }
 
-/* Section critique : coupe les interruptions et renvoie l'état précédent. */
+/* Section critique : coupe les interruptions et renvoie l'état précédent (RFLAGS : 64 bits en perf64, on garde un u32 :
+ * seuls les bits bas, dont IF, comptent). */
 static inline u32 cpu_irq_save(void)
 {
+#ifdef __x86_64__
+    usize flags;
+    __asm__ volatile ("pushfq; popq %0; cli" : "=r"(flags) : : "memory");
+    return (u32)flags;
+#else
     u32 flags;
     __asm__ volatile ("pushf; pop %0; cli" : "=r"(flags) : : "memory");
     return flags;
+#endif
 }
 
 static inline void cpu_irq_restore(u32 flags)
 {
+#ifdef __x86_64__
+    __asm__ volatile ("pushq %0; popfq" : : "r"((usize)flags) : "memory", "cc");
+#else
     __asm__ volatile ("push %0; popf" : : "r"(flags) : "memory", "cc");
+#endif
 }
 
 #endif

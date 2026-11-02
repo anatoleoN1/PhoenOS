@@ -56,25 +56,25 @@ void panic_begin(const char *title)
     kprintf("  %s\n\n", title);
 }
 
-void panic_backtrace(u32 ebp, u32 eip)
+void panic_backtrace(usize ebp, usize eip)
 {
     int n = 0;
 
     kprintf("\n  Trace d'appel (decoder avec : make symbol ADDR=<adresse>) :\n");
 
     if (eip)
-        kprintf("   #%d  %#x  <- instruction courante\n", n++, eip);
+        kprintf("   #%d  %#lx  <- instruction courante\n", n++, (unsigned long)eip);
 
     /* Remontée de la chaîne des frames (-fno-omit-frame-pointer) */
     while (n < 12) {
-        u32 *frame;
+        usize *frame;
 
-        if ((ebp & 3) || ebp < (u32)stack_bottom || ebp + 8 > (u32)stack_top)
+        if ((ebp & 3) || ebp < (usize)stack_bottom || ebp + 2 * sizeof(usize) > (usize)stack_top)
             break;
-        frame = (u32 *)ebp;
+        frame = (usize *)ebp;
         if (frame[1] == 0)
             break;
-        kprintf("   #%d  %#x\n", n++, frame[1]);
+        kprintf("   #%d  %#lx\n", n++, (unsigned long)frame[1]);
         if (frame[0] <= ebp)
             break;
         ebp = frame[0];
@@ -114,7 +114,7 @@ void kpanic_at(const char *file, int line, const char *fmt, ...)
     va_end(ap);
     kprintf("\n  Lieu    : %s:%d\n", file, line);
 
-    panic_backtrace((u32)__builtin_frame_address(0), 0);
+    panic_backtrace((usize)__builtin_frame_address(0), 0);
     panic_end();
 }
 
