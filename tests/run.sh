@@ -212,7 +212,7 @@ run maj-manifeste    0   test_updman.c updman.c sha2.c c25519.c string.c
 run maj-http         0   test_httpc.c httpc.c string.c
 run maj-stockage     0   -DUPD_SIM_PHYS test_updstore.c updstore.c updboot.c updman.c crc32.c sha2.c c25519.c string.c
 cp "$B/src/test_updkey.h" "$B/src/updkey.h"
-run maj-complet 0 -DUPD_SIM_PHYS test_update.c update.c updstore.c updboot.c updman.c httpc.c crc32.c sha2.c c25519.c dlog.c kprintf.c string.c
+run maj-complet 0 -DUPD_SIM_PHYS -DPHOENOS_TEST_PIN_OLD test_update.c update.c updstore.c updboot.c updman.c httpc.c crc32.c sha2.c c25519.c dlog.c kprintf.c string.c
 cp "$ROOT/src/updkey.h" "$B/src/updkey.h"
 printf '== tls-openssl\n'
 if (cd "$B/src" && gcc $CF test_tls.c tls.c x509.c pubkey.c roots.c rng.c sha2.c aead.c c25519.c string.c -o "$B/tls"); then

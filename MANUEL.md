@@ -1,4 +1,4 @@
-# Manuel de PhoenOS 0.10.4
+# Manuel de PhoenOS 0.10.5
 
 > Généré à partir de `initrd/docs/manuel.txt` (lisible dans PhoenOS avec `man`).
 

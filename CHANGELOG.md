@@ -5,6 +5,13 @@ z = correctif ou petite amélioration. Chaque version est livrée testée automa
 les chemins de démarrage réels (GRUB, ISO, anneau 3, activation de la pagination) ne sont
 vérifiables que sur une vraie machine ou sous QEMU : ils sont validés par vos essais.
 
+## 0.10.5 — Version d'essai des mises à jour
+- **Aucune fonction nouvelle** : cette version ne sert qu'à vérifier, sur une vraie machine, la chaîne complète de la 0.10.4 : publier → `maj verifier` → `maj installer` → `reboot` → relance
+  de la version installée par l'étape 0 → confirmation après 30 s → (au besoin) retour arrière. Seuls changent le numéro de version (build 10005), le message d'accueil et la documentation.
+- **Marche à suivre pas à pas** : `docs/TEST_MAJ.md` (publier la 0.10.4, la démarrer depuis son ISO, publier la 0.10.5, l'installer depuis PhoenOS, quoi regarder, quels logs envoyer, essais de retour arrière).
+- Tests : les vecteurs signés des tests de mise à jour supposent un noyau 0.10.4 : `version.h` a un mode `PHOENOS_TEST_PIN_OLD` (tests seulement) pour que les tests ne dépendent plus du numéro courant.
+- Feuille de route : après les essais, perf32 / perf64 / pui64 puis passage en 64 bits UEFI (C + Rust).
+
 ## 0.10.4 — Mises à jour automatiques signées
 - **`maj`** (`etat`, `verifier`, `installer`, `retour`, `preparer`, `auto`) : PhoenOS cherche les nouvelles versions dans les *releases* GitHub du dépôt (`anatoleoN1/PhoenOS`), en HTTPS.
 - **Signature Ed25519** : chaque édition publie un manifeste (`manifest-<édition>.txt`, version, build, tailles, SHA-256 du noyau et de l'initrd) signé avec VOTRE clé ;
