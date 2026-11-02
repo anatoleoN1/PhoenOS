@@ -18,10 +18,19 @@
 #define ASPACE_END    0x800000u                 /* 4 Mio : exactement une table de pages */
 #define ASPACE_PAGES  1024u
 
+#ifdef __x86_64__
+typedef u64 pte_t;                              /* perf64 : entrees de 64 bits, 4 niveaux (PML4 > PDPT > PD > PT) */
+#else
+typedef u32 pte_t;                              /* perf32 : entrees de 32 bits, 2 niveaux */
+#endif
+
 struct aspace {
-    u32 *dir;                                   /* repertoire de pages (1 page) */
-    u32 *pt;                                    /* table de pages de la zone des programmes (1 page) */
+    pte_t *dir;                                 /* repertoire de pages (perf32) / PML4 (perf64) : 1 page */
+    pte_t *pt;                                  /* entrees de la zone des programmes : 1024 pte_t (perf32 : 1 page ; perf64 : 2 pages contigues) */
     u32  pages;                                 /* pages mappees */
+#ifdef __x86_64__
+    u32  pdpt, pd;                              /* perf64 : les 2 niveaux intermediaires propres au programme (adresses physiques) */
+#endif
 };
 
 /*
@@ -31,7 +40,7 @@ struct aspace {
 #define ASPACE_SHARED 0x400u                    /* bit libre du processeur (AVL) dans l'entree de table */
 
 /* Repertoire du noyau (modele des repertoires de programmes). Appele par paging_init. */
-void aspace_set_kernel_dir(const u32 *dir);
+void aspace_set_kernel_dir(const pte_t *dir);
 
 /* Cree un espace vide. E_NOMEM : plus de memoire ; E_INVAL : repertoire du noyau inconnu. */
 err_t aspace_create(struct aspace *a);

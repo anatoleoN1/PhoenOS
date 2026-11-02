@@ -12,6 +12,17 @@
 
 #define EXIT_EXPECTED_PANIC 100     /* code de sortie : "panique attendue" */
 
+#ifdef __x86_64__
+/* tests 64 bits : appels Linux x86-64 (write = 1, exit = 60) ; les numeros i386 write/exit sont traduits */
+static inline long sys3(long n, long a, long b, long c)
+{
+    long r;
+
+    n = (n == 4) ? 1 : (n == 1) ? 60 : n;
+    __asm__ volatile ("syscall" : "=a"(r) : "a"(n), "D"(a), "S"(b), "d"(c) : "rcx", "r11", "memory");
+    return r;
+}
+#else
 static inline long sys3(long n, long a, long b, long c)
 {
     long r;
@@ -19,6 +30,7 @@ static inline long sys3(long n, long a, long b, long c)
     __asm__ volatile ("int $0x80" : "=a"(r) : "a"(n), "b"(a), "c"(b), "d"(c) : "memory");
     return r;
 }
+#endif
 
 static inline void out(const char *s) { sys3(4, 1, (long)s, (long)strlen(s)); }
 static inline void exit_now(int code) __attribute__((noreturn));
@@ -53,6 +65,9 @@ static int test_fails;
 
 int test_main(void);
 
+#ifdef __x86_64__
+__attribute__((force_align_arg_pointer))
+#endif
 void _start(void)
 {
     int r = test_main();

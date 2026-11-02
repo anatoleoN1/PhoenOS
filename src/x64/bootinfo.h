@@ -24,6 +24,9 @@ struct multiboot_info;
  */
 struct multiboot_info *mb2_convert(usize mb2);
 
+/* Noyau lance par une mise a jour (etape 0) : infos deja en Multiboot 1 ; reprend l'ecran (flag 12). */
+struct multiboot_info *mb1_adopt(usize mb1);
+
 /* Version testable : la carte memoire et les modules sont lus dans `mb2`, la sortie va dans `out` (128 octets alignes). */
 struct multiboot_info *mb2_convert_into(const void *mb2, u8 *out);
 

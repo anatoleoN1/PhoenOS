@@ -44,6 +44,20 @@ int test_main(void)
           boot_fb.height == 800 && boot_fb.bpp == 32);
     CHECK(boot_fb.red_pos == 16 && boot_fb.red_size == 8 && boot_fb.green_pos == 8 && boot_fb.blue_pos == 0);
 
+    /* aller-retour : les champs d'ecran ecrits par la conversion sont repris par mb1_adopt (noyau relance par une mise a jour) */
+    mb2_convert_into(blob, raw);
+    {
+        struct boot_fb saved = boot_fb;
+
+        CHECK(((struct multiboot_info *)raw)->flags & (1u << 12));
+        memset(&boot_fb, 0, sizeof boot_fb);
+        CHECK(mb1_adopt((usize)raw) == (struct multiboot_info *)raw);
+        CHECK(!memcmp(&boot_fb, &saved, sizeof boot_fb) && boot_fb.addr == 0xFD000000ull && boot_fb.type == 1);
+        ((struct multiboot_info *)raw)->flags &= ~(1u << 12);
+        mb1_adopt((usize)raw);
+        CHECK(boot_fb.type == 0 && boot_fb.addr == 0);
+    }
+
     /* infos illisibles : structure vide, sans carte memoire */
     mb = mb2_convert_into(0, raw);
     CHECK(!(mb->flags & (MB_FLAG_MEM | MB_FLAG_MMAP | MB_FLAG_MODS)));

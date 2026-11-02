@@ -296,6 +296,7 @@ int upd_relaunch(const struct upd_blk *b, const struct upd_boot_plan *plan, u32 
     {
         u32 *m = (u32 *)PHYS(S + OFF_MBI);                 /* alignement : S est aligne sur 4 Kio */
         u32 flags = (mbi->flags & MB_FLAG_MEM) | MB_FLAG_MODS | MB_FLAG_MMAP | (1u << 9);
+        int fb = (mbi->flags & (1u << 12)) != 0;               /* infos d'ecran (perf64 : le noyau lance les reprend) */
 
         m[0] = flags;
         m[1] = mbi->mem_lower;
@@ -305,6 +306,10 @@ int upd_relaunch(const struct upd_blk *b, const struct upd_boot_plan *plan, u32 
         m[11] = mmap_len;
         m[12] = S + OFF_MMAP;
         m[16] = S + OFF_NAME;                               /* boot_loader_name */
+        if (fb) {
+            m[0] |= 1u << 12;
+            memcpy((u8 *)m + 88, (const u8 *)mbi + 88, 28);     /* framebuffer_addr .. color_info */
+        }
         memcpy(PHYS(S + OFF_MMAP), mmap, mmap_len);
         {
             u32 *mod = (u32 *)PHYS(S + OFF_MOD);

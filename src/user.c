@@ -26,7 +26,11 @@
 #include "vga.h"
 #include "string.h"
 
+#ifdef __x86_64__
+extern void tss_set_rsp0(usize rsp0);           /* x64/gdt.c */
+#else
 extern struct { u32 prev, esp0; } tss;          /* debut de la structure de gdt.c */
+#endif
 extern void enter_user_mode(u32 entry, u32 user_esp);   /* switch.S : ne revient jamais */
 
 #define CTRL_C 3
@@ -171,7 +175,11 @@ static err_t load_put(void *ctx, u32 va, const u8 *src, u32 n)
 
 static void on_switch(struct task *next)
 {
-    tss.esp0 = next->ktop;                      /* pile du noyau quand ce programme sera interrompu */
+#ifdef __x86_64__
+    tss_set_rsp0(next->ktop);                   /* pile du noyau quand ce programme sera interrompu */
+#else
+    tss.esp0 = next->ktop;
+#endif
     if (next->owner && next->entry == user_task_main)
         aspace_activate(&((struct utask *)next->owner)->space);
     else
@@ -568,6 +576,14 @@ void syscall_entry(struct regs *r)
         user_exit(130);
 }
 
+static u32 read_cr2(void)
+{
+    usize v;
+
+    __asm__ volatile ("mov %%cr2, %0" : "=r"(v));
+    return (u32)v;
+}
+
 void user_fault(struct regs *r, const char *what)
 {
     struct utask *u = current_utask();
@@ -575,24 +591,19 @@ void user_fault(struct regs *r, const char *what)
     if (!u)
         return;                                 /* l'appelant retombera sur la panique */
     vga_set_color(VGA_LIGHT_RED, VGA_BLACK);
-    keprintf("\n%s : programme arrete - %s (exception %u, EIP=%#x)\n", u->proc.name, what, r->int_no, r->eip);
+    keprintf("\n%s : programme arrete - %s (exception %u, EIP=%#x)\n", u->proc.name, what, (u32)r->int_no, (u32)r->eip);
     if (r->int_no == 14) {
-        u32 cr2;
-
-        __asm__ volatile ("movl %%cr2, %0" : "=r"(cr2));
-        keprintf("  adresse fautive : %#x (%s)\n", cr2,
-                 (r->err_code & 1) ? "acces interdit : memoire du noyau ou page protegee"
+        keprintf("  adresse fautive : %#x (%s)\n", read_cr2(),
+                 ((u32)r->err_code & 1) ? "acces interdit : memoire du noyau ou page protegee"
                                    : "page absente");
     }
     vga_set_color(VGA_LIGHT_GREY, VGA_BLACK);
     u->faulted = 1;
     {
-        u32 cr2 = 0;
+        u32 cr2 = r->int_no == 14 ? read_cr2() : 0;
 
-        if (r->int_no == 14)
-            __asm__ volatile ("movl %%cr2, %0" : "=r"(cr2));
         DERROR("fault", "pid %u (%s) : %s - exception %u, code d'erreur %#x, EIP=%#x, CR2=%#x, ESP=%#x", u->proc.pid,
-               u->proc.name, what, r->int_no, r->err_code, r->eip, cr2, r->useresp);
+               u->proc.name, what, (u32)r->int_no, (u32)r->err_code, (u32)r->eip, cr2, (u32)r->useresp);
     }
     user_exit(128 + (int)r->int_no);
 }

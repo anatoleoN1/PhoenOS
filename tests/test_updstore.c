@@ -372,6 +372,21 @@ static void test_relaunch(void)
     }
     /* la zone de preparation est tout en haut de la memoire disponible */
     CHECK(rd(got_args.mbi + 24) + 20000 > (64u << 20) - 0x10000);
+    CHECK(!(rd(got_args.mbi) & (1u << 12)));                                                              /* pas d'ecran donne : pas de champs d'ecran */
+
+    /* perf64 : les infos d'ecran du noyau actuel (flag 12, octets 88..115) sont reprises pour le noyau lance */
+    prep_plan(); sim_setup(64u << 20, 0); jumped = 0;
+    {
+        struct multiboot_info *mb = (struct multiboot_info *)(upd_sim_ram + mbi_at);
+
+        mb->flags |= 1u << 12;
+        for (int i = 0; i < 28; i++)
+            upd_sim_ram[mbi_at + 88 + i] = (u8)(0x40 + i);
+        upd_sim_ram[mbi_at + 116] = 0xEE;                                                                 /* hors zone : pas copie */
+    }
+    r = upd_relaunch(&BLK, &plan, mbi_at, 0x180000, stub, sizeof stub, fake_jump);
+    CHECK(r == UPB_OK && (rd(got_args.mbi) & (1u << 12)));
+    CHECK(!memcmp(upd_sim_ram + got_args.mbi + 88, upd_sim_ram + mbi_at + 88, 28) && upd_sim_ram[got_args.mbi + 116] == 0);
 
     /* trou dans la memoire : la preparation est dans une zone "disponible", jamais dans le trou */
     prep_plan(); sim_setup(64u << 20, 1); jumped = 0;

@@ -1,4 +1,4 @@
-MANUEL DE PHOENOS 0.11.0
+MANUEL DE PHOENOS 0.11.1
 =======================
 Tapez  man            pour la liste des sujets,
        man <sujet>    pour lire un sujet (exemple : man ls).

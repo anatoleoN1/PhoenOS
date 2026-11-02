@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Teste tools/phoenos_sign.py : vecteurs RFC 8032, recoupement avec `cryptography` (si present), numero de build,
 conversion ELF -> image PBI1 (identique a objcopy), `release` + `verify` de bout en bout, refus d'une mauvaise cle."""
-import os, re, subprocess, sys, tempfile, shutil
+import os, re, struct, subprocess, sys, tempfile, shutil
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "tools"))
 import phoenos_sign as S
@@ -39,6 +39,27 @@ bld = int(re.search(r'PHOENOS_BUILD\s+(\d+)u', open(os.path.join(ROOT, "src/vers
 ck(S.build_number(ver) == bld, "PHOENOS_BUILD (%d) ne correspond pas a PHOENOS_VERSION (%s)" % (bld, ver))
 ck(S.build_number("0.10.5") > S.build_number("0.10.4") > S.build_number("0.9.9"), "ordre des builds")
 ck(S.build_number("1.0.0") > S.build_number("0.100.0"), "1.0.0 apres 0.100.0")
+
+# ELF 64 bits synthetique (perf64) : deux segments avec un trou, un .bss, entree 32 bits sous 4 Gio
+def elf64(segs, entry):
+    ph = b"".join(struct.pack("<IIQQQQQQ", 1, 5, off, pa, pa, fs, ms, 4096) for pa, off, fs, ms in segs)
+    hdr = b"\x7fELF" + bytes([2, 1, 1, 0]) + bytes(8) + struct.pack("<HHIQQQIHHHHHH", 2, 62, 1, entry, 64, 0, 0, 64, 56, len(segs), 64, 0, 0)
+    body = bytearray(hdr + ph); body += bytes(0x3000 - len(body))
+    body[0x1000:0x1000 + 16] = b"A" * 16; body[0x2000:0x2000 + 8] = b"B" * 8
+    return bytes(body)
+e64 = elf64([(0x100000, 0x1000, 16, 16), (0x102000, 0x2000, 8, 0x5000)], 0x100008)
+im = S.elf_to_image(e64, "perf64")
+hd = struct.unpack("<4s7I", im[:32])
+ck(hd[0] == b"PBI1" and hd[2] == 0x100000 and hd[3] == 0x100008 and hd[4] == 0x2008 and hd[5] == 0x7000 and hd[6] == 2, "ELF64 : en-tete %r" % (hd,))
+ck(im[32:48] == b"A" * 16 and im[32 + 0x2000:32 + 0x2008] == b"B" * 8 and im[48:32 + 0x2000] == bytes(0x2000 - 16), "ELF64 : contenu")
+try:
+    S.elf_to_image(elf64([(0x100000, 0x1000, 16, 16)], 0x200000), "perf64"); ck(False, "ELF64 : entree hors image acceptee")
+except SystemExit:
+    ck(True, "")
+try:
+    S.elf_to_image(elf64([(0xFFFFF000, 0x1000, 16, 0x2000)], 0xFFFFF000), "perf64"); ck(False, "ELF64 : segment > 4 Gio accepte")
+except SystemExit:
+    ck(True, "")
 
 # ELF -> image, release, verify (si un noyau est construit)
 elf = os.path.join(ROOT, "build/phoenos.bin"); ird = os.path.join(ROOT, "build/isodir/boot/initrd.tar")

@@ -116,9 +116,34 @@ struct multiboot_info *mb2_convert_into(const void *mb2, u8 *raw)
         }
         flags |= 1u << 9;
         wr32(raw + BOOT_NAME_OFFSET, (u32)(usize)loader_name);
+        if (boot_fb.type) {                              /* champs d'ecran de Multiboot 1 (flag 12), repris par mb1_adopt apres une relance */
+            flags |= 1u << 12;
+            wr32(raw + 88, (u32)boot_fb.addr); wr32(raw + 92, (u32)(boot_fb.addr >> 32));
+            wr32(raw + 96, boot_fb.pitch); wr32(raw + 100, boot_fb.width); wr32(raw + 104, boot_fb.height);
+            raw[108] = boot_fb.bpp; raw[109] = boot_fb.type;
+            raw[110] = boot_fb.red_pos; raw[111] = boot_fb.red_size; raw[112] = boot_fb.green_pos;
+            raw[113] = boot_fb.green_size; raw[114] = boot_fb.blue_pos; raw[115] = boot_fb.blue_size;
+        }
         mb1->flags = flags;
     }
     return mb1;
+}
+
+/* Noyau relance par l'etape 0 des mises a jour : les infos sont deja au format Multiboot 1 (updboot.c) ; on reprend l'ecran. */
+struct multiboot_info *mb1_adopt(usize mb1)
+{
+    const u8 *raw = (const u8 *)mb1;
+    const struct multiboot_info *m = (const struct multiboot_info *)raw;
+
+    memset(&boot_fb, 0, sizeof boot_fb);
+    if (m->flags & (1u << 12)) {
+        boot_fb.addr = rd64(raw + 88);
+        boot_fb.pitch = rd32(raw + 96); boot_fb.width = rd32(raw + 100); boot_fb.height = rd32(raw + 104);
+        boot_fb.bpp = raw[108]; boot_fb.type = raw[109];
+        boot_fb.red_pos = raw[110]; boot_fb.red_size = raw[111]; boot_fb.green_pos = raw[112];
+        boot_fb.green_size = raw[113]; boot_fb.blue_pos = raw[114]; boot_fb.blue_size = raw[115];
+    }
+    return (struct multiboot_info *)raw;
 }
 
 struct multiboot_info *mb2_convert(usize mb2)

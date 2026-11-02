@@ -12,9 +12,20 @@
 #ifdef __x86_64__
 /* perf64 : x64/isr_stubs.S pousse les 15 registres a la main ; le CPU pousse toujours rsp et ss. */
 struct regs {
-    u64 r15, r14, r13, r12, r11, r10, r9, r8, rdi, rsi, rbp, rbx, rdx, rcx, rax;
+    u64 r15, r14, r13, r12, r11, r10, r9, r8;
+    union { u64 rdi; u32 edi; };                       /* les alias e.. servent aux programmes 32 bits (mode de compatibilite) */
+    union { u64 rsi; u32 esi; };
+    union { u64 rbp; u32 ebp; };
+    union { u64 rbx; u32 ebx; };
+    union { u64 rdx; u32 edx; };
+    union { u64 rcx; u32 ecx; };
+    union { u64 rax; u32 eax; };
     u64 int_no, err_code;                              /* stubs */
-    u64 rip, cs, rflags, rsp, ss;                      /* CPU   */
+    union { u64 rip; u32 eip; };                       /* CPU   */
+    u64 cs;
+    union { u64 rflags; u32 eflags; };
+    union { u64 rsp; u32 useresp; };
+    u64 ss;
 };
 #else
 struct regs {

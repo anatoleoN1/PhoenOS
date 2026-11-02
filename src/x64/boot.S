@@ -51,7 +51,7 @@ stack_top:
     .section .data
     .align 8
 mb2_info_phys:  .long 0
-    .long 0
+boot_relaunched: .long 0
 
     .align 8
 boot_gdt:
@@ -76,8 +76,11 @@ _start:
     cld
     movl $stack_top, %esp
     cmpl $MB2_LOADER, %eax
+    je   1f
+    cmpl $0x2BADB002, %eax                  /* noyau relance par une mise a jour (etape 0) : infos en Multiboot 1 */
     jne  .Lno_mb2
-    movl %ebx, mb2_info_phys
+    movl $1, boot_relaunched
+1:  movl %ebx, mb2_info_phys
 
     /* le processeur sait-il le mode long ? (CPUID 0x80000001, EDX bit 29) */
     movl $0x80000000, %eax
@@ -169,7 +172,12 @@ long_mode:
     pushq $0
     popfq                                   /* RFLAGS propres */
     movl mb2_info_phys, %edi
+    cmpl $0, boot_relaunched
+    jne  1f
     call mb2_convert                        /* rax = struct multiboot_info (format Multiboot 1) */
+    jmp  2f
+1:  call mb1_adopt                          /* deja en Multiboot 1 : on garde tel quel */
+2:
     movl $0x2BADB002, %edi                  /* "magic" Multiboot 1 : le reste du noyau ne voit pas la difference */
     movq %rax, %rsi
     call kernel_main

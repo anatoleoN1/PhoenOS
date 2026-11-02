@@ -115,9 +115,6 @@ void update_stage0(const struct multiboot_info *mbi)
     int rc;
 
     g_relaunched = name_is_relaunch(mbi);
-#ifdef PHOENOS_X64
-    return;                                     /* perf64 0.11.0 : pas encore de relance (arrive en 0.11.1) : on reste sur la version du CD */
-#endif
     if (g_relaunched)
         kprintf("       Mises a jour : version installee, lancee par l'etape 0 (build %u)\n", PHOENOS_BUILD);
     if (!pubkey() || g_relaunched)

@@ -74,8 +74,7 @@ LDFLAGS := -m elf_x86_64 -T linker64.ld -nostdlib -z noexecstack -z max-page-siz
 QEMU    := qemu-system-x86_64
 GRUBCFG := iso/boot/grub/grub-x64.cfg
 # fichiers propres au 32 bits (remplaces par src/x64/ ou des versions reduites)
-X86_ONLY := boot.S gdt.c gdt_flush.S idt.c isr_stubs.S switch.S paging.c paging_enable.c relaunch.S \
-            user.c syscall.c aspace.c libmgr.c
+X86_ONLY := boot.S gdt.c gdt_flush.S idt.c isr_stubs.S switch.S paging.c paging_enable.c relaunch.S
 SRC_C   := $(filter-out $(addprefix src/,$(X86_ONLY)),$(wildcard src/*.c)) $(wildcard src/x64/*.c)
 SRC_S   := $(filter-out $(addprefix src/,$(X86_ONLY)),$(wildcard src/*.S)) $(wildcard src/x64/*.S)
 endif

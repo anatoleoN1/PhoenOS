@@ -5,6 +5,17 @@ z = correctif ou petite amélioration. Chaque version est livrée testée automa
 les chemins de démarrage réels (GRUB, ISO, anneau 3, activation de la pagination) ne sont
 vérifiables que sur une vraie machine ou sous QEMU : ils sont validés par vos essais.
 
+## 0.11.1 — perf64 : programmes, appels système et mises à jour
+- **Programmes sous perf64** : les programmes `.poe`/ELF existants (32 bits) tournent tels quels en **mode de compatibilité** du processeur (code utilisateur 32 bits sous le noyau 64 bits) : même `int 0x80`,
+  mêmes appels système, mêmes bibliothèques `.psl`, même `spawn`/`waitpid`/réseau/TLS. Aucun programme à recompiler ; de vrais programmes 64 bits viendront avec la version 1.0.
+- **Espaces d'adressage 64 bits** (`src/aspace.c`, `pte_t` 64 bits) : chaque programme a SON PML4, SON PDPT, SON premier répertoire et 2 tables de pages pour la zone 4-8 Mio ; le noyau reste mappé mais interdit au ring 3 ;
+  les pages au-delà de 1 Gio (écran, périphériques) restent partagées. Test : `espaces-adressage-64` (parcours logiciel des 4 niveaux : isolation, droits, pages partagées, mémoire pleine, aucune fuite).
+- **Mises à jour sous perf64** : l'étape 0 relance le noyau installé depuis le mode long (`src/x64/relaunch.S` : copie, `.bss` à zéro, retour en mode protégé 32 bits, saut au point d'entrée) ;
+  `x64/boot.S` reconnaît ce démarrage (magic Multiboot 1) et reprend les infos d'écran (`mb1_adopt`, champs d'écran du Multiboot 1 recopiés par `upd_relaunch`).
+  `tools/phoenos_sign.py` empaquette aussi les noyaux ELF64 (adresses sous 4 Gio) : `release --edition perf64` fonctionne.
+- `version` et le message de démarrage indiquent l'architecture et l'édition. Tests : `espaces-adressage-64`, `multiboot2` (aller-retour des infos d'écran), `maj-stockage` (reprise de l'écran), outil de signature (ELF64). Les tests 64 bits tournent en natif (`syscall`).
+- **Limites** : tout ceci n'est pas démarré ici (pas d'émulateur) : bascule en mode de compatibilité, `iretq` vers le ring 3 et relance 64 → 32 bits sont à valider chez vous. Les programmes utilisateur restent 32 bits.
+
 ## 0.11.0 — PhoenOS 64 bits (édition perf64, UEFI)
 - **Nouvelle édition `perf64`** (`make EDITION=perf64 iso` → `phoenos-perf64-0.11.0.iso`) : noyau x86-64 qui démarre en **UEFI** ou en BIOS classique par GRUB (Multiboot2). L'édition `perf32` reste construite comme avant.
 - **Démarrage** (`src/x64/boot.S`) : mode protégé 32 bits → pagination identité 4 Gio (pages de 2 Mio ; au-delà de 1 Gio sans cache : périphériques et écran) → mode long → noyau C.
@@ -16,7 +27,6 @@ vérifiables que sur une vraie machine ou sous QEMU : ils sont validés par vos 
 - **Pas encore en 64 bits** (0.11.1) : programmes utilisateur (anneau 3), appels système, bibliothèques `.psl`, relance de l'étape 0 des mises à jour. Le shell, le réseau, le disque, TLS, `web` et `maj verifier` marchent ; lancer un programme répond « non implemente ».
 - Makefile : `EDITION=perf64`, `make check` (Multiboot2), `make run-uefi | serial-uefi | run-bios` (OVMF). Procédure d'essai : `docs/TEST_64BITS.md`.
 - Tests : `console-graphique` (faux écran : échelle, centrage, glyphes, curseur, palette), `multiboot2` (conversion des informations de démarrage). Les 2 noyaux compilent sans avertissement.
-- **Mises à jour sous perf64** : `maj verifier` et `maj installer` fonctionnent, mais la **relance** de la version installée n'existe pas encore (0.11.1) : un perf64 0.11.0 redémarre toujours sur la version de son CD.
 - **Limite importante** : le démarrage réel (boot.S, mode long, UEFI) n'a pas pu être exécuté ici (pas d'émulateur) : il est validé par vos essais.
 
 ## 0.10.5 — Version d'essai des mises à jour

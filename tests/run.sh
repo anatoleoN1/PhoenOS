@@ -31,6 +31,21 @@ run() {
     fi
 }
 
+# $1 = nom, $2 = code attendu, $3.. = sources : meme chose en 64 bits (code propre a perf64)
+run64() {
+    name=$1; want=$2; shift 2
+    printf '== %s (64 bits)\n' "$name"
+    if ! (cd "$B/src" && gcc $(echo "$CF" | sed "s/-m32/-m64/") -Wno-pointer-to-int-cast -Wno-int-to-pointer-cast -mno-sse -mno-mmx -mcmodel=small "$@" -o "$B/$name"); then
+        echo "  ECHEC de compilation"; FAILED=1; return
+    fi
+    (cd "$B" && "./$name"); got=$?
+    if [ "$got" -ne "$want" ]; then
+        echo "  => ECHEC (code de sortie $got, attendu $want)"; FAILED=1
+    else
+        echo "  => OK"
+    fi
+}
+
 # Un test d'exécution 32 bits est-il possible sur cette machine ?
 echo 'void _start(void){__asm__ volatile("movl $1,%eax; xorl %ebx,%ebx; int $0x80");}' > "$B/probe.c"
 if ! gcc -m32 -static -nostdlib -ffreestanding "$B/probe.c" -o "$B/probe" 2>/dev/null || ! "$B/probe"; then
@@ -225,6 +240,7 @@ run certificats      0   test_x509.c x509.c pubkey.c roots.c sha2.c c25519.c str
 run espaces-adressage 0 test_aspace.c aspace.c paging.c pmm.c string.c
 run appels-systeme 0 test_syscall.c syscall.c libmgr.c psl.c poe.c elf.c crc32.c dlog.c aspace.c fs.c kprintf.c pmm.c kheap.c string.c rtc.c tcp.c net.c netdev.c net_stubs.c sha2.c aead.c c25519.c pubkey.c roots.c x509.c tls.c rng.c tlssock.c
 run ecran-defilement 0 -DVGA_TEST_MEMORY=test_vga test_vga.c vga.c string.c
+run64 espaces-adressage-64 0 test_aspace64.c aspace.c pmm.c string.c
 run console-graphique 0 -DFBCON_TEST test_fbcon.c fbcon.c font8x16.c string.c
 run multiboot2 0 test_mb2.c mb2.c string.c
 run kprintf             0   test_kprintf.c kprintf.c string.c
