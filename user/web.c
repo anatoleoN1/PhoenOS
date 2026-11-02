@@ -38,6 +38,12 @@ static int starts(const char *s, const char *p)
 static int net_send(int secure, int c, const void *b, uint n) { return secure ? tls_send(c, b, n) : sock_send(c, b, n); }
 static int net_recv(int secure, int c, void *b, uint n)       { return secure ? tls_recv(c, b, n) : sock_recv(c, b, n); }
 
+/* Sortie groupee : un appel systeme par bloc, pas par octet. */
+static char obuf[1024];
+static uint olen;
+static void flush_out(void) { if (olen) { write(1, obuf, olen); olen = 0; } }
+static void emit(char ch) { obuf[olen++] = ch; if (olen == sizeof obuf) flush_out(); }
+
 static void explain(int secure, const char *step, int code)
 {
     static char msg[160];
@@ -113,17 +119,67 @@ int main(int argc, char **argv)
         }
         sent += n;
     }
-    for (;;) {
-        n = net_recv(secure, c, buf, sizeof buf);
-        if (n == 0)
-            break;                              /* le serveur a ferme : fin de la page */
-        if (n < 0) {
-            puts("\n");
-            explain(secure, "reception interrompue", n);
-            break;
+    {   /* reponse : en-tetes recopies tels quels ; si le serveur repond en morceaux ("chunked", meme a une
+         * requete HTTP/1.0, comme GitHub), le corps est reassemble au lieu d'afficher les tailles. */
+        int in_body = 0, chunked = 0, km = 0;
+        uint last4 = 0;
+        int cs = 0;             /* 0 taille, 1 fin de ligne de taille, 2 donnees, 3 fin de morceau, 4 fini */
+        uint left = 0, size = 0;
+
+        for (;;) {
+            n = net_recv(secure, c, buf, sizeof buf);
+            if (n == 0)
+                break;                          /* le serveur a ferme : fin de la page */
+            if (n < 0) {
+                flush_out();
+                puts("\n");
+                explain(secure, "reception interrompue", n);
+                break;
+            }
+            for (int i = 0; i < n; i++) {
+                char ch = buf[i];
+
+                if (!in_body) {
+                    static const char key[] = "chunked";
+
+                    emit(ch);
+                    /* cherche "chunked" (sans tenir compte de la casse) et la ligne vide qui finit les en-tetes */
+                    if ((ch | 32) == key[km]) { if (++km == 7) { chunked = 1; km = 0; } }
+                    else km = ((ch | 32) == 'c') ? 1 : 0;
+                    last4 = (last4 << 8) | (uint)(unsigned char)ch;
+                    if (last4 == 0x0D0A0D0Au)
+                        in_body = 1;
+                    continue;
+                }
+                if (!chunked) {
+                    emit(ch);
+                    continue;
+                }
+                switch (cs) {
+                case 0:
+                    if (ch >= '0' && ch <= '9') size = size * 16 + (uint)(ch - '0');
+                    else if ((ch | 32) >= 'a' && (ch | 32) <= 'f') size = size * 16 + (uint)((ch | 32) - 'a' + 10);
+                    else if (ch == '\n') { left = size; size = 0; cs = left ? 2 : 4; }
+                    else cs = 1;                /* extension de morceau : ignoree jusqu'a la fin de ligne */
+                    break;
+                case 1:
+                    if (ch == '\n') { left = size; size = 0; cs = left ? 2 : 4; }
+                    break;
+                case 2:
+                    emit(ch);
+                    if (--left == 0) cs = 3;
+                    break;
+                case 3:
+                    if (ch == '\n') cs = 0;
+                    break;
+                default:
+                    break;                      /* apres le dernier morceau : rien d'autre a afficher */
+                }
+            }
+            flush_out();
         }
-        write(1, buf, (uint)n);
     }
+    flush_out();
     if (secure) tls_close(c); else sock_close(c);
     return 0;
 }

@@ -248,7 +248,7 @@ static u32 build_client_hello(u8 *buf, u32 cap, const u8 random[32], const u8 si
     w16(&w, 0x0303);
     wbytes(&w, random, 32);
     w8(&w, 32); wbytes(&w, sid, 32);
-    w16(&w, 6); w16(&w, 0x1301); w16(&w, 0x1302); w16(&w, 0x1303);
+    w16(&w, 6); w16(&w, 0x1303); w16(&w, 0x1301); w16(&w, 0x1302);   /* ChaCha20 d'abord : bien plus rapide que notre AES logiciel */
     w8(&w, 1); w8(&w, 0);
     ext_pos = w.n; w16(&w, 0);
     if (sni) {

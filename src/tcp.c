@@ -234,9 +234,17 @@ i32 tcp_recv(u32 owner, int h, u8 *buf, u32 cap)
         if (s->rx_len) {
             u32 n = s->rx_len < cap ? s->rx_len : cap;
 
+            u32 before = TCP_RXBUF - s->rx_len;         /* place libre annoncee au serveur jusque-la */
+
             memcpy(buf, s->rx, n);
             memmove(s->rx, s->rx + n, s->rx_len - n);
             s->rx_len -= n;
+            /* Mise a jour de fenetre : si le serveur a vu moins de deux segments de place et qu'il y en a
+             * maintenant davantage, on le previent tout de suite. Sans cela il attend (fenetre pleine)
+             * et ne reprend qu'apres ses sondes lentes : la page arrive "bout par bout". */
+            if (s->state == ST_ESTAB && !s->peer_fin && before < 2u * TCP_MSS &&
+                TCP_RXBUF - s->rx_len >= 2u * TCP_MSS)
+                seg_send(s, F_ACK, s->snd_nxt, NULL, 0);
             return (i32)n;
         }
         if (s->state == ST_DEAD)

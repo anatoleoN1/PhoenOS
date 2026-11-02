@@ -93,9 +93,10 @@ static int fake_recv(struct netdev *d, u8 *buf, u32 cap)
 
 static int fake_link(struct netdev *d) { (void)d; return 1; }
 
-/* Un serveur par port : 80 echo ; 81 refuse ; 82 muet ; 83 echo puis ferme ; 84 premiere reponse abimee ; 85 ne repond pas. */
-struct conn { int used; u16 cport, sport; u32 snd, rcv; int corrupt_done; u8 last[1460]; u32 last_len, last_seq; };
+/* Un serveur par port : 86 envoie 30000 octets selon la fenetre ; 80 echo ; 81 refuse ; 82 muet ; 83 echo puis ferme ; 84 premiere reponse abimee ; 85 ne repond pas. */
+struct conn { int used; u16 cport, sport; u32 snd, rcv; int corrupt_done; u8 last[1460]; u32 last_len, last_seq; u32 f0, fsent; };
 static struct conn cs_tab[16];
+#define FLOOD_TOTAL 30000u
 
 static void srv_seg(const struct conn *c, u8 flags, u32 seq, const u8 *data, u32 len, int corrupt)
 {
@@ -220,6 +221,23 @@ static void peer(const u8 *f, u32 len)
     }
     if (plen)
         c->rcv += plen;
+    if (sport == 86 && !(flags & 0x01)) {               /* debit : respecte la fenetre annoncee par le client */
+        u32 ack = get32(tcp + 8), win = get16(tcp + 14);
+
+        if (plen && !c->f0) { c->f0 = c->snd; c->fsent = 0; }
+        while (c->f0 && c->fsent < FLOOD_TOTAL) {
+            u32 inflight = c->snd - ack, n = FLOOD_TOTAL - c->fsent;
+            u8 d[1460];
+
+            if (n > 1460) n = 1460;
+            if (inflight + n > win)
+                break;
+            for (u32 i = 0; i < n; i++) d[i] = (u8)((c->fsent + i) * 7 + 3);
+            srv_seg(c, 0x18, c->snd, d, n, 0);
+            c->snd += n; c->fsent += n;
+        }
+        return;
+    }
     if (flags & 0x01) {                                 /* FIN du client */
         c->rcv++;
         srv_seg(c, 0x10, c->snd, NULL, 0, 0);
@@ -376,6 +394,23 @@ int test_main(void)
     CHECK(tcp_connect(7, IP_SRV, 85, &h2) == E_TIMEOUT);
     CHECK(clock_ms - t0 >= 10000u);
     CHECK(tcp_open_count() == 0);
+
+    /* 8. gros envoi du serveur : le client doit rouvrir la fenetre en lisant (sinon le serveur attend, bout par bout) */
+    CHECK(tcp_connect(7, IP_SRV, 86, &h2) == E_OK);
+    CHECK(tcp_send(7, h2, (const u8 *)"go", 2, &sent) == E_OK && sent == 2);
+    t0 = clock_ms;
+    got = 0;
+    while (got < (int)FLOOD_TOTAL) {
+        n = tcp_recv(7, h2, buf, 1024);
+        if (n <= 0)
+            break;
+        for (int i = 0; i < n; i++)
+            CHECK(buf[i] == (u8)((u32)(got + i) * 7 + 3));
+        got += n;
+    }
+    CHECK(got == (int)FLOOD_TOTAL);
+    CHECK(clock_ms - t0 < 2000u);
+    CHECK(tcp_close(7, h2) == E_OK);
 
     out("  TCP verifie : connexion, echo, segments multiples, refus, delai, reemission, fermeture, proprietaires, table pleine\n");
     return 0;

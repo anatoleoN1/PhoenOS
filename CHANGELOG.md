@@ -5,6 +5,15 @@ z = correctif ou petite amélioration. Chaque version est livrée testée automa
 les chemins de démarrage réels (GRUB, ISO, anneau 3, activation de la pagination) ne sont
 vérifiables que sur une vraie machine ou sous QEMU : ils sont validés par vos essais.
 
+## 0.10.3 — Correctif : téléchargements fluides
+- **Bug corrigé (TCP)** : en lisant, `tcp_recv` ne prévenait jamais le serveur que la place avait été libérée. Dès que le tampon de 8 Kio était plein
+  (page lourde, comme GitHub), le serveur attendait ses sondes lentes et la page arrivait « bout par bout » sans jamais finir. Maintenant une mise à jour de
+  fenêtre part dès qu'il y a de nouveau deux segments de place. Test `tcp` : un serveur qui respecte la fenêtre envoie 30 000 octets (échouait avant).
+- **`web` décode les réponses « chunked »** (GitHub en envoie même pour HTTP/1.0) : plus de lignes « 8000 » parasites dans la page ; sortie groupée (un appel système par bloc).
+- **TLS** : ChaCha20-Poly1305 est proposé en premier (notre AES-GCM logiciel est lent) ; les serveurs qui respectent la préférence du client l'utilisent.
+- Observé chez vous en 0.10.2 : HTTPS fonctionne sur example.org et github.com (certificats vérifiés, générateur aléatoire prêt).
+- Feuille de route décalée d'un cran : 0.10.4 mises à jour signées, 0.10.5 bibliothèques relogeables.
+
 ## 0.10.2 — TLS 1.3 client, certificats X.509 et HTTPS
 - **TLS 1.3 client** (`src/tls.c`) : suites TLS_AES_128_GCM_SHA256, TLS_AES_256_GCM_SHA384, TLS_CHACHA20_POLY1305_SHA256 ; échange x25519 ;
   vérification de CertificateVerify (ECDSA P-256/P-384, RSA-PSS, Ed25519) et de Finished ; KeyUpdate pris en charge.
