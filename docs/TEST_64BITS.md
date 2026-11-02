@@ -1,4 +1,4 @@
-# Essai de PhoenOS 0.11.1 (édition perf64, 64 bits UEFI)
+# Essai de PhoenOS 0.11.2 (édition perf64, 64 bits UEFI)
 
 ## Installer les outils (une fois, WSL / Debian / Ubuntu)
     sudo apt install qemu-system-x86 ovmf grub-efi-amd64-bin grub-pc-bin xorriso mtools

@@ -167,14 +167,29 @@ serial: iso $(DISK)
 
 # Edition 64 bits : demarrage UEFI (firmware OVMF) ou BIOS classique. Paquets : qemu-system-x86 ovmf grub-efi-amd64-bin mtools
 # make EDITION=perf64 run-uefi | serial-uefi | run-bios    (OVMF=/chemin/OVMF_CODE.fd si le firmware n'est pas trouve)
-OVMF ?= $(firstword $(wildcard /usr/share/OVMF/OVMF_CODE_4M.fd /usr/share/OVMF/OVMF_CODE.fd /usr/share/ovmf/OVMF.fd /usr/share/qemu/OVMF.fd))
-run-uefi: iso $(DISK)
-	@test -n "$(OVMF)" || { echo "Firmware UEFI (OVMF) introuvable : sudo apt install ovmf   (ou make run-uefi OVMF=/chemin/OVMF.fd)"; exit 1; }
-	$(QEMU) -m 256 -bios $(OVMF) $(QEMU_DISK) $(QEMU_DISPLAY) -cdrom $(ISO) -serial stdio -no-reboot -rtc base=localtime
+OVMF ?= $(shell for f in /usr/share/OVMF/OVMF_CODE_4M.fd /usr/share/OVMF/OVMF_CODE.fd /usr/share/ovmf/OVMF.fd /usr/share/qemu/OVMF.fd; do [ -s "$$f" ] && { echo $$f; break; }; done)
+OVMF_VARS ?= $(shell for f in /usr/share/OVMF/OVMF_VARS_4M.fd /usr/share/OVMF/OVMF_VARS.fd; do [ -s "$$f" ] && { echo $$f; break; }; done)
+# firmware "code seul" (OVMF_CODE*) : il faut le brancher en pflash avec une copie des variables ; un OVMF.fd complet passe par -bios
+ifneq ($(findstring OVMF_CODE,$(OVMF)),)
+ifneq ($(OVMF_VARS),)
+QEMU_UEFI = -drive if=pflash,format=raw,readonly=on,file=$(OVMF) -drive if=pflash,format=raw,file=build/OVMF_VARS.fd
+else
+QEMU_UEFI = -drive if=pflash,format=raw,readonly=on,file=$(OVMF)
+endif
+else
+QEMU_UEFI = -bios $(OVMF)
+endif
+OVMF_MSG = Firmware UEFI (OVMF) introuvable : sudo apt install ovmf   (ou make run-uefi OVMF=/chemin/OVMF.fd)
+ovmf-vars:
+	@mkdir -p build; [ -z "$(OVMF_VARS)" ] || [ -f build/OVMF_VARS.fd ] || cp "$(OVMF_VARS)" build/OVMF_VARS.fd
 
-serial-uefi: iso $(DISK)
-	@test -n "$(OVMF)" || { echo "Firmware UEFI (OVMF) introuvable : sudo apt install ovmf"; exit 1; }
-	$(QEMU) -m 256 -bios $(OVMF) $(QEMU_DISK) -cdrom $(ISO) $(QEMU_SERIAL)
+run-uefi: iso $(DISK) ovmf-vars
+	@test -n "$(OVMF)" || { echo "$(OVMF_MSG)"; exit 1; }
+	$(QEMU) -m 256 $(QEMU_UEFI) $(QEMU_DISK) $(QEMU_DISPLAY) -cdrom $(ISO) -serial stdio -no-reboot -rtc base=localtime
+
+serial-uefi: iso $(DISK) ovmf-vars
+	@test -n "$(OVMF)" || { echo "$(OVMF_MSG)"; exit 1; }
+	$(QEMU) -m 256 $(QEMU_UEFI) $(QEMU_DISK) -cdrom $(ISO) $(QEMU_SERIAL)
 
 run-bios: iso $(DISK)
 	$(QEMU) -m 256 $(QEMU_DISK) $(QEMU_DISPLAY) -cdrom $(ISO) -serial stdio -no-reboot -rtc base=localtime

@@ -5,6 +5,12 @@ z = correctif ou petite amélioration. Chaque version est livrée testée automa
 les chemins de démarrage réels (GRUB, ISO, anneau 3, activation de la pagination) ne sont
 vérifiables que sur une vraie machine ou sous QEMU : ils sont validés par vos essais.
 
+## 0.11.2 — correctifs de la 0.11.x (aucune nouvelle fonction)
+- **Lancement UEFI** (`make run-uefi`, `serial-uefi`) : les firmwares « code seul » (`OVMF_CODE_4M.fd`, Ubuntu récent) se branchent en pflash avec une copie des variables (`build/OVMF_VARS.fd`) au lieu de `-bios`, que QEMU refusait (« could not load PC BIOS ») ; un firmware vide est ignoré.
+- **Test `tls-openssl`** : pause de 2 s avant l'arrêt du serveur de test (course du banc d'essai sur machines lentes, p. ex. WSL ; le code TLS n'est pas en cause).
+- **`tools/phoenos_sign.py`** : empaquetage des noyaux ELF64 inclus dans cette version (perf64 publiable), `update.c`/`stubs.c` perf64 corrigés (symboles de relance), repris de la 0.11.0 corrigée.
+- Les versions 0.11.0 et 0.11.1 publiées avant ces correctifs restent valides pour perf32 ; utilisez la 0.11.2 pour perf64.
+
 ## 0.11.1 — perf64 : programmes, appels système et mises à jour
 - **Programmes sous perf64** : les programmes `.poe`/ELF existants (32 bits) tournent tels quels en **mode de compatibilité** du processeur (code utilisateur 32 bits sous le noyau 64 bits) : même `int 0x80`,
   mêmes appels système, mêmes bibliothèques `.psl`, même `spawn`/`waitpid`/réseau/TLS. Aucun programme à recompiler ; de vrais programmes 64 bits viendront avec la version 1.0.

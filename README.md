@@ -5,7 +5,7 @@ Il démarre avec GRUB, tourne dans QEMU (ou sur une vraie machine), et vise un s
 sobre et soigné, qui fonctionne quelle que soit la puissance du PC.
 
 > ⚠️ **Projet en développement (0.x).** Testez-le dans une machine virtuelle et sauvegardez vos données.
-> Version actuelle : **0.11.1** · [Télécharger une version](../../releases) · [Licence PhoenOS 1.1](LICENSE)
+> Version actuelle : **0.11.2** · [Télécharger une version](../../releases) · [Licence PhoenOS 1.1](LICENSE)
 
 ## Télécharger
 
@@ -16,11 +16,11 @@ Vous voulez la 0.3.0, la 0.0.2 ou la 0.6.3 ? Ouvrez [Releases](../../releases), 
 Essayer une ISO dans QEMU :
 
 ```sh
-qemu-system-i386 -cdrom phoenos-perf32-0.11.1.iso -serial stdio -m 128
+qemu-system-i386 -cdrom phoenos-perf32-0.11.2.iso -serial stdio -m 128
 # édition 64 bits (UEFI) : make EDITION=perf64 run-uefi   (voir docs/TEST_64BITS.md)
 ```
 
-## Ce que PhoenOS sait faire (0.11.1)
+## Ce que PhoenOS sait faire (0.11.2)
 
 - **Noyau 32 bits** : GDT/IDT, interruptions, minuterie 100 Hz, mémoire physique et tas du noyau, **pagination** avec noyau protégé.
 - **Multitâche** : ordonnanceur à tourniquet, un espace d'adressage par programme, programmes en anneau 3 isolés les uns des autres.
@@ -79,6 +79,7 @@ L'historique de chaque version est dans [`CHANGELOG.md`](CHANGELOG.md).
 | 0.10.5 | version d'essai des mises à jour (aucune fonction nouvelle ; installée depuis la 0.10.4 avec `maj installer`) |
 | 0.11.0 | **édition perf64** : noyau 64 bits, démarrage UEFI ou BIOS (GRUB Multiboot2), console graphique ; (fait, à tester) |
 | 0.11.1 | perf64 : programmes, appels système, bibliothèques et mises à jour (relance de l'étape 0) ; les programmes restent en 32 bits (mode de compatibilité) (fait, à tester) |
+| 0.11.2 | correctifs : lancement UEFI (pflash), test TLS, publication perf64 (fait) |
 | 0.10.6 | bibliothèques relogeables, bibliothèques qui en appellent d'autres, zone plus grande, programmes de plus de 4 Mio (repoussée : d'abord éditions et 64 bits UEFI) |
 | après les mises à jour | passage en **64 bits UEFI** et code **mi-C mi-Rust** ; éditions Performance (32 et 64 bits) et Puissance (64 bits) |
 | 0.12.0 | affichage plus grand : 360p, 480p, 720p, 1080p… |

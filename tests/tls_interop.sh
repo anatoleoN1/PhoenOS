@@ -54,6 +54,7 @@ while [ $i -lt 100 ]; do
 done
 cp "$B/tls" ./tls 2>/dev/null
 ./tls; rc=$?
+sleep 2                                   # laisse le serveur interactif ecrire ce qu'il a recu (machines lentes, WSL)
 kill $PIDS $FEED 2>/dev/null; wait 2>/dev/null
 sleep 0.5
 if [ $rc -eq 0 ]; then
