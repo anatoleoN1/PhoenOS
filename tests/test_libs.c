@@ -246,6 +246,39 @@ int test_main(void)
     CHECK(libmgr_info(0, &name, &refs, &lo, &hi, &shared) == 0);
     CHECK(pmm_free_frames() == free0);                                            /* AUCUNE fuite */
 
+    /* ---- 0.11.3 : bibliotheques 64 bits (/lib32 sur ce noyau 32 bits = l'autre classe) : meme nom, cache separe ---- */
+    {
+        struct fs_node *f;
+        long l64 = file("lib/maths64.psl", buf, sizeof buf);
+        static struct uproc Q1, Q2;
+        static struct aspace B1, B2;
+
+        CHECK(l64 > (long)PSL_HEADER_SIZE && psl_parse(buf, (u32)l64, &info) == PSL_OK);
+        CHECK(info.cls == 64 && info.nexports == 5 && info.lo == 0x700000 && psl_find(&info, "maths_pgcd") == 0x700000 && psl_find(&info, "maths_nom") != 0);
+        CHECK(psl_parse(work, 0, &info) != PSL_OK);
+        len = file("lib/maths.psl", work, sizeof work);
+        CHECK(psl_parse(work, (u32)len, &info) == PSL_OK && info.cls == 32);
+        CHECK(fs_mkdir("/lib32") == E_OK);
+        CHECK(fs_create("/lib32/maths.psl", &f) == E_OK && fs_write(f, buf, (u32)l64) == E_OK);        /* 64 bits */
+        CHECK(fs_create("/lib32/texte.psl", &f) == E_OK && fs_write(f, work, (u32)len) == E_OK);        /* mauvaise classe, mauvais nom : refusee */
+        CHECK(aspace_create(&B1) == E_OK && aspace_create(&B2) == E_OK);
+        memset(&Q1, 0, sizeof Q1); memset(&Q2, 0, sizeof Q2);
+        Q1.as = &B1; Q2.as = &B2; Q2.is64 = 1;
+        strcpy(Q1.name, "q1"); strcpy(Q2.name, "q2");
+        CHECK(libmgr_attach(&Q1, "maths") == E_OK && Q1.nlibs == 1);                    /* 32 bits : /lib/maths.psl */
+        CHECK(libmgr_attach(&Q2, "maths") == E_OK && Q2.nlibs == 1 && Q1.libs[0] != Q2.libs[0]);   /* 64 bits : AUTRE exemplaire, meme nom */
+        CHECK(libmgr_resolve(&Q2, "maths", "maths_pgcd", &a) == E_OK && a == 0x700000);
+        CHECK(libmgr_info(0, &name, &refs, &lo, &hi, &shared) == 1 && libmgr_info(1, &name, &refs, &lo, &hi, &shared) == 1 && libmgr_info(2, &name, &refs, &lo, &hi, &shared) == 0);
+        CHECK(libmgr_attach(&Q2, "texte") == E_NOLIB && Q2.nlibs == 1);                  /* /lib32/texte.psl est de classe 32 : refuse pour un 64 bits */
+        CHECK(libmgr_attach(&Q2, "clash") == E_NOLIB);                                   /* pas dans /lib32 */
+        libmgr_detach_all(&Q1);
+        CHECK(libmgr_info(0, &name, &refs, &lo, &hi, &shared) == 1 && libmgr_info(1, &name, &refs, &lo, &hi, &shared) == 0);   /* reste la 64 bits */
+        libmgr_detach_all(&Q2);
+        CHECK(libmgr_info(0, &name, &refs, &lo, &hi, &shared) == 0);
+        aspace_destroy(&B1); aspace_destroy(&B2);
+        CHECK(pmm_free_frames() == free0);
+    }
+
     /* ---- memoire pleine ---- */
     CHECK(aspace_create(&A1) == E_OK);
     memset(&P1, 0, sizeof P1); P1.as = &A1;

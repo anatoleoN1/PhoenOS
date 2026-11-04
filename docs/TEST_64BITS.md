@@ -1,4 +1,4 @@
-# Essai de PhoenOS 0.11.2 (édition perf64, 64 bits UEFI)
+# Essai de PhoenOS 0.11.3 (édition perf64, 64 bits UEFI)
 
 ## Installer les outils (une fois, WSL / Debian / Ubuntu)
     sudo apt install qemu-system-x86 ovmf grub-efi-amd64-bin grub-pc-bin xorriso mtools
@@ -17,6 +17,18 @@ Si OVMF n'est pas trouvé : `make EDITION=perf64 run-uefi OVMF=/chemin/OVMF_CODE
 - l'écran de démarrage de PhoenOS en graphique (80x25 agrandi, centré) ; au prompt : `version` (édition perf64), `mem`, `ls`, `net`, `maj etat` ;
 - dans `mem` : la pagination est indiquée comme faite au démarrage ;
 - les programmes marchent comme en 32 bits : `run hello`, `run primes`, `exe utilib` (bibliothèques), `run lance`, `run web` ; un programme qui plante est arrêté sans arrêter le système ;
+- (0.11.3) `run hello` lance maintenant la version **64 bits** (vrai mode long en ring 3) et `run /bin32/hello` la version 32 bits : les deux doivent afficher la même chose, avec « arguments : N » identique ;
+
+## 0.11.3 : programmes 64 bits et 32 bits (à essayer dans l'ordre ; la 1re étape est la plus risquée)
+    run hello a "b c"            # 64 bits (/bin/hello) : doit afficher 3 arguments
+    run /bin32/hello a "b c"     # 32 bits : même affichage
+    ls /bin /bin32 /apps /apps32 /lib /lib32
+    psl                          # maths et texte en 64 bits, puis [32 bits] pour /lib32
+    run primes 100 ; run /bin32/primes 100 ; run tas 1000 ; run /bin32/tas 1000
+    exe utilib                   # 64 bits : maths et texte de /lib ;   exe /apps32/utilib : celles de /lib32
+    run lance hello ; run essaim 3 ; run faute   # spawn avec argv 64 bits ; un 64 bits qui plante doit etre arrete proprement
+`dmesg` doit montrer « lance (64 bits) » / « lance (32 bits) » pour chaque programme. Si `run hello` (64 bits) plante tout de suite
+(redémarrage, écran figé, « exception 13 » ou « exception 14 » au démarrage du programme) : envoyez le texte ; `run /bin32/hello` doit alors encore marcher.
 
 ## Si ça ne démarre pas
 Envoyez : la dernière image de l'écran, `logs/latest/` (`make EDITION=perf64 debug` ne gère pas encore OVMF : utilisez `serial-uefi` et copiez le texte du terminal),

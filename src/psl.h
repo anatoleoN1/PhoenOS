@@ -7,7 +7,7 @@
 /*
  * Format .psl : bibliotheque partagee PhoenOS (0.8.0).
  *
- * Une bibliotheque est un programme ELF 32 bits statique LIE A UNE ADRESSE FIXE dans la zone des bibliotheques
+ * Une bibliotheque est un programme ELF statique (32 bits, ou 64 bits pour les programmes 64 bits de perf64) LIE A UNE ADRESSE FIXE dans la zone des bibliotheques
  * [PSL_LIB_LO, PSL_LIB_HI) (pas de relocation : chaque bibliotheque a sa plage, deux bibliotheques dont les plages se
  * chevauchent ne peuvent pas etre utilisees ensemble). Son CODE et ses constantes (segments non modifiables) existent en
  * UN SEUL exemplaire en memoire, partage en lecture seule par tous les programmes qui l'utilisent ; ses DONNEES
@@ -61,6 +61,7 @@ struct psl_info {
     struct psl_export exports[PSL_MAX_EXPORTS];
     const u8 *payload;
     u32  payload_len;
+    int  cls;                           /* 32 ou 64 : classe de l'ELF (une bibliotheque ne sert que des programmes de sa classe) */
     u32  lo, hi;                        /* plage occupee (arrondie aux pages) */
     struct elf_seg segs[ELF_MAX_SEGS];
     int  nseg;

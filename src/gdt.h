@@ -6,6 +6,7 @@
 #define GDT_USER_CODE   0x1B   /* 0x18 | RPL 3 */
 #define GDT_USER_DATA   0x23   /* 0x20 | RPL 3 */
 #define GDT_TSS         0x28
+#define GDT_USER_CODE64 0x3B   /* 0x38 | RPL 3 : code utilisateur 64 bits (perf64 seulement) */
 
 void gdt_init(void);
 

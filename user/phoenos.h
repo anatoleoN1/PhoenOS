@@ -1,6 +1,6 @@
 /*
  * PhoenOS - phoenos.h : mini-bibliotheque des programmes utilisateur (sans libc).
- * Appels systeme par int 0x80 : numero dans eax, arguments dans ebx, ecx, edx.
+ * Appels systeme par int 0x80 : numero dans eax, arguments dans ebx, ecx, edx (rax, rbx, rcx, rdx pour un programme 64 bits).
  * Les numeros communs (exit, read, write, open, close, time, getpid) sont ceux de Linux i386 :
  * ces programmes tournent donc aussi sous Linux 32 bits, ce que font les tests automatiques.
  */
@@ -9,6 +9,7 @@
 
 typedef unsigned int  uint;
 typedef unsigned char uchar;
+typedef __UINTPTR_TYPE__ uptr;      /* largeur d'un pointeur : 32 bits (programmes i386) ou 64 bits (programmes x86-64, perf64) */
 
 enum { SYS_EXIT = 1, SYS_READ = 3, SYS_WRITE = 4, SYS_OPEN = 5, SYS_CLOSE = 6, SYS_WAITPID = 7, SYS_UNLINK = 10, SYS_TIME = 13,
        SYS_GETPID = 20, SYS_KILL = 37, SYS_BRK = 45, SYS_GETPPID = 64, SYS_SCHED_YIELD = 158,
@@ -16,7 +17,7 @@ enum { SYS_EXIT = 1, SYS_READ = 3, SYS_WRITE = 4, SYS_OPEN = 5, SYS_CLOSE = 6, S
        SYS_SOCK_CONNECT = 204, SYS_SOCK_SEND = 205, SYS_SOCK_RECV = 206, SYS_SOCK_CLOSE = 207,
        SYS_TLS_CONNECT = 208, SYS_TLS_SEND = 209, SYS_TLS_RECV = 210, SYS_TLS_CLOSE = 211, SYS_TLS_ERROR = 212 };
 
-static inline int syscall3(int n, int a, int b, int c)
+static inline int syscall3(int n, uptr a, uptr b, uptr c)
 {
     int r;
 
@@ -25,20 +26,20 @@ static inline int syscall3(int n, int a, int b, int c)
 }
 
 static inline void exit(int code) __attribute__((noreturn));
-static inline void exit(int code) { syscall3(SYS_EXIT, code, 0, 0); for (;;) ; }
-static inline int  write(int fd, const void *b, uint n) { return syscall3(SYS_WRITE, fd, (int)b, (int)n); }
-static inline int  read(int fd, void *b, uint n)        { return syscall3(SYS_READ, fd, (int)b, (int)n); }
+static inline void exit(int code) { syscall3(SYS_EXIT, (uptr)code, 0, 0); for (;;) ; }
+static inline int  write(int fd, const void *b, uint n) { return syscall3(SYS_WRITE, (uptr)fd, (uptr)b, (uptr)n); }
+static inline int  read(int fd, void *b, uint n)        { return syscall3(SYS_READ, (uptr)fd, (uptr)b, (uptr)n); }
 /* Options d'open (comme Linux) : ecrire = O_WRONLY ou O_RDWR ; les ecritures vont toujours en fin de fichier. */
 enum { O_RDONLY = 0, O_WRONLY = 1, O_RDWR = 2, O_CREAT = 0x40, O_TRUNC = 0x200, O_APPEND = 0x400 };
-static inline int  open_flags(const char *path, int flags) { return syscall3(SYS_OPEN, (int)path, flags, 0644); }   /* 0644 : droits si Linux cree le fichier (ignore par PhoenOS) */
-static inline int  open(const char *path)               { return syscall3(SYS_OPEN, (int)path, 0, 0); }
-static inline int  unlink(const char *path)             { return syscall3(SYS_UNLINK, (int)path, 0, 0); }
-static inline int  close(int fd)                        { return syscall3(SYS_CLOSE, fd, 0, 0); }
+static inline int  open_flags(const char *path, int flags) { return syscall3(SYS_OPEN, (uptr)path, flags, 0644); }   /* 0644 : droits si Linux cree le fichier (ignore par PhoenOS) */
+static inline int  open(const char *path)               { return syscall3(SYS_OPEN, (uptr)path, 0, 0); }
+static inline int  unlink(const char *path)             { return syscall3(SYS_UNLINK, (uptr)path, 0, 0); }
+static inline int  close(int fd)                        { return syscall3(SYS_CLOSE, (uptr)fd, 0, 0); }
 static inline int  getpid(void)                         { return syscall3(SYS_GETPID, 0, 0, 0); }
 static inline uint time(void)                           { return (uint)syscall3(SYS_TIME, 0, 0, 0); }
 /* Journal du systeme (commande `log`) : niveau 0 trace .. 4 erreur. */
-static inline int log_msg(int level, const char *text)  { return syscall3(SYS_LOG, level, (int)text, 0); }
-static inline void sleep_ms(uint ms)                    { syscall3(SYS_SLEEP_MS, (int)ms, 0, 0); }
+static inline int log_msg(int level, const char *text)  { return syscall3(SYS_LOG, level, (uptr)text, 0); }
+static inline void sleep_ms(uint ms)                    { syscall3(SYS_SLEEP_MS, (uptr)ms, 0, 0); }
 static inline uint uptime_ms(void)                      { return (uint)syscall3(SYS_UPTIME, 0, 0, 0); }
 
 /*
@@ -51,9 +52,9 @@ static inline uint uptime_ms(void)                      { return (uint)syscall3(
  * (spawn et waitpid sont propres a PhoenOS : sous Linux ils echouent, comme tout numero inconnu.)
  */
 enum { WNOHANG = 1, E_CHILD = -18 };
-static inline int  spawn(const char *path, char *const argv[])  { return syscall3(SYS_SPAWN, (int)path, (int)argv, 0); }
-static inline int  waitpid(int pid, int *code, int options)     { return syscall3(SYS_WAITPID, pid, (int)code, options); }
-static inline int  kill(int pid, int sig)                       { return syscall3(SYS_KILL, pid, sig, 0); }
+static inline int  spawn(const char *path, char *const argv[])  { return syscall3(SYS_SPAWN, (uptr)path, (uptr)argv, 0); }
+static inline int  waitpid(int pid, int *code, int options)     { return syscall3(SYS_WAITPID, (uptr)pid, (uptr)code, options); }
+static inline int  kill(int pid, int sig)                       { return syscall3(SYS_KILL, (uptr)pid, sig, 0); }
 static inline int  getppid(void)                                { return syscall3(SYS_GETPPID, 0, 0, 0); }
 static inline void yield(void)                                  { syscall3(SYS_SCHED_YIELD, 0, 0, 0); }
 /*
@@ -64,8 +65,8 @@ static inline void yield(void)                                  { syscall3(SYS_S
  *   Un programme .poe qui declare ses bibliotheques (poepack -l) les a deja : psl_sym ne fait alors que chercher le symbole.
  */
 enum { E_NOLIB = -20 };
-static inline int psl_addr(const char *lib, const char *sym)    { return syscall3(SYS_PSL, (int)lib, (int)sym, 0); }
-static inline void *psl_sym(const char *lib, const char *sym)   { int a = psl_addr(lib, sym); return a > 0 ? (void *)a : (void *)0; }
+static inline int psl_addr(const char *lib, const char *sym)    { return syscall3(SYS_PSL, (uptr)lib, (uptr)sym, 0); }
+static inline void *psl_sym(const char *lib, const char *sym)   { int a = psl_addr(lib, sym); return a > 0 ? (void *)(uptr)(uint)a : (void *)0; }
 
 /* Tas : brk(0) donne la fin du tas, brk(adresse) la deplace et renvoie la nouvelle fin (inchangee si refuse). */
 /*
@@ -76,10 +77,10 @@ static inline void *psl_sym(const char *lib, const char *sym)   { int a = psl_ad
  *   sock_close(c)             ferme la connexion.
  * Quatre connexions au plus dans tout le systeme ; elles sont fermees a la fin du programme. Codes negatifs : voir error.h.
  */
-static inline int  sock_connect(const char *host, uint port)    { return syscall3(SYS_SOCK_CONNECT, (int)host, (int)port, 0); }
-static inline int  sock_send(int c, const void *b, uint n)      { return syscall3(SYS_SOCK_SEND, c, (int)b, (int)n); }
-static inline int  sock_recv(int c, void *b, uint n)            { return syscall3(SYS_SOCK_RECV, c, (int)b, (int)n); }
-static inline int  sock_close(int c)                            { return syscall3(SYS_SOCK_CLOSE, c, 0, 0); }
+static inline int  sock_connect(const char *host, uint port)    { return syscall3(SYS_SOCK_CONNECT, (uptr)host, (uptr)port, 0); }
+static inline int  sock_send(int c, const void *b, uint n)      { return syscall3(SYS_SOCK_SEND, (uptr)c, (uptr)b, (uptr)n); }
+static inline int  sock_recv(int c, void *b, uint n)            { return syscall3(SYS_SOCK_RECV, (uptr)c, (uptr)b, (uptr)n); }
+static inline int  sock_close(int c)                            { return syscall3(SYS_SOCK_CLOSE, (uptr)c, 0, 0); }
 
 /*
  * Connexions securisees HTTPS (0.10.2, propres a PhoenOS) : comme sock_*, mais en TLS 1.3 avec verification du certificat
@@ -88,13 +89,13 @@ static inline int  sock_close(int c)                            { return syscall
  *   tls_send / tls_recv / tls_close   comme sock_send / sock_recv / sock_close.
  *   tls_error(b, n)           ecrit dans b le texte (francais) de la derniere erreur securisee, renvoie sa longueur.
  */
-static inline int  tls_connect(const char *host, uint port)     { return syscall3(SYS_TLS_CONNECT, (int)host, (int)port, 0); }
-static inline int  tls_send(int c, const void *b, uint n)       { return syscall3(SYS_TLS_SEND, c, (int)b, (int)n); }
-static inline int  tls_recv(int c, void *b, uint n)             { return syscall3(SYS_TLS_RECV, c, (int)b, (int)n); }
-static inline int  tls_close(int c)                             { return syscall3(SYS_TLS_CLOSE, c, 0, 0); }
-static inline int  tls_error(char *b, uint n)                   { return syscall3(SYS_TLS_ERROR, (int)b, (int)n, 0); }
+static inline int  tls_connect(const char *host, uint port)     { return syscall3(SYS_TLS_CONNECT, (uptr)host, (uptr)port, 0); }
+static inline int  tls_send(int c, const void *b, uint n)       { return syscall3(SYS_TLS_SEND, (uptr)c, (uptr)b, (uptr)n); }
+static inline int  tls_recv(int c, void *b, uint n)             { return syscall3(SYS_TLS_RECV, (uptr)c, (uptr)b, (uptr)n); }
+static inline int  tls_close(int c)                             { return syscall3(SYS_TLS_CLOSE, (uptr)c, 0, 0); }
+static inline int  tls_error(char *b, uint n)                   { return syscall3(SYS_TLS_ERROR, (uptr)b, (uptr)n, 0); }
 
-static inline uint brk_to(uint addr)                            { return (uint)syscall3(SYS_BRK, (int)addr, 0, 0); }
+static inline uint brk_to(uint addr)                            { return (uint)syscall3(SYS_BRK, (uptr)addr, 0, 0); }
 
 static inline uint slen(const char *s) { uint n = 0; while (s[n]) n++; return n; }
 static inline void puts_fd(int fd, const char *s) { write(fd, s, slen(s)); }

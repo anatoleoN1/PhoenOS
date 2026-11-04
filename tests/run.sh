@@ -72,7 +72,7 @@ UCF="-m32 -std=gnu11 -O2 -Wall -Wextra -Werror -ffreestanding -fno-stack-protect
 printf '== programmes-utilisateur\n'
 UFAIL=0
 for f in "$ROOT"/user/*.c; do
-    n=$(basename "$f" .c); [ "$n" = crt0 ] && continue
+    n=$(basename "$f" .c); { [ "$n" = crt0 ] || [ "$n" = crt0_64 ]; } && continue
     if ! gcc $UCF -T "$ROOT/user/user.ld" -Wl,--build-id=none -I"$ROOT/user" "$f" "$ROOT/user/crt0.c" -o "$B/user/$n" 2> "$B/user/$n.err"; then
         echo "  ECHEC de compilation : $n"; cat "$B/user/$n.err"; UFAIL=1
     fi
@@ -125,6 +125,40 @@ ucheck "essaim borne" "usage : essaim" "$("$U/essaim" 9 2>&1)"
 # printf de libc.h : formats, largeur, zeros, signes
 gcc $UCF -T "$ROOT/user/user.ld" -Wl,--build-id=none -I"$ROOT/user" "$ROOT/tests/user_libc_check.c" "$ROOT/user/crt0.c" -o "$B/user/libc_check" 2> "$B/user/libc_check.err" || { echo "  ECHEC de compilation : libc_check"; cat "$B/user/libc_check.err"; UFAIL=1; }
 ucheck "libc" "libc : tout est correct" "$("$B/user/libc_check" 2>&1)"
+
+# 0.11.3 : les memes programmes en VRAIS programmes 64 bits (perf64). Compiles comme pour l'ISO (user/crt0_64.c) ; execves ici
+# avec un demarrage de test (tests/crt0_t64.c) qui met pile et arguments sous 4 Gio, car int 0x80 tronque les pointeurs a 32 bits.
+mkdir -p "$B/user64"
+UCF64="-m64 -std=gnu11 -O2 -Wall -Wextra -Werror -ffreestanding -fno-stack-protector -fno-pic -fno-pie -fno-builtin -fno-omit-frame-pointer -mno-sse -mno-mmx -mcmodel=small -nostdlib -static -Wl,-z,max-page-size=4096 -T $ROOT/user/user.ld -Wl,--build-id=none -I$ROOT/user"
+U64OK=1
+if ! (echo 'int main(void){return 0;}' > "$B/user64/p.c" && gcc -m64 -static -nostdlib -ffreestanding -fno-pie -no-pie -Wl,-z,max-page-size=4096 -T "$ROOT/user/user.ld" -Wl,--build-id=none -x c "$B/user64/p.c" "$ROOT/tests/crt0_t64.c" -I"$ROOT/user" -mno-sse -mcmodel=small -o "$B/user64/probe" 2>/dev/null && "$B/user64/probe" a >/dev/null 2>&1); then
+    echo "  (execution de programmes 64 bits par int 0x80 impossible ici : compilation seulement)"; U64OK=0
+fi
+for f in "$ROOT"/user/*.c; do
+    n=$(basename "$f" .c); { [ "$n" = crt0 ] || [ "$n" = crt0_64 ]; } && continue
+    if ! gcc $UCF64 "$f" "$ROOT/user/crt0_64.c" -o "$B/user64/$n.iso" 2> "$B/user64/$n.err"; then
+        echo "  ECHEC de compilation 64 bits (ISO) : $n"; cat "$B/user64/$n.err"; UFAIL=1
+    fi
+    [ $U64OK = 1 ] && { gcc $UCF64 "$f" "$ROOT/tests/crt0_t64.c" -o "$B/user64/$n" 2> "$B/user64/$n.err" || { echo "  ECHEC de compilation 64 bits (test) : $n"; cat "$B/user64/$n.err"; UFAIL=1; }; }
+done
+if [ $U64OK = 1 ]; then
+    gcc $UCF64 "$ROOT/tests/user_libc_check.c" "$ROOT/tests/crt0_t64.c" -o "$B/user64/libc_check" 2> "$B/user64/libc_check.err" || { echo "  ECHEC de compilation : libc_check 64"; cat "$B/user64/libc_check.err"; UFAIL=1; }
+    V="$B/user64"
+    ucheck "64 hello arguments" "[2] b c" "$("$V/hello" a "b c")"
+    ucheck "64 hello argc" "arguments : 3" "$("$V/hello" a "b c")"
+    ucheck "64 primes 30" "2 3 5 7 11 13 17 19 23 29" "$("$V/primes" 30)"
+    ucheck "64 primes 1000" "168 nombre(s) premier(s)" "$("$V/primes" 1000)"
+    ucheck "64 saisie" "Bonjour, Anatole !" "$(printf 'Anatole\n' | "$V/saisie")"
+    ucheck "64 compte" "2 ligne(s), 13 octet(s)" "$("$V/compte" "$B/user/data.txt")"
+    ucheck "64 compte absent" "impossible d'ouvrir" "$("$V/compte" /nofile 2>&1)"
+    ucheck "64 ticker" "zed 3/3" "$("$V/ticker" zed 3 10)"
+    ucheck "64 tas somme" "somme des valeurs : 499500 (attendu 499500)" "$("$V/tas" 1000)"
+    ucheck "64 tas fin" "tas : tout est correct" "$("$V/tas" 20000)"
+    ucheck "64 libc" "libc : tout est correct" "$("$V/libc_check" 2>&1)"
+    rm -f "$B/user64/out.txt"
+    ucheck "64 copie" "13 octet(s)" "$("$V/copie" "$B/user/data.txt" "$B/user64/out.txt")"
+    ucheck "64 copie contenu" "bonjour" "$(cat "$B/user64/out.txt")"
+fi
 
 # 0.4.0 : programmes qui ECRIVENT des fichiers (memes appels qu'une vraie machine Linux 32 bits)
 rm -f "$B/user/out.txt" "$B/user/notes.txt"
@@ -199,6 +233,11 @@ else
     lib_build maths 0x700000 "$ROOT/lib/maths.c" maths_pgcd maths_racine maths_fibo maths_appels maths_nom
     lib_build texte 0x710000 "$ROOT/lib/texte.c" texte_longueur texte_maj texte_inverser texte_mots
     lib_build clash 0x701000 "$ROOT/lib/texte.c" texte_mots
+    # 0.11.3 : la meme bibliotheque en 64 bits (ELF x86-64) : la table des symboles ELF64 doit etre lue par mkpsl
+    gcc -m64 -std=gnu11 -O2 -Wall -Wextra -Werror -ffreestanding -fno-stack-protector -fno-pic -fno-pie -fno-builtin -mno-sse -mno-mmx -mcmodel=small -nostdlib -static -Wl,-z,max-page-size=4096 \
+        -T "$ROOT/user/psl.ld" -Wl,--defsym=LIB_BASE=0x700000 -Wl,--build-id=none "$ROOT/lib/maths.c" -o "$B/lib/maths64.elf" 2> "$B/lib/maths64.err" || { cat "$B/lib/maths64.err"; LFAIL=1; }
+    "$B/mkpsl" -n maths -v 1.0 -a "Equipe Test" -d "Test maths 64" -e maths_pgcd -e maths_racine -e maths_fibo -e maths_appels -e maths_nom "$B/lib/maths64.elf" "$B/lib/maths64.psl" > /dev/null || LFAIL=1
+    "$B/mkpsl" -n maths -v 1.0 -a T "$B/lib/maths64.elf" "$B/lib/x64.psl" > /dev/null 2>&1 || { echo "  ECHEC : mkpsl sans exports explicites (ELF64)"; LFAIL=1; }
     # refus a la creation : adresse hors de la zone, symbole absent, nom invalide
     gcc $UCF -T "$ROOT/user/psl.ld" -Wl,--defsym=LIB_BASE=0x500000 -Wl,--build-id=none "$ROOT/lib/texte.c" -o "$B/lib/far.elf" || LFAIL=1
     "$B/mkpsl" -n far -v 1 -a T -e texte_mots "$B/lib/far.elf" "$B/lib/far.psl" > /dev/null 2>&1 && { echo "  ECHEC : mkpsl accepte une adresse hors zone"; LFAIL=1; }
@@ -272,12 +311,12 @@ run shell-crash-tas     100 -DMODE=4 $SH
 # Le manuel doit documenter chaque commande du shell (et inversement)
 printf '== manuel\n'
 cmds=$(sed -n 's/^    { G_[A-Z]*, *"\([a-z0-9]*\)".*/\1/p' "$ROOT/src/shell.c" | tr '\n' ' ')
-progs=$(for f in "$ROOT"/user/*.c; do n=$(basename "$f" .c); [ "$n" = crt0 ] || printf '%s ' "$n"; done)
+progs=$(for f in "$ROOT"/user/*.c; do n=$(basename "$f" .c); [ "$n" = crt0 ] || [ "$n" = crt0_64 ] || printf '%s ' "$n"; done)
 for c in $cmds $progs; do
     grep -q "^== $c " "$ROOT/initrd/docs/manuel.txt" || { echo "  commande ou programme sans page de manuel : $c"; FAILED=1; }
 done
 for c in $(sed -n 's/^== \([a-z0-9]*\) .*/\1/p' "$ROOT/initrd/docs/manuel.txt"); do
-    case " $cmds $progs general fichiers stockage programmes multitache processus bibliotheques reseau " in *" $c "*) ;; *) echo "  page de manuel sans commande : $c"; FAILED=1;; esac
+    case " $cmds $progs general fichiers stockage programmes multitache processus bibliotheques reseau largeurs " in *" $c "*) ;; *) echo "  page de manuel sans commande : $c"; FAILED=1;; esac
 done
 echo "  manuel verifie : $(echo $cmds | wc -w) commandes et $(echo $progs | wc -w) programmes documentes"
 

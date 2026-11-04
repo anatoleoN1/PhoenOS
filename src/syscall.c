@@ -369,12 +369,17 @@ static i32 sys_spawn(struct uproc *p, u32 path_addr, u32 argv_addr)
         av[argc++] = path;
     } else {
         for (;; argc++) {
-            u32 ptr;
+            u32 ptr, w = p->is64 ? 8u : 4u;             /* programme 64 bits : pointeurs de 8 octets (les 4 hauts doivent etre nuls) */
+            u32 hi = 0;
             i32 n;
 
-            if (!user_range(p, argv_addr + 4u * (u32)argc, 4, 0))
+            if (!user_range(p, argv_addr + w * (u32)argc, w, 0))
                 return E_FAULT;
-            memcpy(&ptr, (const void *)(argv_addr + 4u * (u32)argc), 4);
+            memcpy(&ptr, (const void *)(argv_addr + w * (u32)argc), 4);
+            if (w == 8)
+                memcpy(&hi, (const void *)(argv_addr + 8u * (u32)argc + 4), 4);
+            if (hi)
+                return E_FAULT;
             if (ptr == 0)
                 break;
             if (argc >= USER_ARGS_MAX)

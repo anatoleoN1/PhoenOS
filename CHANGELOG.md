@@ -5,6 +5,25 @@ z = correctif ou petite amélioration. Chaque version est livrée testée automa
 les chemins de démarrage réels (GRUB, ISO, anneau 3, activation de la pagination) ne sont
 vérifiables que sur une vraie machine ou sous QEMU : ils sont validés par vos essais.
 
+## 0.11.3 — perf64 : vrais programmes 64 bits, /bin32 et /lib32
+- **Programmes 64 bits** (perf64) : le noyau lance maintenant de vrais programmes x86-64 en ring 3 (mode long, nouveau segment de code utilisateur 64 bits `0x3B` dans la GDT, `enter_user_mode64`
+  dans `x64/switch.S`) en plus des programmes 32 bits (mode de compatibilite). Meme `int 0x80`, memes numeros d'appels, memes espaces d'adressage (zone 4-8 Mio) : un programme 64 bits recoit son resultat
+  dans tout `rax` (signe etendu). Pile initiale 64 bits : `argc` sur 8 octets puis `argv[]` en pointeurs de 8 octets (`user/crt0_64.c`).
+- **Chargeur ELF** (`src/elf.c`) : lit les ELF 32 bits ET 64 bits (`elf_class`) ; pour un ELF64 toute adresse, taille ou decalage au-dessus de 4 Gio est refuse (aucune troncature silencieuse). Un programme 64 bits
+  est refuse par perf32 (`E_NOEXEC`, rien n'est reserve).
+- **/bin32, /apps32, /lib32** (comme System32 / SysWOW64) : sur perf64 les programmes, applications `.poe` et bibliotheques `.psl` natifs (64 bits) sont dans `/bin`, `/apps`, `/lib`, et les 32 bits dans
+  `/bin32`, `/apps32`, `/lib32`. Sur perf32 rien ne change. La classe (32/64) est lue dans l'ELF : aucun changement des formats `.poe` / `.psl`. `run nom`, le nom seul, `exe` et `spawn` cherchent d'abord
+  le natif puis le 32 bits ; `psl` liste les deux dossiers.
+- **Bibliotheques par classe** : un programme n'obtient que des bibliotheques de sa largeur ; le gestionnaire (`libmgr`) garde un exemplaire PAR classe et par nom (une `maths` 32 bits et une `maths` 64 bits
+  peuvent coexister) ; `mkpsl` lit la table des symboles ELF64 ; `psl` indique `[32 bits]` pour les bibliotheques non natives.
+- **spawn** : un programme 64 bits passe un `argv` de pointeurs de 8 octets (les 4 octets hauts doivent etre nuls).
+- **Les 16 programmes d'exemple et les 2 bibliotheques existent aussi en 64 bits** : `user/phoenos.h` et `user/libc.h` ne supposent plus des pointeurs de 32 bits (`uptr`, tas aligne sur 16 avec en-tete de 32 octets
+  en 64 bits) ; `make EDITION=perf64 iso` compile et emballe les deux versions (`build/user64`, `build/lib64`).
+- **Tests** (49 -> tous passent) : les programmes 64 bits sont COMPILES comme pour l'ISO et EXECUTES pour de vrai sous Linux x86-64 (`tests/crt0_t64.c` met pile et arguments sous 4 Gio, car `int 0x80` tronque
+  les pointeurs) : hello, primes, saisie, compte, copie, ticker, tas, libc ; `elf` (classes, ELF64 forges et hostiles, vrais ELF64), `bibliotheques` (psl 64 bits, cache par classe, refus d'une mauvaise classe,
+  aucune fuite), `appels-systeme` (argv de 8 octets), `programmes-multiples` (un ELF64 refuse par perf32).
+- **Non verifie ici** : le demarrage reel du ring 3 64 bits (segment `0x3B`, `iretq`) n'a pas ete essaye sur une machine ni sous QEMU ; voir `docs/TEST_64BITS.md`.
+
 ## 0.11.2 — correctifs de la 0.11.x (aucune nouvelle fonction)
 - **Lancement UEFI** (`make run-uefi`, `serial-uefi`) : les firmwares « code seul » (`OVMF_CODE_4M.fd`, Ubuntu récent) se branchent en pflash avec une copie des variables (`build/OVMF_VARS.fd`) au lieu de `-bios`, que QEMU refusait (« could not load PC BIOS ») ; un firmware vide est ignoré.
 - **Test `tls-openssl`** : pause de 2 s avant l'arrêt du serveur de test (course du banc d'essai sur machines lentes, p. ex. WSL ; le code TLS n'est pas en cause).

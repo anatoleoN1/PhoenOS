@@ -59,6 +59,9 @@ static int check_image(struct psl_info *o)
 
     if (o->payload_len > PSL_MAX_IMAGE)
         return 0;
+    o->cls = elf_class(o->payload, o->payload_len);
+    if (!o->cls)
+        return 0;
     if (elf_segments(o->payload, o->payload_len, PSL_LIB_LO, PSL_LIB_HI, o->segs, &o->nseg, &entry) != E_OK)
         return 0;
     o->lo = 0xFFFFFFFFu;
@@ -160,45 +163,107 @@ struct elf_hdr32 {
 struct elf_sh32 { u32 name, type, flags, addr, offset, size, link, info, addralign, entsize; } __attribute__((packed));
 struct elf_sym32 { u32 name, value, size; u8 info, other; u16 shndx; } __attribute__((packed));
 
-int psl_elf_symbol(const u8 *elf, u32 len, const char *want, u32 *addr)
+struct elf_hdr64 {
+    u8  ident[16];
+    u16 type, machine;
+    u32 version;
+    u64 entry, phoff, shoff;
+    u32 flags;
+    u16 ehsize, phentsize, phnum, shentsize, shnum, shstrndx;
+} __attribute__((packed));
+struct elf_sh64 { u32 name, type; u64 flags, addr, offset, size; u32 link, info; u64 addralign, entsize; } __attribute__((packed));
+struct elf_sym64 { u32 name; u8 info, other; u16 shndx; u64 value, size; } __attribute__((packed));
+
+/* Forme commune d'un en-tete de section et d'un symbole, quelle que soit la classe. */
+static int sym_search(const u8 *elf, u32 len, const char *want, u32 *addr, int cls)
 {
-    struct elf_hdr32 h;
+    u64 shoff;
+    u32 shnum, shentsize, shsz = cls == 64 ? (u32)sizeof(struct elf_sh64) : (u32)sizeof(struct elf_sh32);
+    u32 symsz = cls == 64 ? (u32)sizeof(struct elf_sym64) : (u32)sizeof(struct elf_sym32);
 
-    if (len < sizeof h)
-        return 0;
-    memcpy(&h, elf, sizeof h);
-    if (h.shentsize != sizeof(struct elf_sh32) || h.shnum == 0 || h.shoff > len ||
-        (u32)h.shnum * sizeof(struct elf_sh32) > len - h.shoff)
-        return 0;
-    for (u32 i = 0; i < h.shnum; i++) {
-        struct elf_sh32 sh, str;
+    if (cls == 64) {
+        struct elf_hdr64 h;
 
-        memcpy(&sh, elf + h.shoff + i * sizeof sh, sizeof sh);
-        if (sh.type != 2 || sh.entsize != sizeof(struct elf_sym32) || sh.link >= h.shnum)     /* SHT_SYMTAB */
-            continue;
-        memcpy(&str, elf + h.shoff + sh.link * sizeof str, sizeof str);
-        if (sh.offset > len || sh.size > len - sh.offset || str.offset > len || str.size > len - str.offset || str.size == 0)
+        if (len < sizeof h)
             return 0;
-        for (u32 k = 0; k < sh.size / sizeof(struct elf_sym32); k++) {
-            struct elf_sym32 sy;
-            u32 j;
-            usize n = strlen(want);
+        memcpy(&h, elf, sizeof h);
+        shoff = h.shoff; shnum = h.shnum; shentsize = h.shentsize;
+    } else {
+        struct elf_hdr32 h;
 
-            memcpy(&sy, elf + sh.offset + k * sizeof sy, sizeof sy);
-            if (sy.shndx == 0 || sy.shndx >= 0xFF00u || ((sy.info >> 4) != 1 && (sy.info >> 4) != 2))   /* global ou faible, defini */
+        if (len < sizeof h)
+            return 0;
+        memcpy(&h, elf, sizeof h);
+        shoff = h.shoff; shnum = h.shnum; shentsize = h.shentsize;
+    }
+    if (shentsize != shsz || shnum == 0 || shoff > len || (u64)shnum * shsz > len - shoff)
+        return 0;
+    for (u32 i = 0; i < shnum; i++) {
+        u32 type, link;
+        u64 off, size, entsize, soff, ssize;
+        usize n = strlen(want);
+
+        if (cls == 64) {
+            struct elf_sh64 sh, str;
+
+            memcpy(&sh, elf + shoff + (u64)i * shsz, shsz);
+            type = sh.type; link = sh.link; off = sh.offset; size = sh.size; entsize = sh.entsize;
+            if (type != 2 || entsize != symsz || link >= shnum)
                 continue;
-            if (sy.name >= str.size || n >= str.size - sy.name)
+            memcpy(&str, elf + shoff + (u64)link * shsz, shsz);
+            soff = str.offset; ssize = str.size;
+        } else {
+            struct elf_sh32 sh, str;
+
+            memcpy(&sh, elf + shoff + (u64)i * shsz, shsz);
+            type = sh.type; link = sh.link; off = sh.offset; size = sh.size; entsize = sh.entsize;
+            if (type != 2 || entsize != symsz || link >= shnum)     /* SHT_SYMTAB */
                 continue;
-            for (j = 0; j < n && elf[str.offset + sy.name + j] == (u8)want[j]; j++)
+            memcpy(&str, elf + shoff + (u64)link * shsz, shsz);
+            soff = str.offset; ssize = str.size;
+        }
+        if (off > len || size > len - off || soff > len || ssize > len - soff || ssize == 0)
+            return 0;
+        for (u32 k = 0; k < (u32)size / symsz; k++) {
+            u32 nm, j;
+            u8 info;
+            u16 shndx;
+            u64 value;
+
+            if (cls == 64) {
+                struct elf_sym64 sy;
+
+                memcpy(&sy, elf + off + (u64)k * symsz, symsz);
+                nm = sy.name; info = sy.info; shndx = sy.shndx; value = sy.value;
+            } else {
+                struct elf_sym32 sy;
+
+                memcpy(&sy, elf + off + (u64)k * symsz, symsz);
+                nm = sy.name; info = sy.info; shndx = sy.shndx; value = sy.value;
+            }
+            if (shndx == 0 || shndx >= 0xFF00u || ((info >> 4) != 1 && (info >> 4) != 2))   /* global ou faible, defini */
+                continue;
+            if (nm >= ssize || n >= ssize - nm)
+                continue;
+            for (j = 0; j < n && elf[soff + nm + j] == (u8)want[j]; j++)
                 ;
-            if (j == n && elf[str.offset + sy.name + n] == 0) {
-                *addr = sy.value;
+            if (j == n && elf[soff + nm + n] == 0) {
+                if (value >> 32)
+                    return 0;
+                *addr = (u32)value;
                 return 1;
             }
         }
         return 0;
     }
     return 0;
+}
+
+int psl_elf_symbol(const u8 *elf, u32 len, const char *want, u32 *addr)
+{
+    int cls = elf_class(elf, len);
+
+    return cls ? sym_search(elf, len, want, addr, cls) : 0;
 }
 
 static int put_text(u8 *dst, u32 size, const char *s, int allow_empty)

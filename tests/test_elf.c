@@ -68,6 +68,40 @@ static err_t put_cb(void *c, u32 va, const u8 *src, u32 n)
     return E_OK;
 }
 
+/* ELF 64 bits forge (x86-64) : un segment PT_LOAD ; les champs larges permettent des valeurs hostiles au-dessus de 4 Gio. */
+struct eh64 { u8 id[16]; u16 type, machine; u32 version; u64 entry, phoff, shoff; u32 flags; u16 ehsize, phentsize, phnum, shentsize, shnum, shstrndx; } __attribute__((packed));
+struct ph64 { u32 type, flags; u64 offset, vaddr, paddr, filesz, memsz, align; } __attribute__((packed));
+
+static u32 forge64(u64 vaddr, u64 filesz, u64 memsz, u64 offset, u64 entry)
+{
+    struct eh64 h;
+    struct ph64 p;
+
+    memset(img, 0, sizeof img);
+    memset(&h, 0, sizeof h);
+    h.id[0] = 0x7F; h.id[1] = 'E'; h.id[2] = 'L'; h.id[3] = 'F'; h.id[4] = 2; h.id[5] = 1; h.id[6] = 1;
+    h.type = 2; h.machine = 62; h.version = 1; h.entry = entry; h.phoff = 64; h.ehsize = 64;
+    h.phentsize = 56; h.phnum = 1;
+    memcpy(img, &h, sizeof h);
+    memset(&p, 0, sizeof p);
+    p.type = 1; p.flags = 5; p.offset = offset; p.vaddr = vaddr; p.paddr = vaddr; p.filesz = filesz; p.memsz = memsz;
+    memcpy(img + 64, &p, sizeof p);
+    memset(img + 4096, 0xAB, 256);
+    return 4096 + 256;
+}
+
+static err_t load64(u64 va, u64 fs, u64 ms, u64 off, u64 entry)
+{
+    u32 sz = forge64(va, fs, ms, off, entry), e;
+    struct elf_seg segs[ELF_MAX_SEGS];
+    int ns = 0;
+    err_t r = elf_load(img, sz, mem, LO, HI, &e), r2 = elf_segments(img, sz, LO, HI, segs, &ns, &e);
+
+    if ((r == E_OK) != (r2 == E_OK))
+        test_fails++, out("  ECHEC : elf_load et elf_segments ne sont pas d'accord (64 bits)\n");
+    return r;
+}
+
 int test_main(void)
 {
     static const char *const progs[] = { "hello", "primes", "saisie", "compte", "faute", "heure", "calc", "ticker", "boucle" };
@@ -106,6 +140,65 @@ int test_main(void)
         CHECK(mem[entry - LO] != 0xEE);                         /* le code est bien charge au point d'entree */
         CHECK(mem[HI - LO - 1] == 0xEE);                        /* rien n'ecrit hors de la zone utile */
     }
+
+    /* ---- 0.11.3 : vrais programmes 64 bits (ELF x86-64 lies a 4 Mio) : meme zone, meme chargeur ---- */
+    for (usize i = 0; i < sizeof progs / sizeof progs[0]; i++) {
+        char path[64] = "user64/";
+        long n;
+        u32 e64 = 0;
+        struct elf_seg segs[ELF_MAX_SEGS];
+        int ns = 0;
+
+        strcpy(path + 7, progs[i]);
+        strcpy(path + 7 + strlen(progs[i]), ".iso");
+        n = file(path, img, sizeof img);
+        CHECK(n > 100);
+        CHECK(elf_class(img, (u32)n) == 64);
+        memset(mem, 0xEE, sizeof mem);
+        CHECK(elf_load(img, (u32)n, mem, LO, HI, &e64) == E_OK);
+        CHECK(e64 >= LO && e64 < LO + 0x4000);
+        CHECK(elf_segments(img, (u32)n, LO, HI, segs, &ns, &e64) == E_OK && ns >= 1 && ns <= 2);
+        CHECK(!segs[0].writable && e64 >= segs[0].lo && e64 < segs[0].hi);
+        CHECK(mem[e64 - LO] != 0xEE && mem[HI - LO - 1] == 0xEE);
+        CHECK(elf_class(img, 19) == 0 && elf_class(img, 0) == 0 && elf_class(0, 100) == 0);       /* tronque / vide / nul */
+    }
+    {   /* la classe d'un programme 32 bits */
+        long n = file("user/hello", img, sizeof img);
+
+        CHECK(n > 100 && elf_class(img, (u32)n) == 32);
+        img[18] = 62;                                           /* machine x86-64 dans un fichier de classe 32 : refuse */
+        CHECK(elf_class(img, (u32)n) == 0);
+        img[18] = 3; img[5] = 2;                                /* grand-boutiste : refuse */
+        CHECK(elf_class(img, (u32)n) == 0);
+    }
+    /* forge 64 bits : valide, puis hostile (tout est refuse, rien n'est ecrit hors zone) */
+    memset(mem, 0xEE, sizeof mem);
+    CHECK(load64(LO + 0x100, 256, 1000, 4096, LO + 0x100) == E_OK);
+    CHECK(mem[0x100] == 0xAB && mem[0x1FF] == 0xAB && mem[0x200] == 0 && mem[0xFF] == 0xEE && mem[0x100 + 1000] == 0xEE);
+    CHECK(load64(0x100000000ull + LO, 256, 256, 4096, LO) == E_NOEXEC);                  /* adresse au-dessus de 4 Gio (les bits bas semblent valides) */
+    CHECK(load64(LO, 256, 256, 4096, 0x100000000ull + LO) == E_NOEXEC);                  /* entree au-dessus de 4 Gio */
+    CHECK(load64(LO, 256, 0x100000000ull + 256, 4096, LO) == E_NOEXEC);                  /* memsz de 4 Gio + 256 */
+    CHECK(load64(LO, 0x100000000ull + 256, 0x200000000ull, 4096, LO) == E_NOEXEC);       /* filesz qui se tronquerait a 256 */
+    CHECK(load64(LO, 256, 256, 0x100000000ull + 4096, LO) == E_NOEXEC);                  /* offset qui se tronquerait a 4096 */
+    CHECK(load64(0xFFFFFFFFFFFFF000ull, 256, 512, 4096, 0xFFFFFFFFFFFFF000ull) == E_NOEXEC);
+    CHECK(load64(LO, 512, 256, 4096, LO) == E_NOEXEC);                                    /* filesz > memsz */
+    CHECK(load64(LO - 0x1000, 256, 256, 4096, LO - 0x1000) == E_NOEXEC);                  /* sous la zone */
+    CHECK(load64(HI - 100, 256, 256, 4096, HI - 100) == E_NOEXEC);                        /* depasse la fin */
+    CHECK(load64(LO, 256, 256, 4096 + 200, LO) == E_NOEXEC);                              /* lit au-dela de la fin du fichier */
+    CHECK(load64(LO, 256, 256, 4096, LO + 0x1000) == E_NOEXEC);                           /* entree hors segment */
+    {
+        u32 sz = forge64(LO, 256, 256, 4096, LO), e;
+
+        ((struct eh64 *)img)->phentsize = 32;                                             /* taille d'en-tete de la classe 32 : refuse */
+        CHECK(elf_load(img, sz, mem, LO, HI, &e) == E_NOEXEC);
+        ((struct eh64 *)img)->phentsize = 56; ((struct eh64 *)img)->phoff = sz;           /* table des segments hors du fichier */
+        CHECK(elf_load(img, sz, mem, LO, HI, &e) == E_NOEXEC);
+        ((struct eh64 *)img)->phoff = 64; ((struct eh64 *)img)->type = 3;                 /* ET_DYN : refuse */
+        CHECK(elf_load(img, sz, mem, LO, HI, &e) == E_NOEXEC);
+    }
+    /* repertoires : perf32 (ce test) = tout en 32 bits dans /bin, /apps, /lib ; le 64 bits (jamais lance ici) irait dans /bin32 ... */
+    CHECK(ELF_NATIVE == 32 && !strcmp(exec_dir(DIR_BIN, 32), "/bin/") && !strcmp(exec_dir(DIR_LIB, 32), "/lib/"));
+    CHECK(!strcmp(exec_dir(DIR_APPS, 64), "/apps32/"));
 
     /* ---- forge : cas valides ---- */
     memset(mem, 0xEE, sizeof mem);

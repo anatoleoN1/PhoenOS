@@ -85,7 +85,7 @@ OBJ     := $(patsubst src/%.c,$(OBJDIR)/%.o,$(SRC_C)) \
 # Programmes utilisateur (user/*.c) : un ELF par programme, charge a 4 Mio, copie dans /bin de l'initrd.
 USER_CFLAGS := -m32 -std=gnu11 -O2 -Wall -Wextra -Werror -ffreestanding -fno-stack-protector -fno-pic -fno-pie \
                -fno-builtin -fno-omit-frame-pointer -mno-sse -mno-mmx -nostdlib -static
-USER_PROGS  := $(patsubst user/%.c,%,$(filter-out user/crt0.c,$(wildcard user/*.c)))
+USER_PROGS  := $(patsubst user/%.c,%,$(filter-out user/crt0.c user/crt0_64.c,$(wildcard user/*.c)))
 USER_ELFS   := $(addprefix build/user/,$(addsuffix .elf,$(USER_PROGS)))
 
 # Bibliotheques partagees (lib/*.c, 0.8.0) : chacune liee a SA plage de la zone des bibliotheques (0x700000-0x7F0000),
@@ -94,6 +94,37 @@ LIBS        := $(patsubst lib/%.c,%,$(wildcard lib/*.c))
 LIB_BASE_maths := 0x700000
 LIB_BASE_texte := 0x710000
 LIB_ELFS    := $(addprefix build/lib/,$(addsuffix .elf,$(LIBS)))
+
+# Edition 64 bits (0.11.3) : les memes programmes et bibliotheques sont aussi compiles en VRAIS programmes 64 bits (mode long,
+# ring 3 avec segment de code 64 bits) ; ils vont dans /bin, /apps, /lib, et les versions 32 bits (mode de compatibilite)
+# dans /bin32, /apps32, /lib32 (comme System32 / SysWOW64 de Windows). Sur perf32 : seulement les 32 bits, dans /bin, /apps, /lib.
+USER64_CFLAGS := -m64 -std=gnu11 -O2 -Wall -Wextra -Werror -ffreestanding -fno-stack-protector -fno-pic -fno-pie \
+               -fno-builtin -fno-omit-frame-pointer -mno-sse -mno-mmx -mcmodel=small -nostdlib -static -Wl,-z,max-page-size=4096
+USER64_ELFS := $(addprefix build/user64/,$(addsuffix .elf,$(USER_PROGS)))
+LIB64_ELFS  := $(addprefix build/lib64/,$(addsuffix .elf,$(LIBS)))
+
+build/lib64/%.elf: lib/%.c user/psl.ld
+	mkdir -p build/lib64
+	$(CC) $(USER64_CFLAGS) -T user/psl.ld -Wl,--defsym=LIB_BASE=$(LIB_BASE_$*) -Wl,--build-id=none -Wl,-z,noexecstack $< -o $@
+
+build/user64/%.elf: user/%.c user/crt0_64.c user/phoenos.h user/libc.h user/user.ld
+	mkdir -p build/user64
+	$(CC) $(USER64_CFLAGS) -T user/user.ld -Wl,--build-id=none -Wl,-z,noexecstack $< user/crt0_64.c -o $@
+
+ifeq ($(ARCH),x64)
+ISO_EXTRA := $(USER64_ELFS) $(LIB64_ELFS)
+endif
+
+# $(call PACK,dossier des programmes,dossier des bibliotheques,suffixe de dossier) : remplit bin<s>, apps<s>, lib<s> de l'initrd
+define PACK
+	mkdir -p build/initrd/bin$(3) build/initrd/apps$(3) build/initrd/lib$(3)
+	for p in $(USER_PROGS); do cp $(1)/$$p.elf build/initrd/bin$(3)/$$p; done
+	for p in $(USER_PROGS); do build/mkpoe -n $$p -v $(VERSION) -a PhoenOS $(1)/$$p.elf build/initrd/apps$(3)/$$p.poe >/dev/null; done
+	for l in $(LIBS); do build/mkpsl -n $$l -v $(VERSION) -a PhoenOS -d "Bibliotheque d'exemple $$l" \
+	    $$(nm $(2)/$$l.elf | sed -n "s/^[0-9a-f]* [TDRB] \($${l}_[A-Za-z0-9_]*\)$$/-e \1/p") $(2)/$$l.elf build/initrd/lib$(3)/$$l.psl >/dev/null; done
+	build/mkpoe -n utilib -v $(VERSION) -a PhoenOS -d "Exemple : utilise maths et texte" -l maths -l texte \
+	    $(1)/utilib.elf build/initrd/apps$(3)/utilib.poe >/dev/null
+endef
 
 build/lib/%.elf: lib/%.c user/psl.ld
 	mkdir -p build/lib
@@ -119,24 +150,21 @@ build/user/%.elf: user/%.c user/crt0.c user/phoenos.h user/user.ld
 	mkdir -p build/user
 	$(CC) $(USER_CFLAGS) -T user/user.ld -Wl,--build-id=none -Wl,-z,noexecstack $< user/crt0.c -o $@
 
-iso: $(KERNEL) $(USER_ELFS) $(LIB_ELFS)
+iso: $(KERNEL) $(USER_ELFS) $(LIB_ELFS) $(ISO_EXTRA)
 	rm -rf build/isodir
 	mkdir -p build/isodir/boot/grub
 	cp $(KERNEL) build/isodir/boot/phoenos.bin
 	cp $(GRUBCFG) build/isodir/boot/grub/grub.cfg
 	rm -rf build/initrd
 	cp -r initrd build/initrd
-	mkdir -p build/initrd/bin
-	for p in $(USER_PROGS); do cp build/user/$$p.elf build/initrd/bin/$$p; done
-	mkdir -p build/initrd/apps
 	sh tools/build-hosttool.sh build/mkpoe tools/mkpoe.c poe.c crc32.c
-	for p in $(USER_PROGS); do build/mkpoe -n $$p -v $(VERSION) -a PhoenOS build/user/$$p.elf build/initrd/apps/$$p.poe >/dev/null; done
 	sh tools/build-hosttool.sh build/mkpsl tools/mkpsl.c psl.c poe.c elf.c crc32.c
-	mkdir -p build/initrd/lib
-	for l in $(LIBS); do build/mkpsl -n $$l -v $(VERSION) -a PhoenOS -d "Bibliotheque d'exemple $$l" \
-	    $$(nm build/lib/$$l.elf | sed -n "s/^[0-9a-f]* [TDRB] \($${l}_[A-Za-z0-9_]*\)$$/-e \1/p") build/lib/$$l.elf build/initrd/lib/$$l.psl >/dev/null; done
-	build/mkpoe -n utilib -v $(VERSION) -a PhoenOS -d "Exemple : utilise maths et texte" -l maths -l texte \
-	    build/user/utilib.elf build/initrd/apps/utilib.poe >/dev/null
+ifeq ($(ARCH),x64)
+	$(call PACK,build/user64,build/lib64,)
+	$(call PACK,build/user,build/lib,32)
+else
+	$(call PACK,build/user,build/lib,)
+endif
 	tar --format=ustar --owner=0 --group=0 --numeric-owner -cf build/isodir/boot/initrd.tar -C build/initrd .
 	grub-mkrescue -o $(ISO) build/isodir
 	@echo ">> $(ISO) pret"

@@ -1,7 +1,7 @@
 /*
  * PhoenOS perf64 - x64/gdt.c
  * GDT du mode long : 0 nul, 1 code noyau (0x08), 2 donnees noyau (0x10), 3 code utilisateur 32 bits (0x18|3 = 0x1B),
- * 4 donnees utilisateur (0x20|3 = 0x23), 5-6 TSS de 16 octets (0x28). Memes selecteurs que perf32 (gdt.h).
+ * 4 donnees utilisateur (0x20|3 = 0x23), 5-6 TSS de 16 octets (0x28), 7 code utilisateur 64 bits (0x38|3 = 0x3B : programmes x86-64). Memes selecteurs que perf32 (gdt.h).
  * Le TSS donne la pile du noyau (rsp0) utilisee quand un programme ring 3 est interrompu, et une pile dediee (IST1)
  * pour la double faute : meme une pile noyau corrompue laisse afficher l'ecran d'erreur.
  */
@@ -26,7 +26,7 @@ struct gdt_ptr64 {
 #define DF_STACK_SIZE 8192
 
 struct tss64 tss;
-static u64 gdt[7] __attribute__((aligned(16)));
+static u64 gdt[8] __attribute__((aligned(16)));
 static struct gdt_ptr64 gdt_pointer;
 static u8 df_stack[DF_STACK_SIZE] __attribute__((aligned(16)));
 
@@ -49,6 +49,8 @@ void gdt_init(void)
     gdt[5] = (limit & 0xFFFF) | ((base & 0xFFFFFF) << 16) | (0x89ull << 40) | (((limit >> 16) & 0xF) << 48) |
              (((base >> 24) & 0xFF) << 56);     /* TSS 64 bits disponible */
     gdt[6] = base >> 32;
+
+    gdt[7] = 0x00AFFA000000FFFFull;             /* code utilisateur 64 bits (L=1, ring 3) */
 
     tss.rsp0 = (u64)(usize)stack_top;
     tss.ist[0] = (u64)(usize)(df_stack + DF_STACK_SIZE);

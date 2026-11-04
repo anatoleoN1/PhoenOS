@@ -421,6 +421,16 @@ int test_main(void)
         struct fs_node *n;
         int known = 0;
 
+        {   /* 0.11.3 : un vrai programme 64 bits est refuse par un noyau 32 bits (perf32), sans rien reserver */
+            static u8 big[1 << 14];
+            long fd = sys3(5, (long)"user64/hello.iso", 0, 0), r = fd < 0 ? -1 : sys3(3, fd, (long)big, sizeof big);
+            u32 free_before = pmm_free_frames(), p64 = 0;
+
+            CHECK(r > 100 && elf_class(big, (u32)r) == 64);
+            CHECK(user_spawn_bg(big, (u32)r, "hello64", 1, av, &p64) == E_NOEXEC && p64 == 0);
+            CHECK(pmm_free_frames() == free_before);
+            if (fd >= 0) sys3(6, fd, 0, 0);
+        }
         CHECK(fs_lookup("/bin/k5", &n) == E_OK && user_spawn_bg(n->data, n->size, "k5", 1, av, &fpid) == E_OK);
         sched_yield(); sched_yield();
         CHECK(sched_find(fpid) != NULL);

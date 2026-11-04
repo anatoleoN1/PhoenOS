@@ -1871,7 +1871,38 @@ static void capture_sink(char c, void *ctx)
     cp->buf[cp->len++] = c;
 }
 
-static err_t lib_check(const char *name, enum psl_status *st);
+static err_t lib_check(const char *name, int cls, enum psl_status *st);
+
+/* Classe (32/64 bits) du programme d'une application ; classe native si on ne peut pas la lire (le noyau refusera ensuite). */
+static int payload_cls(const u8 *img, u32 len)
+{
+    int c = elf_class(img, len);
+
+    return c ? c : ELF_NATIVE;
+}
+
+static err_t exec_program(const char *path, int argc, char **argv);
+
+/* Cherche `name` + `post` dans /bin, /apps ... puis (perf64) dans /bin32, /apps32 ; E_NOENT si nulle part. */
+static err_t exec_in_dirs(int kind, const char *name, const char *post, int argc, char **argv)
+{
+    char path[72];
+
+    for (int k = 0; k < (ELF_NATIVE == 64 ? 2 : 1); k++) {
+        const char *dir = exec_dir(kind, k == 0 ? ELF_NATIVE : 32);
+        err_t e;
+
+        if (strlen(dir) + strlen(name) + strlen(post) >= sizeof path)
+            return E_NAMETOOLONG;
+        strcpy(path, dir);
+        strcpy(path + strlen(path), name);
+        strcpy(path + strlen(path), post);
+        e = exec_program(path, argc, argv);
+        if (e != E_NOENT)
+            return e;
+    }
+    return E_NOENT;
+}
 
 /* Lance le programme utilisateur `path` (fichier ELF). argv[0] = nom affiche. */
 static err_t exec_program(const char *path, int argc, char **argv)
@@ -1900,12 +1931,12 @@ static err_t exec_program(const char *path, int argc, char **argv)
         }
         for (int i = 0; i < info.nneeds; i++) {             /* les bibliotheques annoncees doivent exister et etre valides */
             enum psl_status ls = PSL_OK;
-            err_t le = lib_check(info.needs[i], &ls);
+            err_t le = lib_check(info.needs[i], payload_cls(info.payload, info.payload_len), &ls);
 
             if (le != E_OK) {
                 color(VGA_LIGHT_RED);
                 keprintf("%s : bibliotheque \"%s\" %s\n", path, info.needs[i],
-                         le == E_NOENT ? "absente de /lib" : psl_status_text(ls));
+                         le == E_NOENT ? "absente de /lib (ou /lib32 pour un programme 32 bits sur perf64)" : psl_status_text(ls));
                 color(VGA_LIGHT_GREY);
                 return E_REPORTED;
             }
@@ -1942,7 +1973,7 @@ static err_t exec_program(const char *path, int argc, char **argv)
     }
     if (e == E_NOEXEC) {
         color(VGA_LIGHT_RED);
-        keprintf("%s : pas un programme PhoenOS valide (ELF 32 bits statique attendu)\n", path);
+        keprintf("%s : pas un programme PhoenOS valide (ELF statique 32 bits ou, sur perf64, 64 bits attendu)\n", path);
         color(VGA_LIGHT_GREY);
         return E_REPORTED;
     }
@@ -1987,12 +2018,13 @@ static void poe_app_name(const char *path, char *dst, usize size)
 /* Cherche une application : chemin tel quel, avec ".poe", puis dans /apps. */
 static err_t find_poe(const char *arg, char *path, usize size)
 {
-    static const struct { const char *pre, *post; } forms[] = { { "", "" }, { "", ".poe" }, { "/apps/", "" }, { "/apps/", ".poe" } };
+    static const struct { const char *pre, *post; } forms[] = { { "", "" }, { "", ".poe" }, { "/apps/", "" }, { "/apps/", ".poe" },
+                                                                         { "/apps32/", "" }, { "/apps32/", ".poe" } };
     struct fs_node *n;
 
-    if (strlen(arg) + 12 > size)
+    if (strlen(arg) + 16 > size)
         return E_NAMETOOLONG;
-    for (int i = 0; i < 4; i++) {
+    for (int i = 0; i < (ELF_NATIVE == 64 ? 6 : 4); i++) {
         if (i >= 2 && strchr(arg, '/'))
             break;
         strcpy(path, forms[i].pre);
@@ -2063,7 +2095,7 @@ static err_t cmd_poeinfo(int argc, char **argv)
         for (int i = 0; i < info.nneeds; i++) {
             enum psl_status ls;
 
-            kprintf(" %s (%s)", info.needs[i], lib_check(info.needs[i], &ls) == E_OK ? "presente" : "ABSENTE ou invalide");
+            kprintf(" %s (%s)", info.needs[i], lib_check(info.needs[i], payload_cls(info.payload, info.payload_len), &ls) == E_OK ? "presente" : "ABSENTE ou invalide");
         }
         kprintf("\n");
     }
@@ -2078,29 +2110,34 @@ static err_t cmd_poeinfo(int argc, char **argv)
 
 /* ---- 0.8.0 : fichiers .poe complets et bibliotheques .psl ---- */
 
-static err_t lib_path(const char *name, char *path, usize size)
+static err_t lib_path(const char *name, int cls, char *path, usize size)
 {
-    if (strlen(name) > 15 || size < 32)
+    const char *dir = exec_dir(DIR_LIB, cls);
+    usize dl = strlen(dir);
+
+    if (strlen(name) > 15 || size < 40)
         return E_NAMETOOLONG;
-    strcpy(path, "/lib/");
-    strcpy(path + 5, name);
-    strcpy(path + 5 + strlen(name), ".psl");
+    strcpy(path, dir);
+    strcpy(path + dl, name);
+    strcpy(path + dl + strlen(name), ".psl");
     return E_OK;
 }
 
 /* Bibliotheque /lib/<nom>.psl : E_OK si presente et valide ; E_NOENT absente ; E_NOLIB invalide (*st = raison). */
-static err_t lib_check(const char *name, enum psl_status *st)
+static err_t lib_check(const char *name, int cls, enum psl_status *st)
 {
     static struct psl_info info;
-    char path[32];
+    char path[40];
     struct fs_node *n;
 
     *st = PSL_BAD_HEADER;
-    if (lib_path(name, path, sizeof path) != E_OK)
+    if (lib_path(name, cls, path, sizeof path) != E_OK)
         return E_NOENT;
     if (fs_lookup(path, &n) != E_OK || n->type != FS_FILE)
         return E_NOENT;
     *st = psl_parse(n->data, n->size, &info);
+    if (*st == PSL_OK && info.cls != cls)
+        *st = PSL_BAD_IMAGE;                                /* classe 32/64 bits differente de celle du programme */
     return *st == PSL_OK ? E_OK : E_NOLIB;
 }
 
@@ -2295,7 +2332,7 @@ static void psl_detail(const char *path, const struct psl_info *i, enum psl_stat
 static err_t cmd_psl(int argc, char **argv)
 {
     static struct psl_info info;
-    char path[32];
+    char path[40];
     struct fs_node *dir, *n;
     const char *name;
     u32 refs, lo, hi, shared;
@@ -2307,9 +2344,11 @@ static err_t cmd_psl(int argc, char **argv)
     if (argc == 2) {
         enum psl_status st;
 
-        if (lib_path(argv[1], path, sizeof path) != E_OK)
+        if (lib_path(argv[1], ELF_NATIVE, path, sizeof path) != E_OK)
             return fail_path("psl", argv[1], E_NAMETOOLONG);
         e = fs_lookup(path, &n);
+        if (e != E_OK && ELF_NATIVE == 64 && lib_path(argv[1], 32, path, sizeof path) == E_OK)
+            e = fs_lookup(path, &n);                        /* perf64 : sinon la version 32 bits (/lib32) */
         if (e != E_OK || n->type != FS_FILE)
             return fail_path("psl", path, e == E_OK ? E_ISDIR : e);
         st = psl_parse(n->data, n->size, &info);
@@ -2322,20 +2361,24 @@ static err_t cmd_psl(int argc, char **argv)
         psl_detail(path, &info, st);
         return E_OK;
     }
-    e = fs_lookup("/lib", &dir);
-    if (e == E_OK && dir->type == FS_DIR) {
-        for (n = dir->child; n; n = n->next) {
-            enum psl_status st;
+    for (int k = 0; k < (ELF_NATIVE == 64 ? 2 : 1); k++) {          /* /lib, puis (perf64) /lib32 */
+        const char *ld = k == 0 ? "/lib" : "/lib32";
 
-            if (n->type != FS_FILE)
-                continue;
-            st = psl_parse(n->data, n->size, &info);
-            any = 1;
-            if (st == PSL_OK || st == PSL_BAD_IMAGE || st == PSL_BAD_CRC || st == PSL_NEEDS_NEWER)
-                kprintf("  %-10s %-8s %#x-%#x  %s%s\n", info.name, info.version, info.lo, info.hi,
-                        info.description, st == PSL_OK ? "" : " [INVALIDE]");
-            else
-                kprintf("  %-10s [INVALIDE : %s]\n", n->name, psl_status_text(st));
+        e = fs_lookup(ld, &dir);
+        if (e == E_OK && dir->type == FS_DIR) {
+            for (n = dir->child; n; n = n->next) {
+                enum psl_status st;
+
+                if (n->type != FS_FILE)
+                    continue;
+                st = psl_parse(n->data, n->size, &info);
+                any = 1;
+                if (st == PSL_OK || st == PSL_BAD_IMAGE || st == PSL_BAD_CRC || st == PSL_NEEDS_NEWER)
+                    kprintf("  %-10s %-8s %#x-%#x  %s%s%s\n", info.name, info.version, info.lo, info.hi,
+                            info.description, info.cls == ELF_NATIVE ? "" : " [32 bits]", st == PSL_OK ? "" : " [INVALIDE]");
+                else
+                    kprintf("  %-10s [INVALIDE : %s]\n", n->name, psl_status_text(st));
+            }
         }
     }
     if (!any)
@@ -2362,13 +2405,9 @@ static err_t cmd_run(int argc, char **argv)
     if (!pargv[0][0])
         return fail_path("run", argv[1], E_ISDIR);
     if (argv[1][0] != '/' && !strchr(argv[1], '/')) {   /* nom seul : cherche dans /bin */
-        char path[64];
-
         if (strlen(argv[1]) > 40)
             return fail_path("run", argv[1], E_NAMETOOLONG);
-        strcpy(path, "/bin/");
-        strcpy(path + 5, argv[1]);
-        e = exec_program(path, argc - 1, pargv);
+        e = exec_in_dirs(DIR_BIN, argv[1], "", argc - 1, pargv);    /* /bin, puis (perf64) /bin32 */
     } else {
         e = exec_program(argv[1], argc - 1, pargv);
     }
@@ -2396,18 +2435,9 @@ static err_t run_command(int argc, char **argv)
         }
     }
     if (strlen(argv[0]) <= 40 && !strchr(argv[0], '/')) {      /* programme dans /bin ? */
-        char path[64];
-        err_t e;
-
-        strcpy(path, "/bin/");
-        strcpy(path + 5, argv[0]);
-        e = exec_program(path, argc, argv);
-        if (e == E_NOENT && strlen(argv[0]) <= 40) {            /* sinon : application /apps/<nom>.poe */
-            strcpy(path, "/apps/");
-            strcpy(path + 6, argv[0]);
-            strcpy(path + 6 + strlen(argv[0]), ".poe");
-            e = exec_program(path, argc, argv);
-        }
+        err_t e = exec_in_dirs(DIR_BIN, argv[0], "", argc, argv);
+        if (e == E_NOENT)                                       /* sinon : application /apps/<nom>.poe (puis /apps32) */
+            e = exec_in_dirs(DIR_APPS, argv[0], ".poe", argc, argv);
         if (e != E_NOENT && e != E_ISDIR) {
             if (e != E_OK && e != E_REPORTED) {
                 color(VGA_LIGHT_RED);

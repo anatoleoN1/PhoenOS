@@ -110,8 +110,8 @@ struct heap_blk {
     uint size;                                  /* octets de donnees (multiple de 16) */
     uint magic;
     struct heap_blk *prev, *next;               /* voisins en memoire (adresses croissantes) */
-};
-#define HEAP_HDR ((uint)sizeof(struct heap_blk))   /* 16 : les donnees restent alignees sur 16 */
+} __attribute__((aligned(16)));                 /* 16 octets en 32 bits, 32 en 64 bits */
+#define HEAP_HDR ((uint)sizeof(struct heap_blk))   /* 16 ou 32 : les donnees restent alignees sur 16 */
 
 static struct heap_blk *heap_head, *heap_tail;
 static uint heap_total;                         /* octets pris au noyau (en-tetes compris) */
@@ -140,7 +140,7 @@ static inline int heap_grow(uint bytes)
     got = brk_to(want);
     if (got != want)
         return 0;                               /* refuse : plus de memoire, ou limite du tas atteinte */
-    b = (struct heap_blk *)cur;
+    b = (struct heap_blk *)(uptr)cur;
     b->size = bytes - HEAP_HDR;
     b->magic = HEAP_MAGIC_FREE;
     b->prev = heap_tail;
@@ -209,7 +209,7 @@ static inline void free(void *p)
 
     if (!p)
         return;
-    if ((uint)p & 15u || (uchar *)p < (uchar *)heap_head + HEAP_HDR || (uint)p >= brk_to(0))
+    if ((uptr)p & 15u || (uchar *)p < (uchar *)heap_head + HEAP_HDR || (uptr)p >= brk_to(0))
         heap_die("free: pointeur invalide");
     b = (struct heap_blk *)((uchar *)p - HEAP_HDR);
     if (b->magic == HEAP_MAGIC_FREE)
@@ -236,7 +236,7 @@ static inline void free(void *p)
     }
     if (b == heap_tail && b->size + HEAP_HDR >= HEAP_GIVE_BACK) {       /* la fin du tas est libre : on la rend au noyau */
         uint total = b->size + HEAP_HDR, give = (total - 4096u) & ~0xFFFu;   /* on garde une page, le bloc reste valide */
-        uint end = (uint)b + total;
+        uint end = (uint)(uptr)b + total;
 
         if (give && brk_to(end - give) == end - give) {
             b->size -= give;
@@ -329,7 +329,11 @@ static inline int vsnprintf(char *out, uint cap, const char *fmt, va_list ap)
             goto number;
         }
         case 'u': v = va_arg(ap, uint); goto number;
-        case 'x': case 'X': case 'p':
+        case 'p':
+            v = (uint)(uptr)va_arg(ap, void *);         /* adresses de programme : toujours sous 4 Gio */
+            base = 16;
+            goto number;
+        case 'x': case 'X':
             v = va_arg(ap, uint);
             base = 16;
         number:

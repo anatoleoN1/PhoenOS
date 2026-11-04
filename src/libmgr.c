@@ -35,24 +35,26 @@ static int is_name_ok(const char *name)
     return 1;
 }
 
-static err_t read_lib(const char *name, struct psl_info *info, const u8 **file, enum psl_status *st)
+static err_t read_lib(const char *name, int cls, struct psl_info *info, const u8 **file, enum psl_status *st)
 {
-    char path[32];
+    char path[40];
+    const char *dir = exec_dir(DIR_LIB, cls);
+    usize dl = strlen(dir);
     struct fs_node *n;
     err_t e;
 
     *st = PSL_BAD_HEADER;
     if (!is_name_ok(name))
         return E_NOLIB;
-    strcpy(path, "/lib/");
-    strcpy(path + 5, name);
-    strcpy(path + 5 + strlen(name), ".psl");
+    strcpy(path, dir);
+    strcpy(path + dl, name);
+    strcpy(path + dl + strlen(name), ".psl");
     e = fs_lookup(path, &n);
     if (e != E_OK || n->type != FS_FILE)
         return E_NOENT;
     *st = psl_parse(n->data, n->size, info);
-    if (*st == PSL_OK && strcmp(info->name, name) != 0)
-        *st = PSL_BAD_HEADER;                           /* le nom du fichier doit etre celui de l'en-tete */
+    if (*st == PSL_OK && (strcmp(info->name, name) != 0 || info->cls != cls))
+        *st = PSL_BAD_HEADER;                           /* aussi : classe (32/64 bits) differente de celle du programme */                           /* le nom du fichier doit etre celui de l'en-tete */
     *file = n->data;
     return *st == PSL_OK ? E_OK : E_NOLIB;
 }
@@ -102,7 +104,7 @@ static void cache_free(int i)
 }
 
 /* Trouve (ou charge) la bibliotheque dans le gestionnaire. */
-static err_t cache_get(const char *name, int *idx)
+static err_t cache_get(const char *name, int cls, int *idx)
 {
     static struct psl_info info;
     const u8 *file;
@@ -113,14 +115,14 @@ static err_t cache_get(const char *name, int *idx)
     err_t e;
 
     for (int i = 0; i < LIBMGR_MAX; i++) {
-        if (cache[i] && strcmp(cache[i]->info.name, name) == 0) {
+        if (cache[i] && cache[i]->info.cls == cls && strcmp(cache[i]->info.name, name) == 0) {
             *idx = i;
             return E_OK;
         }
         if (!cache[i] && free_slot < 0)
             free_slot = i;
     }
-    e = read_lib(name, &info, &file, &st);
+    e = read_lib(name, cls, &info, &file, &st);
     if (e != E_OK) {
         if (e == E_NOLIB)
             DWARN("psl", "bibliotheque %s refusee : %s", name, psl_status_text(st));
@@ -213,7 +215,7 @@ err_t libmgr_attach(struct uproc *p, const char *name)
 
     if (!as)
         return E_NOSYS;
-    e = cache_get(name, &idx);
+    e = cache_get(name, p->is64 ? 64 : 32, &idx);
     if (e != E_OK)
         return e;
     c = cache[idx];

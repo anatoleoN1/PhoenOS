@@ -345,6 +345,16 @@ int test_main(void)
     CHECK(SYS(SYS_SPAWN, 0, 0, 0) == E_FAULT && SYS(SYS_SPAWN, A(2000), 0x100000, 0) == E_FAULT);
     strcpy((char *)umem + 2300, "/refuse");
     CHECK(SYS(SYS_SPAWN, A(2300), 0, 0) == E_BUSY);                                   /* l'erreur du noyau est rendue telle quelle */
+    /* 0.11.3 : programme 64 bits : argv = pointeurs de 8 octets (les 4 octets hauts doivent etre nuls) */
+    P.is64 = 1;
+    { u64 av[3] = { A(2020), A(2040), 0 }; memcpy(umem + 2500, av, sizeof av); }
+    CHECK(SYS(SYS_SPAWN, A(2000), A(2500), 0) == 42 && sp_argc == 2 && !strcmp(sp_arg0, "arg-un") && !strcmp(sp_arg1, "arg-deux"));
+    { u64 av[3] = { A(2020), 0x100000000ull + A(2040), 0 }; memcpy(umem + 2500, av, sizeof av); }
+    CHECK(SYS(SYS_SPAWN, A(2000), A(2500), 0) == E_FAULT);                                 /* pointeur au-dessus de 4 Gio : refuse */
+    { u64 av[1] = { 0 }; memcpy(umem + 2500, av, sizeof av); }
+    CHECK(SYS(SYS_SPAWN, A(2000), A(2500), 0) == 42 && sp_argc == 1);
+    CHECK(SYS(SYS_SPAWN, A(2000), A(8190), 0) == E_FAULT);                                 /* le 8e octet sort de la zone */
+    P.is64 = 0;
     CHECK(SYS(SYS_WAITPID, 7, A(2400), 0) == 7 && wp_pid == 7 && wp_opt == 0 && *(int *)(umem + 2400) == 77);
     CHECK(SYS(SYS_WAITPID, (u32)-1, 0, WNOHANG) == 5 && wp_pid == -1 && wp_opt == WNOHANG);   /* statut optionnel */
     CHECK(SYS(SYS_WAITPID, 7, 0x100000, 0) == E_FAULT);                               /* statut hors zone : refuse AVANT d'attendre */

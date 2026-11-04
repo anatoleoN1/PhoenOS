@@ -28,7 +28,7 @@ int main(void)
     {   /* malloc : alignement, zero, double liberation detectee ailleurs ; ici : grosses tailles et refus propre */
         void *a = malloc(1), *c = calloc(100, 4), *big = malloc(1u << 30), *huge = malloc(0x7FFFFFFF);
 
-        if (!a || ((uint)a & 15) || !c || ((uint)c & 15)) { puts("ECHEC : malloc\n"); fails++; }
+        if (!a || ((uptr)a & 15) || !c || ((uptr)c & 15)) { puts("ECHEC : malloc\n"); fails++; }
         for (int i = 0; i < 400; i++) if (((char *)c)[i]) { puts("ECHEC : calloc non nul\n"); fails++; break; }
         if (huge || (big && 0)) { puts("ECHEC : enorme alloue\n"); fails++; }
         if (calloc(0x10000000, 0x100)) { puts("ECHEC : calloc debordement\n"); fails++; }

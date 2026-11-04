@@ -2,11 +2,11 @@
 #define PHOENOS_VERSION_H
 
 #define PHOENOS_NAME    "PhoenOS"
-#define PHOENOS_VERSION "0.11.2"
+#define PHOENOS_VERSION "0.11.3"
 
 /* Numero de build = x*1000000 + y*1000 + z : sert a comparer les versions (mises a jour, anti-retour-arriere).
  * Un test (tests/run.sh) verifie qu'il correspond a PHOENOS_VERSION. */
-#define PHOENOS_BUILD   11002u
+#define PHOENOS_BUILD   11003u
 
 /* Edition de ce noyau : perf32 (Performance 32 bits), perf64 (Performance 64 bits), pui64 (Puissance 64 bits). */
 #ifdef PHOENOS_ED_PERF64

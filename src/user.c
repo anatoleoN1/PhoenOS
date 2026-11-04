@@ -32,6 +32,9 @@ extern void tss_set_rsp0(usize rsp0);           /* x64/gdt.c */
 extern struct { u32 prev, esp0; } tss;          /* debut de la structure de gdt.c */
 #endif
 extern void enter_user_mode(u32 entry, u32 user_esp);   /* switch.S : ne revient jamais */
+#ifdef __x86_64__
+extern void enter_user_mode64(u32 entry, u32 user_rsp); /* x64/switch.S : ring 3 en mode long (segment de code 64 bits) */
+#endif
 
 #define CTRL_C 3
 
@@ -43,6 +46,7 @@ struct utask {
     int bg;                                     /* pas de clavier : sa lecture donne la fin de fichier */
     int notify;                                 /* affiche "[pid] ... termine" a sa fin (lance par le shell avec &) */
     int faulted;                                /* arrete par une faute du processeur */
+    int is64;                                   /* programme 64 bits (mode long) : meme valeur que proc.is64 */
 };
 
 /* Codes de sortie des derniers programmes (commande wait : un programme detache est libere des qu'il finit). */
@@ -130,10 +134,11 @@ struct uproc *user_current(void)
 #define STACK_TMP 8192u                         /* 16 mots + 4 Kio de textes + pointeurs, largement */
 #define STACK_TMP_BASE (USER_END - STACK_TMP)
 
-/* Construit argc, argv[], NULL puis les chaines dans `mem` (qui represente [STACK_TMP_BASE, USER_END)). */
-static err_t build_stack(u8 *mem, int argc, char **argv, u32 *esp)
+/* Construit argc, argv[], NULL puis les chaines dans `mem` (qui represente [STACK_TMP_BASE, USER_END)).
+ * Programme 32 bits : mots de 4 octets ; programme 64 bits : argc sur 8 octets et pointeurs de 8 octets. */
+static err_t build_stack(u8 *mem, int argc, char **argv, int is64, u32 *esp)
 {
-    u32 total = 0, sp, argv_addr;
+    u32 total = 0, sp, argv_addr, w = is64 ? 8u : 4u;
     u32 ptrs[USER_ARGS_MAX];
 
     if (argc < 0 || argc > USER_ARGS_MAX)
@@ -152,12 +157,17 @@ static err_t build_stack(u8 *mem, int argc, char **argv, u32 *esp)
         ptrs[i] = sp;
     }
     sp &= ~15u;
-    sp -= 4 * ((u32)argc + 1);                  /* argv[0..argc-1] et NULL */
+    sp -= w * ((u32)argc + 1);                  /* argv[0..argc-1] et NULL */
     argv_addr = sp;
-    for (int i = 0; i < argc; i++)
-        memcpy(mem + (argv_addr - STACK_TMP_BASE) + 4u * (u32)i, &ptrs[i], 4);
-    memset(mem + (argv_addr - STACK_TMP_BASE) + 4u * (u32)argc, 0, 4);
-    sp -= 4;
+    for (int i = 0; i < argc; i++) {
+        u64 v = ptrs[i];
+
+        memset(mem + (argv_addr - STACK_TMP_BASE) + w * (u32)i, 0, w);
+        memcpy(mem + (argv_addr - STACK_TMP_BASE) + w * (u32)i, &v, 4);        /* petit-boutiste : les 4 octets hauts restent a zero */
+    }
+    memset(mem + (argv_addr - STACK_TMP_BASE) + w * (u32)argc, 0, w);
+    sp -= w;
+    memset(mem + (sp - STACK_TMP_BASE), 0, w);
     memcpy(mem + (sp - STACK_TMP_BASE), &argc, 4);
     *esp = sp;
     return E_OK;
@@ -260,6 +270,10 @@ static void user_task_main(void *arg)
 {
     struct utask *u = arg;
 
+#ifdef __x86_64__
+    if (u->is64)
+        enter_user_mode64(u->entry, u->esp);
+#endif
     enter_user_mode(u->entry, u->esp);
 }
 
@@ -292,6 +306,7 @@ static err_t user_spawn(const u8 *image, u32 size, const char *name, int argc, c
     struct utask *u;
     int nseg = 0;
     u32 entry, esp, image_end = USER_BASE;
+    int cls = elf_class(image, size);
     u32 stack_lo = USER_END - USER_STACK_SIZE;
     char needs[POE_MAX_NEEDS][POE_LIBNAME_MAX];
     int nneeds = pending_nneeds;
@@ -301,6 +316,8 @@ static err_t user_spawn(const u8 *image, u32 size, const char *name, int argc, c
     pending_nneeds = 0;
     if (!user_ok || !paging_enabled() || !sched_ready())
         return E_NOSYS;
+    if (cls == 64 && ELF_NATIVE != 64)
+        return E_NOEXEC;                        /* programme 64 bits sur un noyau 32 bits (perf32) */
     e = elf_segments(image, size, USER_BASE, PSL_LIB_LO, segs, &nseg, &entry);   /* valide avant de rien reserver */
     if (e != E_OK)
         return e;
@@ -320,7 +337,7 @@ static err_t user_spawn(const u8 *image, u32 size, const char *name, int argc, c
     if (e == E_OK)
         e = elf_load_with(image, size, load_put, &u->space, USER_BASE, PSL_LIB_LO, &entry);
     if (e == E_OK)
-        e = build_stack(stack_tmp, argc, argv, &esp);
+        e = build_stack(stack_tmp, argc, argv, cls == 64, &esp);
     if (e == E_OK)
         e = aspace_put(&u->space, esp, stack_tmp + (esp - STACK_TMP_BASE), USER_END - esp);
     if (e != E_OK) {
@@ -337,6 +354,8 @@ static err_t user_spawn(const u8 *image, u32 size, const char *name, int argc, c
             image_end = segs[i].hi;
     user_proc_reset(&u->proc, name);
     u->proc.as = &u->space;
+    u->proc.is64 = cls == 64;                   /* avant libmgr_attach : il choisit /lib ou /lib32 selon la classe */
+    u->is64 = cls == 64;
     for (int i = 0; i < nneeds && e == E_OK; i++)
         e = libmgr_attach(&u->proc, needs[i]);
     if (e == E_BUSY || e == E_2BIG)
@@ -374,8 +393,8 @@ static err_t user_spawn(const u8 *image, u32 size, const char *name, int argc, c
         return e;
     }
     u->proc.pid = u->task->id;
-    DINFO("prog", "pid %u : %s lance (%s), image %u octets, %u pages, point d'entree %#x, argc %d", u->proc.pid, name,
-          bg ? "arriere-plan" : "premier plan", size, u->space.pages, entry, argc);
+    DINFO("prog", "pid %u : %s lance (%s, %d bits), image %u octets, %u pages, point d'entree %#x, argc %d", u->proc.pid, name,
+          bg ? "arriere-plan" : "premier plan", cls, size, u->space.pages, entry, argc);
     for (int i = 1; i < argc; i++)
         DDEBUG("prog", "pid %u : argv[%d] = \"%s\"", u->proc.pid, i, argv[i]);
     *out = u;
@@ -410,7 +429,7 @@ err_t user_kill_tree(u32 pid)
 
 err_t user_spawn_child(struct uproc *parent, const char *path, int argc, char **argv, u32 *pid)
 {
-    char full[40];
+    char full[48];
     struct fs_node *n;
     struct utask *u;
     const u8 *image;
@@ -421,9 +440,14 @@ err_t user_spawn_child(struct uproc *parent, const char *path, int argc, char **
     for (const char *c = path; *c; c++)
         if (*c == '/')
             has_slash = 1;
-    if (e == E_NOENT && !has_slash && strlen(path) < sizeof full - 6) {      /* "ticker" : on cherche dans /bin */
-        strcpy(full, "/bin/");
-        strcpy(full + 5, path);
+    /* "ticker" : on cherche dans /bin, puis (perf64) dans /bin32 pour les programmes 32 bits */
+    for (int k = 0; e == E_NOENT && !has_slash && k < (ELF_NATIVE == 64 ? 2 : 1); k++) {
+        const char *dir = exec_dir(DIR_BIN, k == 0 ? ELF_NATIVE : 32);
+
+        if (strlen(dir) + strlen(path) >= sizeof full)
+            break;
+        strcpy(full, dir);
+        strcpy(full + strlen(dir), path);
         e = fs_lookup(full, &n);
     }
     if (e != E_OK)
@@ -569,7 +593,11 @@ void syscall_entry(struct regs *r)
         return;
     }
     cpu_sti();                                  /* le clavier et le timer doivent continuer */
+#ifdef __x86_64__
+    r->rax = (u64)(i64)syscall_dispatch(p, r->eax, r->ebx, r->ecx, r->edx);     /* rax entier : un programme 64 bits lit tout rax */
+#else
     r->eax = (u32)syscall_dispatch(p, r->eax, r->ebx, r->ecx, r->edx);
+#endif
     if (p->exit_requested)
         user_exit(p->exit_code);
     if (sched_current()->killed)

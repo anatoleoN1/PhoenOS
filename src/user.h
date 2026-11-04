@@ -75,6 +75,7 @@ struct uproc {
     struct aspace *as;                  /* ses pages reellement mappees (NULL : seule la fenetre compte, tests) */
     u32  ppid;                          /* programme qui l'a lance (0 : le shell) */
     u32  heap_lo, heap_cur, heap_hi;    /* tas (brk) : debut, fin actuelle, limite ; heap_hi == 0 : pas de tas */
+    u8   is64;                          /* 1 : programme 64 bits (perf64, ring 3 en mode long) ; 0 : programme 32 bits (i386) */
     u8   nlibs;                         /* bibliotheques .psl utilisees (indices du gestionnaire, libmgr.h) */
     u8   libs[PSL_PER_PROC];
     struct user_fd fd[USER_MAX_FDS];
