@@ -2,6 +2,11 @@
  * PhoenOS - kernel.c
  * Point d'entrée du noyau (appelé depuis boot.S).
  */
+#include "gfxsys.h"
+#include "mouse.h"
+#ifdef __x86_64__
+#include "x64/gfxdev.h"
+#endif
 #include "types.h"
 #include "multiboot.h"
 #include "vga.h"
@@ -273,6 +278,11 @@ void kernel_main(u32 magic, const struct multiboot_info *mbi)
 
     cpu_sti();
     status(1, "IDT, PIC, timer (100 Hz) et clavier AZERTY initialises");
+#ifdef __x86_64__
+    gfx_x64_init();                                 /* ecran graphique, souris PS/2 (IRQ 12) : sans eux, le systeme reste en texte */
+    if (gfx_dev_hook)
+        kprintf("       Ecran graphique pret%s\n", mouse_present() ? ", souris PS/2 detectee" : ", pas de souris");
+#endif
 
     __asm__ volatile ("int3");
     status(isr_breakpoint_count() == 1, "Exceptions CPU : point d'arret traite");

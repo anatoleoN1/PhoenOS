@@ -37,6 +37,8 @@
 #include "net.h"
 #include "crypto.h"
 #include "update.h"
+#include "gfxsys.h"
+#include "mouse.h"
 
 #define LINE_MAX 256
 #define MAX_ARGS 16
@@ -75,6 +77,9 @@ static err_t cmd_mem(int argc, char **argv);
 static err_t cmd_memtest(int argc, char **argv);
 static err_t cmd_echo(int argc, char **argv);
 static err_t cmd_sleep(int argc, char **argv);
+static err_t cmd_mode(int argc, char **argv);
+static err_t cmd_souris(int argc, char **argv);
+static err_t cmd_bureau(int argc, char **argv);
 static err_t cmd_ps(int argc, char **argv);
 static err_t cmd_kill(int argc, char **argv);
 static err_t cmd_wait(int argc, char **argv);
@@ -137,6 +142,7 @@ static void erase_line(usize len);
 #define G_DISK "Stockage"
 #define G_TXT "Texte"
 #define G_NET "Reseau"
+#define G_GFX "Graphique"
 
 static const struct command commands[] = {
     { G_SYS, "help",     "[commande]",   "Liste les commandes, ou detaille l'une d'elles",  cmd_help     },
@@ -154,6 +160,9 @@ static const struct command commands[] = {
     { G_SYS, "psl",      "[bibliotheque]", "Liste les bibliotheques partagees (/lib) ou detaille l'une d'elles", cmd_psl },
     { G_SYS, "pslpack",  "-n nom -v version -a auteur [-d texte] -e symbole... <elf> <sortie.psl>", "Cree une bibliotheque partagee .psl", cmd_pslpack },
     { G_SYS, "run",      "<programme> [args]", "Lance un programme (ex. run /bin/hello ; /bin/ implicite)", cmd_run },
+    { G_GFX, "mode",     "[LxH | liste]", "Resolution de l'ecran (affiche, liste ou change)",  cmd_mode     },
+    { G_GFX, "souris",   "",             "Etat de la souris (position, boutons) ; Echap pour finir", cmd_souris   },
+    { G_GFX, "bureau",   "",             "Lance le bureau graphique (Echap pour revenir)", cmd_bureau   },
     { G_SYS, "ps",       "",             "Liste les programmes en cours (taches)",         cmd_ps       },
     { G_SYS, "schedlog", "",             "Journal de l'ordonnanceur (diagnostic)",        cmd_schedlog },
     { G_SYS, "kill",     "<numero>",     "Arrete un programme (voir ps)",                  cmd_kill     },
@@ -379,6 +388,110 @@ static err_t cmd_sleep(int argc, char **argv)
         sched_sleep_ms(ms);                     /* les programmes en arriere-plan continuent */
     else
         pit_sleep_ms(ms);
+    return E_OK;
+}
+
+static err_t cmd_mode(int argc, char **argv)
+{
+    u32 w, h, nw = 0, nh = 0;
+    struct gfx_mode m[16];
+    int n = 0;
+
+    if (argc > 2)
+        return usage("mode [LxH | liste]");
+    if (gfx_info(&w, &h) != E_OK)
+        return fail_msg("Pas d'ecran graphique (console texte VGA).");
+    if (argc == 1) {
+        kprintf("Ecran : %u x %u pixels (32 bits par pixel)\n", w, h);
+        return E_OK;
+    }
+    if (gfx_dev_hook->modes)
+        n = gfx_dev_hook->modes(m, 16);
+    if (strcmp(argv[1], "liste") == 0) {
+        if (!gfx_dev_hook->set_mode || n == 0) {
+            kprintf("Resolution actuelle : %u x %u. Cette carte ne change pas de mode a chaud :\n"
+                    "choisissez la resolution dans le menu de demarrage (GRUB).\n", w, h);
+            return E_OK;
+        }
+        for (int i = 0; i < n; i++)
+            kprintf("  %u x %u%s\n", m[i].w, m[i].h, (m[i].w == w && m[i].h == h) ? "   (actuel)" : "");
+        return E_OK;
+    }
+    {
+        const char *a = argv[1];
+        int ok = 0;
+
+        while (*a >= '0' && *a <= '9' && nw < 100000)
+            nw = nw * 10 + (u32)(*a++ - '0');
+        if (*a == 'x' || *a == 'X') {
+            a++;
+            while (*a >= '0' && *a <= '9' && nh < 100000)
+                nh = nh * 10 + (u32)(*a++ - '0');
+            ok = *a == 0 && nw && nh;
+        }
+        if (!ok)
+            return usage("mode [LxH | liste]   (exemple : mode 1280x720)");
+    }
+    if (!gfx_dev_hook->set_mode)
+        return fail_msg("Cette carte ne change pas de mode a chaud : utilisez le menu de demarrage (GRUB).");
+    if (gfx_owner())
+        return fail_msg("Un programme utilise l'ecran graphique.");
+    {
+        err_t e = gfx_dev_hook->set_mode(nw, nh);
+
+        if (e == E_NOSYS)
+            return fail_msg("Cette carte ne change pas de mode a chaud : utilisez le menu de demarrage (GRUB).");
+        if (e != E_OK)
+            return fail_msg("Resolution refusee (voir mode liste).");
+    }
+    gfx_info(&w, &h);
+    kprintf("Ecran : %u x %u pixels\n", w, h);
+    return E_OK;
+}
+
+static err_t cmd_souris(int argc, char **argv)
+{
+    struct mouse_state m;
+    u32 last = ~0u;
+
+    (void)argv;
+    if (argc != 1)
+        return usage("souris");
+    if (!mouse_present())
+        return fail_msg("Pas de souris PS/2 detectee.");
+    kprintf("Bougez la souris (cliquez dans la fenetre QEMU pour la capturer) ; Echap pour finir.\n");
+    for (;;) {
+        int k = keyboard_try_getc();
+
+        if (k == 27)
+            break;
+        mouse_get(&m);
+        if (m.events != last) {
+            last = m.events;
+            kprintf("\r x=%d y=%d boutons=%c%c%c molette=%d    ", m.x, m.y, (m.buttons & MOUSE_LEFT) ? 'G' : '-',
+                    (m.buttons & MOUSE_MIDDLE) ? 'M' : '-', (m.buttons & MOUSE_RIGHT) ? 'D' : '-', m.wheel);
+        }
+        if (sched_ready())
+            sched_sleep_ms(10);
+        else
+            pit_sleep_ms(10);
+    }
+    kprintf("\n");
+    return E_OK;
+}
+
+static err_t cmd_bureau(int argc, char **argv)
+{
+    u32 w, h;
+
+    (void)argv;
+    if (argc != 1)
+        return usage("bureau");
+    if (gfx_info(&w, &h) != E_OK || !gfx_dev_hook->desktop)
+        return fail_msg("Le bureau demande l'edition perf64 avec un ecran graphique.");
+    if (!mouse_present())
+        kprintf("Pas de souris detectee : le bureau reste utilisable au clavier (Echap pour quitter).\n");
+    gfx_dev_hook->desktop();
     return E_OK;
 }
 

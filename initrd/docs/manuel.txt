@@ -1,4 +1,4 @@
-MANUEL DE PHOENOS 0.11.3
+MANUEL DE PHOENOS 0.12.0
 =======================
 Tapez  man            pour la liste des sujets,
        man <sujet>    pour lire un sujet (exemple : man ls).
@@ -135,6 +135,43 @@ Differences avec Unix : pas de droits ni de proprietaires (les dates existent, v
   - Tous les programmes d'exemple (hello, primes, tas, ...) existent dans les deux largeurs :
     "run hello" lance la version 64 bits sur perf64, "run /bin32/hello" la version 32 bits.
   - Pour spawn(), un programme 64 bits passe un argv de pointeurs de 8 octets (voir user/crt0_64.c).
+
+== graphique  - ecran en pixels, souris et bureau (0.12.0)
+  Edition perf64 seulement, quand le demarrage fournit un ecran en pixels (UEFI, ou BIOS + GRUB). La console texte est alors
+  dessinee en pixels ; les commandes mode, souris et bureau et les programmes dessin, plasma et mandel utilisent cet ecran.
+  - Sous QEMU : utiliser la carte "-vga std" (c'est la valeur par defaut du Makefile). Pour que la souris existe, cliquer dans la
+    fenetre QEMU (elle est alors capturee) ; Ctrl+Alt+G la rend a votre bureau.
+  - Le changement de resolution a chaud ne marche qu'avec la carte VGA standard de QEMU. Sur une autre carte, choisissez la
+    resolution dans le menu de demarrage (GRUB), puis "mode" affiche celle obtenue.
+  - Un seul programme a la fois peut prendre l'ecran ; il le rend en se terminant. En perf32 : pas d'ecran graphique.
+  Appels systeme (213 a 217, voir user/phoenos.h) : gfx_info, gfx_claim, gfx_blit, mouse_get, inkey.
+
+== mode  - resolution de l'ecran
+  Syntaxe : mode [LxH | liste]
+  Sans argument : affiche la resolution. "mode liste" : les resolutions proposees. "mode 1280x720" : la change.
+  Exemple : mode 1024x768      (carte VGA standard de QEMU seulement ; voir "man graphique")
+
+== souris  - etat de la souris
+  Syntaxe : souris
+  Affiche en direct la position, les boutons (G gauche, M milieu, D droit) et la molette. Echap pour finir.
+  Cliquer d'abord dans la fenetre QEMU pour capturer la souris.
+
+== bureau  - bureau graphique
+  Syntaxe : bureau
+  Fond, fenetres deplacables a la souris (horloge, systeme, dessin, aide) et barre des taches. Glisser la barre de titre pour
+  deplacer, carre orange pour fermer, boutons du bas pour rouvrir, clic droit dans Dessin pour effacer. Echap : retour au shell.
+
+== dessin  - dessiner a la souris
+  Syntaxe : exe dessin
+  Clic gauche : tracer ; clic droit : tout effacer ; touches 1 a 6 : couleur ; Echap : fin. Voir "man graphique".
+
+== plasma  - motif anime
+  Syntaxe : exe plasma
+  Motif anime calcule en nombres entiers, agrandi pour remplir l'ecran. Une touche pour finir (au plus 60 s).
+
+== mandel  - ensemble de Mandelbrot
+  Syntaxe : exe mandel
+  Clic gauche : zoom sur le point ; clic droit : dezoom ; Echap : fin. Calcul en virgule fixe 8.24.
 
 == help  - rappel rapide d'une commande
   Syntaxe : help [commande]

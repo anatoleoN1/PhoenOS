@@ -14,6 +14,7 @@
 #include "poe.h"
 #include "aspace.h"
 #include "libmgr.h"
+#include "gfxsys.h"
 #include "paging.h"
 #include "pmm.h"
 #include "kheap.h"
@@ -234,6 +235,7 @@ static void user_cleanup(void *owner)
 {
     struct utask *u = owner;
 
+    gfx_proc_exit(u->proc.pid);                 /* rend l'ecran graphique s'il l'avait */
     tlss_release_owner(u->proc.pid);            /* sa session securisee (avant le TCP dont elle depend) */
     tcp_release_owner(u->proc.pid);             /* ses connexions TCP */
     libmgr_detach_all(&u->proc);                /* rend les bibliotheques (la derniere libere les pages partagees) */

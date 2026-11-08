@@ -15,7 +15,8 @@ enum { SYS_EXIT = 1, SYS_READ = 3, SYS_WRITE = 4, SYS_OPEN = 5, SYS_CLOSE = 6, S
        SYS_GETPID = 20, SYS_KILL = 37, SYS_BRK = 45, SYS_GETPPID = 64, SYS_SCHED_YIELD = 158,
        SYS_LOG = 199, SYS_SLEEP_MS = 200, SYS_UPTIME = 201, SYS_SPAWN = 202, SYS_PSL = 203,
        SYS_SOCK_CONNECT = 204, SYS_SOCK_SEND = 205, SYS_SOCK_RECV = 206, SYS_SOCK_CLOSE = 207,
-       SYS_TLS_CONNECT = 208, SYS_TLS_SEND = 209, SYS_TLS_RECV = 210, SYS_TLS_CLOSE = 211, SYS_TLS_ERROR = 212 };
+       SYS_TLS_CONNECT = 208, SYS_TLS_SEND = 209, SYS_TLS_RECV = 210, SYS_TLS_CLOSE = 211, SYS_TLS_ERROR = 212,
+       SYS_GFX_INFO = 213, SYS_GFX_CLAIM = 214, SYS_GFX_BLIT = 215, SYS_MOUSE = 216, SYS_INKEY = 217 };
 
 static inline int syscall3(int n, uptr a, uptr b, uptr c)
 {
@@ -94,6 +95,36 @@ static inline int  tls_send(int c, const void *b, uint n)       { return syscall
 static inline int  tls_recv(int c, void *b, uint n)             { return syscall3(SYS_TLS_RECV, (uptr)c, (uptr)b, (uptr)n); }
 static inline int  tls_close(int c)                             { return syscall3(SYS_TLS_CLOSE, (uptr)c, 0, 0); }
 static inline int  tls_error(char *b, uint n)                   { return syscall3(SYS_TLS_ERROR, (uptr)b, (uptr)n, 0); }
+
+/*
+ * Ecran graphique et souris (0.12.0, propres a PhoenOS ; edition perf64 avec un ecran en pixels, sinon E_NOENT -3).
+ *   gfx_info(&l, &h)     taille de l'ecran en pixels.
+ *   gfx_claim(1 | 0)     prend l'ecran (la console texte se tait) / le rend. Un seul programme a la fois (E_BUSY -5) ; rendu tout seul a la fin.
+ *   gfx_blit(px, l, h, stride, x, y, echelle)   affiche l x h pixels 0x00RRGGBB (stride : pixels par ligne) en (x, y), chaque pixel
+ *                        agrandi `echelle` fois (1 a 8). Le tableau doit etre aligne sur 4 octets et dans la memoire du programme.
+ *   mouse_get(&m)        position (pixels), boutons (1 gauche, 2 droit, 4 milieu), molette depuis le dernier appel.
+ *   inkey()              touche pressee, sans attendre : -1 s'il n'y en a pas (27 = Echap).
+ */
+struct gfx_req { uint x, y, w, h, src, stride, scale; };
+struct mouse_info { int x, y; uint buttons; int wheel; };
+
+static inline int gfx_info(uint *w, uint *h)
+{
+    uint t[2] = { 0, 0 };
+    int r = syscall3(SYS_GFX_INFO, (uptr)t, 0, 0);
+
+    if (r == 0) { *w = t[0]; *h = t[1]; }
+    return r;
+}
+static inline int gfx_claim(int on)                             { return syscall3(SYS_GFX_CLAIM, (uptr)on, 0, 0); }
+static inline int gfx_blit(const uint *px, uint w, uint h, uint stride, uint x, uint y, uint scale)
+{
+    struct gfx_req r = { x, y, w, h, (uint)(uptr)px, stride, scale };
+
+    return syscall3(SYS_GFX_BLIT, (uptr)&r, 0, 0);
+}
+static inline int mouse_get(struct mouse_info *m)               { return syscall3(SYS_MOUSE, (uptr)m, 0, 0); }
+static inline int inkey(void)                                   { return syscall3(SYS_INKEY, 0, 0, 0); }
 
 static inline uint brk_to(uint addr)                            { return (uint)syscall3(SYS_BRK, (uptr)addr, 0, 0); }
 

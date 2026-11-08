@@ -55,7 +55,12 @@ enum {
     SYS_TLS_SEND = 209,     /* tls_send(connexion, tampon, taille) (propre a PhoenOS) */
     SYS_TLS_RECV = 210,     /* tls_recv(connexion, tampon, taille) : 0 = fin normale (propre a PhoenOS) */
     SYS_TLS_CLOSE = 211,    /* tls_close(connexion) (propre a PhoenOS) */
-    SYS_TLS_ERROR = 212     /* tls_error(tampon, taille) : texte de la derniere erreur securisee ; renvoie sa longueur (propre a PhoenOS) */
+    SYS_TLS_ERROR = 212,    /* tls_error(tampon, taille) : texte de la derniere erreur securisee ; renvoie sa longueur (propre a PhoenOS) */
+    SYS_GFX_INFO = 213,     /* gfx_info(&{largeur, hauteur}) : taille de l'ecran graphique, E_NOENT s'il n'y en a pas (propre a PhoenOS) */
+    SYS_GFX_CLAIM = 214,    /* gfx_claim(1 | 0) : prend / rend l'ecran (la console texte se tait) (propre a PhoenOS) */
+    SYS_GFX_BLIT = 215,     /* gfx_blit(&{x, y, w, h, pixels, stride, echelle}) : affiche un rectangle 0x00RRGGBB (propre a PhoenOS) */
+    SYS_MOUSE = 216,        /* mouse(&{x, y, boutons, molette}) : etat de la souris, E_NOENT s'il n'y en a pas (propre a PhoenOS) */
+    SYS_INKEY = 217         /* inkey() : touche pressee sans attendre, -1 s'il n'y en a pas (propre a PhoenOS) */
 };
 
 struct user_fd {

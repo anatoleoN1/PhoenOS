@@ -94,6 +94,7 @@ static struct netdev fake_nic = { .driver = "fake", .mac = { 2, 0, 0, 0, 0, 9 },
 /* faux ordonnanceur : le shell (0) et un programme "ticker" (7) en arriere-plan */
 int  sched_ready(void)            { return 0; }
 void sched_sleep_ms(u32 ms)       { last_sleep = ms; }
+int  keyboard_try_getc(void)       { return -1; }
 u32  sched_switches(void)         { return 42; }
 u32  sched_idle_count(void)       { return 7; }
 int  sched_trace_get(int i, u32 *t, char *k, u32 *a, u32 *b) { if (i) return 0; *t = 9; *k = 'S'; *a = 0; *b = 1; return 1; }
@@ -224,6 +225,7 @@ static void verify(void)
     CHECK(last_sleep == 250);
     CHECK(count("Maximum : 60000 ms.") == 1);
     CHECK(count("1 h 2 min 5 s") == 1);
+    CHECK(count("Pas d'ecran graphique (console texte VGA).") == 1 && count("Pas de souris PS/2 detectee.") == 1 && count("Le bureau demande l'edition perf64") == 1);
     CHECK(count("Pagination       : active, 128 Mio mappes, tables de 132 Kio") == 1);
     CHECK(count("Tas du noyau") == 1 && count("Memoire physique") == 1);
     CHECK(count("8 Kio : 4 motifs ecrits et relus sans erreur") == 1);
@@ -240,7 +242,7 @@ static void verify(void)
     CHECK(count("  1  sleep 250") == 0 || count("  1  ") >= 1); /* history : numerotation */
     CHECK(count("gris clair") == 1 && count("blanc") == 1);     /* colors */
     CHECK(count(" 10   vert clair") == 1);                      /* %2d correct dans colors */
-    CHECK(count("PhoenOS 0.11.3") == 1);                         /* version */
+    CHECK(count("PhoenOS 0.12.0") == 1);                         /* version */
     CHECK(count("<bg hello argc=3 hello a b>") == 1 && count("<bg hello argc=1 hello>") == 1);
     CHECK(count("[7] hello en arriere-plan (ps pour la liste, kill 7 pour l'arreter)") == 2);
     CHECK(count("& : seulement pour les programmes") == 1);
@@ -484,6 +486,7 @@ int test_main(void)
     type("sleep 250\n");
     type("sleep 70000\n");
     type("uptime\n");
+    type("mode\n");  type("souris\n");  type("bureau\n");                /* 0.12.0 : sans ecran graphique ni souris, des messages clairs */
     type("mem\n");
     type("memtest 8\n");
     type("memtest 0\n");

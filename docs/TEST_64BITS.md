@@ -1,4 +1,4 @@
-# Essai de PhoenOS 0.11.3 (édition perf64, 64 bits UEFI)
+# Essai de PhoenOS 0.12.0 (édition perf64, 64 bits UEFI)
 
 ## Installer les outils (une fois, WSL / Debian / Ubuntu)
     sudo apt install qemu-system-x86 ovmf grub-efi-amd64-bin grub-pc-bin xorriso mtools
@@ -39,3 +39,17 @@ et dites si c'est UEFI ou BIOS, et sous quel QEMU/Windows.
 1. `tools/phoenos_sign.py release --edition perf64 ...` (ou `publier.sh --edition perf64`) pour publier ; `maj verifier`, `maj installer`, `reboot` dans PhoenOS ;
 2. au redémarrage, la ligne « lancement de la version … » doit apparaître puis l'écran graphique revient (la relance repasse du mode 64 bits au mode 32 bits puis relance le noyau) ;
 3. si l'écran reste noir ou si ça redémarre en boucle : envoyez le journal série (`serial-uefi`) ; `maj retour` depuis le CD ramène à la version du CD.
+
+## 0.12.0 : graphique et souris (QEMU, carte VGA standard : c'est le défaut)
+    make EDITION=perf64 run-uefi
+**Cliquez d'abord dans la fenêtre QEMU** : la souris est alors capturée (Ctrl+Alt+G pour la rendre à Windows).
+    mode                         # résolution actuelle
+    mode liste                   # résolutions proposées (carte VGA standard)
+    mode 1280x720                # change sans redémarrer ; l'écran se redessine, le shell reste là
+    souris                       # position et boutons en direct ; Echap pour finir
+    bureau                       # fenêtres déplaçables (barre de titre), carré orange = fermer, barre du bas = rouvrir ; Echap = retour
+    exe dessin                   # clic gauche : tracer, clic droit : effacer, touches 1 à 6 : couleur
+    exe plasma ; exe mandel      # mandel : clic gauche = zoom, clic droit = dézoom
+Après un programme graphique, la console texte doit revenir intacte. Essayez aussi `mode 1920x1080` puis `bureau`.
+Menu GRUB des résolutions : maintenir Maj ou Echap au démarrage de GRUB. Rien de tout cela n'est testable sans QEMU : si l'écran reste noir
+ou si la souris ne bouge pas, envoyez `dmesg` (lignes « video » et « mouse ») ou lancez `make EDITION=perf64 debug`.

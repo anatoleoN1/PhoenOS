@@ -12,6 +12,24 @@
 #include "multiboot.h"
 #include "vga.h"
 #include "serial.h"
+#include "gfxsys.h"
+#include "mouse.h"
+
+int keyboard_try_getc(void) { return -1; }
+
+/* faux ecran 32 x 16 pour les appels graphiques */
+static u32 sys_scr[32 * 16];
+static int sys_gfx_claimed;
+static int  sys_f_screen(u32 *w, u32 *h) { *w = 32; *h = 16; return 1; }
+static void sys_f_present(const u32 *src, u32 stride, u32 x, u32 y, u32 w, u32 h)
+{
+    for (u32 j = 0; j < h; j++)
+        for (u32 i = 0; i < w; i++)
+            if (x + i < 32 && y + j < 16)
+                sys_scr[(y + j) * 32 + x + i] = src[j * stride + i];
+}
+static void sys_f_claim(int on) { sys_gfx_claimed = on; }
+static const struct gfx_dev sys_fake_gfx = { .screen = sys_f_screen, .present = sys_f_present, .claim = sys_f_claim };
 
 u8 test_scancode;
 char kernel_start[4096] __attribute__((aligned(4096)));
@@ -355,6 +373,47 @@ int test_main(void)
     CHECK(SYS(SYS_SPAWN, A(2000), A(2500), 0) == 42 && sp_argc == 1);
     CHECK(SYS(SYS_SPAWN, A(2000), A(8190), 0) == E_FAULT);                                 /* le 8e octet sort de la zone */
     P.is64 = 0;
+    /* ---- 0.12.0 : ecran graphique, souris, clavier sans attente (le noyau valide chaque pointeur) ---- */
+    {
+        u32 *px = (u32 *)(umem + 4096);
+        u32 wh[2];
+        struct gfx_blit_req rq;
+        struct gfx_mouse gm;
+
+        gfx_dev_hook = NULL;
+        CHECK(SYS(SYS_GFX_INFO, A(3000), 0, 0) == E_NOENT && SYS(SYS_GFX_CLAIM, 1, 0, 0) == E_NOENT);
+        gfx_dev_hook = &sys_fake_gfx;
+        CHECK(SYS(SYS_GFX_INFO, A(3000), 0, 0) == 0);
+        memcpy(wh, umem + 3000, sizeof wh);
+        CHECK(wh[0] == 32 && wh[1] == 16);
+        CHECK(SYS(SYS_GFX_INFO, 0x100000, 0, 0) == E_FAULT && SYS(SYS_GFX_INFO, A(8190), 0, 0) == E_FAULT);
+        CHECK(SYS(SYS_GFX_CLAIM, 1, 0, 0) == 0 && sys_gfx_claimed == 1);
+        for (int i = 0; i < 64; i++)
+            px[i] = 0x1000 + (u32)i;
+        rq = (struct gfx_blit_req){ 2, 1, 8, 4, A(4096), 8, 2 };
+        memcpy(umem + 3100, &rq, sizeof rq);
+        CHECK(SYS(SYS_GFX_BLIT, A(3100), 0, 0) == 0 && sys_scr[1 * 32 + 2] == 0x1000 && sys_scr[2 * 32 + 3] == 0x1000 && sys_scr[1 * 32 + 4] == 0x1001);
+        CHECK(SYS(SYS_GFX_BLIT, 0x100000, 0, 0) == E_FAULT);                           /* la requete elle-meme hors zone */
+        rq.src = 0x100000; memcpy(umem + 3100, &rq, sizeof rq);
+        CHECK(SYS(SYS_GFX_BLIT, A(3100), 0, 0) == E_FAULT);                            /* pixels hors zone */
+        rq.src = A(8190 - 8190 % 4) ; memcpy(umem + 3100, &rq, sizeof rq);
+        CHECK(SYS(SYS_GFX_BLIT, A(3100), 0, 0) == E_FAULT);                            /* pixels qui depassent la fin de la zone */
+        rq.src = A(4096); rq.scale = 0; memcpy(umem + 3100, &rq, sizeof rq);
+        CHECK(SYS(SYS_GFX_BLIT, A(3100), 0, 0) == E_INVAL);
+        rq.scale = 1; rq.src = A(4097); memcpy(umem + 3100, &rq, sizeof rq);
+        CHECK(SYS(SYS_GFX_BLIT, A(3100), 0, 0) == E_INVAL);                            /* pixels non alignes */
+        CHECK(SYS(SYS_MOUSE, 0x100000, 0, 0) == E_FAULT);
+        mouse_set_present(1);
+        mouse_set_bounds(32, 16);
+        CHECK(SYS(SYS_MOUSE, A(3200), 0, 0) == 0);
+        memcpy(&gm, umem + 3200, sizeof gm);
+        CHECK(gm.x == 16 && gm.y == 8 && gm.buttons == 0);
+        CHECK(SYS(SYS_INKEY, 0, 0, 0) == -1);
+        CHECK(SYS(SYS_GFX_CLAIM, 0, 0, 0) == 0 && sys_gfx_claimed == 0);
+        CHECK(SYS(SYS_GFX_BLIT, A(3100), 0, 0) == E_INVAL);                            /* plus reserve */
+        gfx_dev_hook = NULL;
+        mouse_set_present(0);
+    }
     CHECK(SYS(SYS_WAITPID, 7, A(2400), 0) == 7 && wp_pid == 7 && wp_opt == 0 && *(int *)(umem + 2400) == 77);
     CHECK(SYS(SYS_WAITPID, (u32)-1, 0, WNOHANG) == 5 && wp_pid == -1 && wp_opt == WNOHANG);   /* statut optionnel */
     CHECK(SYS(SYS_WAITPID, 7, 0x100000, 0) == E_FAULT);                               /* statut hors zone : refuse AVANT d'attendre */

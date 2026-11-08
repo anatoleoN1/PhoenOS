@@ -33,6 +33,7 @@ static u32       drawn[ROWS][COLS];          /* derniere valeur dessinee (0xFFFF
 static usize     cur_y, cur_x;
 static int       cur_on;
 static int       ready;
+static int       have_fb;                    /* un ecran graphique existe (meme si le graphique l'occupe) */
 
 static u32 scale_comp(u8 v, u8 size, u8 pos)
 {
@@ -150,6 +151,83 @@ void fbcon_palette(unsigned c, u8 r, u8 g, u8 b)
     fill_rect(0, 0, width, org_y, pal_pix[0]);  /* bordures : couleur 0 */
 }
 
+int fbcon_ready(void)
+{
+    return ready;
+}
+
+int fbcon_screen(u32 *w, u32 *h)
+{
+    if (!have_fb)
+        return 0;
+    if (w) *w = width;
+    if (h) *h = height;
+    return 1;
+}
+
+void fbcon_release(void)
+{
+    ready = 0;
+}
+
+void fbcon_reclaim(void)
+{
+    if (!have_fb)
+        return;
+    for (usize y = 0; y < ROWS; y++)
+        for (usize x = 0; x < COLS; x++)
+            drawn[y][x] = 0xFFFFFFFFu;
+    fill_rect(0, 0, width, height, pal_pix[0]);
+    ready = 1;
+}
+
+int fbcon_reinit(void)
+{
+    ready = 0;
+    have_fb = 0;
+    return fbcon_init();
+}
+
+/* Pixel 0x00RRGGBB -> format de l'ecran. */
+static u32 conv_pixel(u32 rgb)
+{
+    return scale_comp((u8)(rgb >> 16), boot_fb.red_size, boot_fb.red_pos) |
+           scale_comp((u8)(rgb >> 8), boot_fb.green_size, boot_fb.green_pos) |
+           scale_comp((u8)rgb, boot_fb.blue_size, boot_fb.blue_pos);
+}
+
+void fbcon_present(const u32 *src, u32 stride, u32 x, u32 y, u32 w, u32 h)
+{
+    u32 line[512];
+    int direct = bpp_bytes == 4 && boot_fb.red_pos == 16 && boot_fb.green_pos == 8 && boot_fb.blue_pos == 0 &&
+                 boot_fb.red_size == 8 && boot_fb.green_size == 8 && boot_fb.blue_size == 8;
+
+    if (!have_fb || x >= width || y >= height)
+        return;
+    if (w > width - x) w = width - x;
+    if (h > height - y) h = height - y;
+    for (u32 j = 0; j < h; j++) {
+        const u32 *row = src + (usize)j * stride;
+        u8 *dst = fb + (usize)(y + j) * pitch + (usize)x * bpp_bytes;
+
+        if (direct) {
+            volatile u32 *d = (volatile u32 *)dst;
+
+            for (u32 i = 0; i < w; i++)
+                d[i] = row[i];
+            continue;
+        }
+        for (u32 i = 0; i < w; ) {
+            u32 n = w - i < 512 ? w - i : 512;
+
+            for (u32 k = 0; k < n; k++)
+                line[k] = conv_pixel(row[i + k]);
+            put_pixels(dst + (usize)i * bpp_bytes, line, n);
+            i += n;
+        }
+    }
+}
+
 unsigned fbcon_scale(void)
 {
     return ready ? scale : 0;
@@ -203,6 +281,7 @@ int fbcon_init(void)
         for (usize x = 0; x < COLS; x++)
             drawn[y][x] = 0xFFFFFFFFu;
     ready = 1;
+    have_fb = 1;
     cur_on = 0;
     fill_rect(0, 0, width, height, pal_pix[0]);
     return 1;

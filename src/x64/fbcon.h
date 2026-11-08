@@ -23,6 +23,22 @@ void fbcon_palette(unsigned c, u8 r, u8 g, u8 b);
 /* Facteur d'agrandissement choisi (pour les messages) et taille de l'ecran. */
 unsigned fbcon_scale(void);
 
+/*
+ * 0.12.0 : l'ecran peut etre prete a un programme ou au bureau (dessin libre en pixels).
+ *  - fbcon_present : affiche un rectangle de pixels 0x00RRGGBB (surface en memoire de largeur `stride`) a (x, y) ;
+ *  - fbcon_release : la console texte cesse d'ecrire (le graphique prend l'ecran) ; fbcon_reclaim : elle reprend, ecran
+ *    efface, toutes les cellules sont a redessiner (le code appelant relit vga.c : vga_refresh) ;
+ *  - fbcon_screen : taille en pixels (0 si pas d'ecran graphique) ; fbcon_ready : la console texte ecrit-elle ?
+ */
+void fbcon_present(const u32 *src, u32 stride, u32 x, u32 y, u32 w, u32 h);
+void fbcon_release(void);
+void fbcon_reclaim(void);
+int  fbcon_screen(u32 *w, u32 *h);
+int  fbcon_ready(void);
+
+/* Apres un changement de mode video (bochs.c) : relit boot_fb, recalcule la grille et efface. Renvoie comme fbcon_init. */
+int  fbcon_reinit(void);
+
 extern const u8 font8x16_ascii[95][16];
 extern const u8 font8x16_unknown[16];
 

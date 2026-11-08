@@ -1,8 +1,10 @@
-# Manuel de PhoenOS 0.10.5
+# Manuel de PhoenOS 0.12.0
 
 > Généré à partir de `initrd/docs/manuel.txt` (lisible dans PhoenOS avec `man`).
 
 ```
+MANUEL DE PHOENOS 0.12.0
+=======================
 Tapez  man            pour la liste des sujets,
        man <sujet>    pour lire un sujet (exemple : man ls).
 Ce fichier est /docs/manuel.txt ; le meme texte est dans MANUEL.md du projet.
@@ -126,6 +128,56 @@ Differences avec Unix : pas de droits ni de proprietaires (les dates existent, v
   fichier user/nom.c devient /bin/nom. Code de sortie : main renvoie un entier (0 = succes) ;
   un code non nul est signale par le shell.
 
+== largeurs  - programmes 32 bits et 64 bits (0.11.3)
+  perf32 : tous les programmes sont en 32 bits : /bin, /apps, /lib.
+  perf64 : les programmes 64 bits (vrai mode long, ring 3 avec segment de code 64 bits) sont les
+  programmes "natifs" : /bin, /apps, /lib. Les programmes 32 bits (mode de compatibilite du
+  processeur) sont dans /bin32, /apps32, /lib32 (comme System32 / SysWOW64 de Windows).
+  - "run nom", le nom seul et "exe nom" cherchent d'abord les programmes natifs, puis les 32 bits.
+  - Un programme n'utilise que des bibliotheques de sa largeur : 64 bits -> /lib, 32 bits -> /lib32.
+    La commande "psl" liste les deux dossiers (les 32 bits de perf64 sont marquees [32 bits]).
+  - Un programme 64 bits ne se lance pas sur perf32 (pas de mode long) : "pas un programme valide".
+  - Tous les programmes d'exemple (hello, primes, tas, ...) existent dans les deux largeurs :
+    "run hello" lance la version 64 bits sur perf64, "run /bin32/hello" la version 32 bits.
+  - Pour spawn(), un programme 64 bits passe un argv de pointeurs de 8 octets (voir user/crt0_64.c).
+
+== graphique  - ecran en pixels, souris et bureau (0.12.0)
+  Edition perf64 seulement, quand le demarrage fournit un ecran en pixels (UEFI, ou BIOS + GRUB). La console texte est alors
+  dessinee en pixels ; les commandes mode, souris et bureau et les programmes dessin, plasma et mandel utilisent cet ecran.
+  - Sous QEMU : utiliser la carte "-vga std" (c'est la valeur par defaut du Makefile). Pour que la souris existe, cliquer dans la
+    fenetre QEMU (elle est alors capturee) ; Ctrl+Alt+G la rend a votre bureau.
+  - Le changement de resolution a chaud ne marche qu'avec la carte VGA standard de QEMU. Sur une autre carte, choisissez la
+    resolution dans le menu de demarrage (GRUB), puis "mode" affiche celle obtenue.
+  - Un seul programme a la fois peut prendre l'ecran ; il le rend en se terminant. En perf32 : pas d'ecran graphique.
+  Appels systeme (213 a 217, voir user/phoenos.h) : gfx_info, gfx_claim, gfx_blit, mouse_get, inkey.
+
+== mode  - resolution de l'ecran
+  Syntaxe : mode [LxH | liste]
+  Sans argument : affiche la resolution. "mode liste" : les resolutions proposees. "mode 1280x720" : la change.
+  Exemple : mode 1024x768      (carte VGA standard de QEMU seulement ; voir "man graphique")
+
+== souris  - etat de la souris
+  Syntaxe : souris
+  Affiche en direct la position, les boutons (G gauche, M milieu, D droit) et la molette. Echap pour finir.
+  Cliquer d'abord dans la fenetre QEMU pour capturer la souris.
+
+== bureau  - bureau graphique
+  Syntaxe : bureau
+  Fond, fenetres deplacables a la souris (horloge, systeme, dessin, aide) et barre des taches. Glisser la barre de titre pour
+  deplacer, carre orange pour fermer, boutons du bas pour rouvrir, clic droit dans Dessin pour effacer. Echap : retour au shell.
+
+== dessin  - dessiner a la souris
+  Syntaxe : exe dessin
+  Clic gauche : tracer ; clic droit : tout effacer ; touches 1 a 6 : couleur ; Echap : fin. Voir "man graphique".
+
+== plasma  - motif anime
+  Syntaxe : exe plasma
+  Motif anime calcule en nombres entiers, agrandi pour remplir l'ecran. Une touche pour finir (au plus 60 s).
+
+== mandel  - ensemble de Mandelbrot
+  Syntaxe : exe mandel
+  Clic gauche : zoom sur le point ; clic droit : dezoom ; Echap : fin. Calcul en virgule fixe 8.24.
+
 == help  - rappel rapide d'une commande
   Syntaxe : help [commande]
   Sans argument : liste toutes les commandes par groupe. Avec un nom : sa syntaxe en
@@ -171,10 +223,10 @@ Differences avec Unix : pas de droits ni de proprietaires (les dates existent, v
 
 == run  - lance un programme utilisateur
   Syntaxe : run <programme> [arguments...]
-  Lance le fichier ELF indique (nom seul : cherche dans /bin). Equivalent de taper le nom d'un
+  Lance le fichier ELF indique (nom seul : cherche dans /bin, puis dans /bin32 sur perf64). Equivalent de taper le nom d'un
   programme de /bin, mais fonctionne aussi pour un chemin quelconque : run /home/prog a b.
-  Message d'erreur "pas un programme PhoenOS valide" si le fichier n'est pas un ELF 32 bits statique.
-  Voir "man programmes".  Exemple : run hello monde
+  Message d'erreur "pas un programme PhoenOS valide" si le fichier n'est pas un ELF statique (32 bits ; 64 bits sur perf64 seulement).
+  Voir "man programmes" et "man largeurs".  Exemple : run hello monde
 
 == ps  - liste les programmes en cours
   Syntaxe : ps
@@ -523,7 +575,7 @@ Differences avec Unix : pas de droits ni de proprietaires (les dates existent, v
   Nombres decimaux avec "." ou ",", 4 decimales, valeurs jusqu'a 100 000 000 000.
   Calcul a virgule fixe (pas de flottants). Division par zero : message d'erreur.
   Exemples : calc 2+3*4 (14)   calc "(1+2)^3" (27)   calc sqrt(2)   echo 10/4 | calc
-  En mode interactif : q (ou quit, exit, Ctrl+C) pour sortir.  Voir "man programmes".
+  En mode interactif : q (ou quit, exit, Ctrl+C) pour sortir.  Voir "man programmes" et "man largeurs".
 
 == faute  - provoque une erreur dans un programme (pour tester la protection)
   Syntaxe : faute <type>   (types : gp | div | ud | io | kern | nul | code | vide)
@@ -537,7 +589,7 @@ Differences avec Unix : pas de droits ni de proprietaires (les dates existent, v
 
 == hello  - programme d'exemple
   Syntaxe : hello [mots...]
-  Affiche ses arguments et son numero de processus. Voir "man programmes".
+  Affiche ses arguments et son numero de processus. Voir "man programmes" et "man largeurs".
 
 == primes  - nombres premiers
   Syntaxe : primes [N]

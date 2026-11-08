@@ -9,7 +9,7 @@ FAILED=0
 
 rm -rf "$B"; mkdir -p "$B/src"
 cp "$ROOT"/src/* "$B/src/" 2>/dev/null
-cp "$ROOT"/src/x64/fbcon.c "$ROOT"/src/x64/mb2.c "$ROOT"/src/x64/fbcon.h "$ROOT"/src/x64/font8x16.c "$ROOT"/src/x64/bootinfo.h "$B/src/"
+cp "$ROOT"/src/x64/gfx.c "$ROOT"/src/x64/gfx.h "$ROOT"/src/x64/desktop.c "$ROOT"/src/x64/desktop.h "$ROOT"/src/x64/bochs.c "$ROOT"/src/x64/bochs.h "$ROOT"/src/x64/fbcon.c "$ROOT"/src/x64/mb2.c "$ROOT"/src/x64/fbcon.h "$ROOT"/src/x64/font8x16.c "$ROOT"/src/x64/bootinfo.h "$B/src/"
 cp "$ROOT"/tests/shim/* "$B/src/"        # remplace io.h et panic.h par des versions de test
 cp "$ROOT"/tests/*.c "$ROOT"/tests/testlib.h "$ROOT"/tests/fakeata.h "$ROOT"/tests/crypto_vectors.h "$ROOT"/tests/pk_vectors.h "$ROOT"/tests/x509_vectors.h "$ROOT"/tests/upd_vectors.h "$ROOT"/tests/test_updkey.h "$B/src/"
 
@@ -256,7 +256,7 @@ run pagination 0 test_paging.c paging.c pmm.c string.c
 run journal-debug 0 test_dlog.c dlog.c kprintf.c string.c
 run ordonnanceur-clavier 0 test_sched_kbd.c sched.c switch.S keyboard.c kheap.c pmm.c string.c rng.c sha2.c aead.c
 run ordonnanceur 0 test_sched.c sched.c switch.S kheap.c pmm.c string.c
-run programmes-multiples 0 test_user.c sched.c switch.S syscall.c libmgr.c psl.c aspace.c elf.c fs.c poe.c crc32.c dlog.c kprintf.c pmm.c kheap.c string.c rtc.c tcp.c net.c netdev.c net_stubs.c sha2.c aead.c c25519.c pubkey.c roots.c x509.c tls.c rng.c tlssock.c
+run programmes-multiples 0 test_user.c sched.c switch.S syscall.c gfxsys.c mouse.c libmgr.c psl.c aspace.c elf.c fs.c poe.c crc32.c dlog.c kprintf.c pmm.c kheap.c string.c rtc.c tcp.c net.c netdev.c net_stubs.c sha2.c aead.c c25519.c pubkey.c roots.c x509.c tls.c rng.c tlssock.c
 run reseau 0 test_net.c pci.c driver.c e1000.c netdev.c net.c tcp.c dlog.c kprintf.c string.c rng.c sha2.c aead.c
 run tcp 0 test_tcp.c tcp.c net.c netdev.c dlog.c kprintf.c string.c rng.c sha2.c aead.c
 run chiffrement      0   test_crypto.c sha2.c aead.c c25519.c string.c
@@ -277,10 +277,13 @@ else
 fi
 run certificats      0   test_x509.c x509.c pubkey.c roots.c sha2.c c25519.c string.c
 run espaces-adressage 0 test_aspace.c aspace.c paging.c pmm.c string.c
-run appels-systeme 0 test_syscall.c syscall.c libmgr.c psl.c poe.c elf.c crc32.c dlog.c aspace.c fs.c kprintf.c pmm.c kheap.c string.c rtc.c tcp.c net.c netdev.c net_stubs.c sha2.c aead.c c25519.c pubkey.c roots.c x509.c tls.c rng.c tlssock.c
+run appels-systeme 0 test_syscall.c syscall.c gfxsys.c mouse.c libmgr.c psl.c poe.c elf.c crc32.c dlog.c aspace.c fs.c kprintf.c pmm.c kheap.c string.c rtc.c tcp.c net.c netdev.c net_stubs.c sha2.c aead.c c25519.c pubkey.c roots.c x509.c tls.c rng.c tlssock.c
 run ecran-defilement 0 -DVGA_TEST_MEMORY=test_vga test_vga.c vga.c string.c
 run64 espaces-adressage-64 0 test_aspace64.c aspace.c pmm.c string.c
 run console-graphique 0 -DFBCON_TEST test_fbcon.c fbcon.c font8x16.c string.c
+run souris 0 test_mouse.c mouse.c string.c
+run ecran-programmes 0 test_gfxsys.c gfxsys.c mouse.c string.c
+run dessin-2d-bureau 0 test_gfx.c gfx.c desktop.c font8x16.c kprintf.c mouse.c string.c
 run multiboot2 0 test_mb2.c mb2.c string.c
 run kprintf             0   test_kprintf.c kprintf.c string.c
 run fichiers 0 test_fs.c fs.c pmm.c kheap.c string.c
@@ -301,7 +304,7 @@ ligne2" ] && echo "  => OK" || { echo "  => ECHEC (contenu extrait different)"; 
         echo "  => ECHEC : tar refuse l'archive"; cat "$B/snapshot.err"; FAILED=1
     fi
 fi
-SH="test_shell.c upd_stub.c shell.c dlog.c poe.c psl.c elf.c cmdline.c kprintf.c pmm.c kheap.c string.c fs.c initrd.c persist.c ata.c crc32.c tarw.c rtc.c pci.c driver.c e1000.c netdev.c net.c tcp.c rng.c sha2.c aead.c"
+SH="test_shell.c gfxsys.c mouse.c upd_stub.c shell.c dlog.c poe.c psl.c elf.c cmdline.c kprintf.c pmm.c kheap.c string.c fs.c initrd.c persist.c ata.c crc32.c tarw.c rtc.c pci.c driver.c e1000.c netdev.c net.c tcp.c rng.c sha2.c aead.c"
 run shell-session       0   -DMODE=0 $SH
 run shell-crash-panic   100 -DMODE=1 $SH
 run shell-crash-assert  100 -DMODE=2 $SH
@@ -316,7 +319,7 @@ for c in $cmds $progs; do
     grep -q "^== $c " "$ROOT/initrd/docs/manuel.txt" || { echo "  commande ou programme sans page de manuel : $c"; FAILED=1; }
 done
 for c in $(sed -n 's/^== \([a-z0-9]*\) .*/\1/p' "$ROOT/initrd/docs/manuel.txt"); do
-    case " $cmds $progs general fichiers stockage programmes multitache processus bibliotheques reseau largeurs " in *" $c "*) ;; *) echo "  page de manuel sans commande : $c"; FAILED=1;; esac
+    case " $cmds $progs general fichiers stockage programmes multitache processus bibliotheques reseau largeurs graphique " in *" $c "*) ;; *) echo "  page de manuel sans commande : $c"; FAILED=1;; esac
 done
 echo "  manuel verifie : $(echo $cmds | wc -w) commandes et $(echo $progs | wc -w) programmes documentes"
 

@@ -24,6 +24,9 @@ void vga_puts(const char *s);
  * vga_scroll_view(+n) remonte de n lignes, (-n) redescend ; vga_scroll_reset() revient en bas
  * (et toute écriture le fait aussi). vga_scrollback_lines() : lignes disponibles au-dessus.
  */
+/* Redessine tout l'ecran texte (apres un changement de resolution, ou quand le graphique rend l'ecran). */
+void vga_refresh(void);
+
 void vga_scroll_view(int lines);
 void vga_scroll_reset(void);
 usize vga_scrollback_lines(void);

@@ -164,6 +164,12 @@ void vga_clear(void)
     cursor_update();
 }
 
+void vga_refresh(void)
+{
+    redraw();
+    cursor_update();
+}
+
 void vga_init(void)
 {
 #ifdef PHOENOS_X64

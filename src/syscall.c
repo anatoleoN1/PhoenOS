@@ -18,6 +18,8 @@
 #include "net.h"
 #include "tcp.h"
 #include "tlssock.h"
+#include "gfxsys.h"
+#include "mouse.h"
 
 #define WRITE_MAX    (1u << 20)         /* octets ecrits par appel au plus */
 #define SLEEP_MAX_MS 60000u
@@ -453,6 +455,11 @@ static const char *sys_name(u32 nr)
     case SYS_TLS_RECV: return "tls_recv";
     case SYS_TLS_CLOSE: return "tls_close";
     case SYS_TLS_ERROR: return "tls_error";
+    case SYS_GFX_INFO: return "gfx_info";
+    case SYS_GFX_CLAIM: return "gfx_claim";
+    case SYS_GFX_BLIT: return "gfx_blit";
+    case SYS_MOUSE: return "mouse";
+    case SYS_INKEY: return "inkey";
     case SYS_SPAWN:    return "spawn";
     case SYS_PSL:      return "psl";
     default:           return "?";
@@ -631,6 +638,55 @@ i32 syscall_dispatch(struct uproc *p, u32 nr, u32 a, u32 b, u32 c)
     return r;
 }
 
+/* Ecran graphique, souris, clavier sans attente (0.12.0). Les structures sont lues / ecrites octet pour octet dans la memoire du programme. */
+static i32 sys_gfx(struct uproc *p, u32 nr, u32 a)
+{
+    switch (nr) {
+    case SYS_GFX_INFO: {
+        u32 wh[2];
+        err_t e;
+
+        if (!user_range(p, a, sizeof wh, 1))
+            return E_FAULT;
+        e = gfx_info(&wh[0], &wh[1]);
+        if (e != E_OK)
+            return e;
+        memcpy((void *)a, wh, sizeof wh);
+        return 0;
+    }
+    case SYS_GFX_CLAIM:
+        return gfx_claim(p->pid, a != 0);
+    case SYS_GFX_BLIT: {
+        struct gfx_blit_req r;
+        u32 span;
+
+        if (!user_range(p, a, sizeof r, 0))
+            return E_FAULT;
+        memcpy(&r, (const void *)a, sizeof r);
+        span = gfxsys_blit_span(&r);
+        if (!span)
+            return E_INVAL;
+        if (!user_range(p, r.src, span, 0))
+            return E_FAULT;
+        return gfxsys_blit(p->pid, &r);
+    }
+    case SYS_MOUSE: {
+        struct gfx_mouse m;
+        err_t e;
+
+        if (!user_range(p, a, sizeof m, 1))
+            return E_FAULT;
+        e = gfx_mouse(&m);
+        if (e != E_OK)
+            return e;
+        memcpy((void *)a, &m, sizeof m);
+        return 0;
+    }
+    default:
+        return keyboard_try_getc();
+    }
+}
+
 static i32 dispatch(struct uproc *p, u32 nr, u32 a, u32 b, u32 c)
 {
     switch (nr) {
@@ -694,6 +750,12 @@ static i32 dispatch(struct uproc *p, u32 nr, u32 a, u32 b, u32 c)
         return sys_tls_close(p, a);
     case SYS_TLS_ERROR:
         return sys_tls_error(p, a, b);
+    case SYS_GFX_INFO:
+    case SYS_GFX_CLAIM:
+    case SYS_GFX_BLIT:
+    case SYS_MOUSE:
+    case SYS_INKEY:
+        return sys_gfx(p, nr, a);
     case SYS_WAITPID:
         return sys_waitpid(p, a, b, c);
     case SYS_KILL:

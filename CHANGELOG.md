@@ -5,6 +5,17 @@ z = correctif ou petite amélioration. Chaque version est livrée testée automa
 les chemins de démarrage réels (GRUB, ISO, anneau 3, activation de la pagination) ne sont
 vérifiables que sur une vraie machine ou sous QEMU : ils sont validés par vos essais.
 
+## 0.12.0 — perf64 : ecran graphique, resolutions, souris, bureau
+- **Souris PS/2** (`src/mouse.c` decodeur testable, `src/mouse_ps2.c` materiel) : IRQ 12, paquets de 3 octets (4 avec la molette IntelliMouse, detectee automatiquement), position en pixels bornee a l'ecran, boutons, molette. Sous QEMU, cliquer dans la fenetre pour capturer la souris (Ctrl+Alt+G pour la rendre).
+- **Resolution a chaud** (`src/x64/bochs.c`) : avec la carte VGA standard de QEMU (interface Bochs VBE, PCI 1234:1111), `mode 1280x720` change la resolution sans redemarrer ; `mode liste` donne les modes qui tiennent dans la memoire video (800x600 a 2560x1440). Sur une autre carte, le message l'explique : la resolution se choisit dans le menu GRUB (nouvelles entrees 1920x1080, 1280x720, 1024x768, 800x600 ; maintenir Maj ou Echap).
+- **Dessin 2D** (`src/x64/gfx.c`) : surface 0x00RRGGBB, rectangles, lignes, degrades, melange (ombres), texte 8x16 agrandi, copie avec agrandissement ; tout est rogne (aucune ecriture hors surface).
+- **Ecran des programmes** : appels systeme 213 a 217 (`gfx_info`, `gfx_claim`, `gfx_blit`, `mouse`, `inkey`, propres a PhoenOS). Un seul programme a la fois prend l'ecran (la console texte se tait), il le rend en se terminant ou en plantant. Le noyau verifie chaque pointeur et rogne tout ce qui deborde.
+- **Bureau** (`bureau`) : fond degrade, fenetres deplacables a la souris (horloge, systeme, dessin, aide), fermeture et reouverture par la barre des taches, petit programme de dessin integre. Echap pour revenir au shell.
+- **Nouvelles commandes** : `mode`, `souris`, `bureau`. **Nouveaux programmes** (32 et 64 bits) : `dessin`, `plasma`, `mandel` (zoom a la souris).
+- Console graphique : `fbcon_present`, `fbcon_release / reclaim`, `fbcon_reinit` ; `vga_refresh`.
+- Tests : souris (decodeur), ecran des programmes (faux ecran), dessin 2D et bureau, appels systeme 213-217 avec pointeurs hostiles, commandes du shell sans ecran ; 52 tests.
+- **A verifier sous QEMU** (non testable ici) : changement de mode reel, IRQ 12, affichage du bureau et des programmes.
+
 ## 0.11.3 — perf64 : vrais programmes 64 bits, /bin32 et /lib32
 - **Programmes 64 bits** (perf64) : le noyau lance maintenant de vrais programmes x86-64 en ring 3 (mode long, nouveau segment de code utilisateur 64 bits `0x3B` dans la GDT, `enter_user_mode64`
   dans `x64/switch.S`) en plus des programmes 32 bits (mode de compatibilite). Meme `int 0x80`, memes numeros d'appels, memes espaces d'adressage (zone 4-8 Mio) : un programme 64 bits recoit son resultat
